@@ -8,7 +8,7 @@ import { ROLE_LABEL, STAFF_LABEL } from '@/lib/roles';
 import { useSession } from '@/lib/session';
 import type { Overview } from '@/lib/types';
 import { AppInstall } from './AppInstall';
-import { AssistantDrawer, AssistantLauncher } from './assistant/Assistant';
+import { AssistantDrawer, AssistantLauncher, VoiceOverlay } from './assistant/Assistant';
 import { AssistantProvider } from '@/lib/assistant';
 import { CommandPalette } from './CommandPalette';
 import { Icon, toggleTheme } from './Icon';
@@ -294,7 +294,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <NoticeToasts />
         <ScheduleNotices userId={me.id} isAdmin={isAdmin} />
         {palette && <CommandPalette onClose={() => setPalette(false)} />}
-        {!platform && home && !home.readOnly && <><AssistantLauncher /><AssistantDrawer /></>}
+        {!platform && home && !home.readOnly && <><AssistantLauncher /><AssistantDrawer /><VoiceOverlay /></>}
       </div>
       </AssistantProvider>
     </CrumbsContext.Provider>

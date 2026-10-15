@@ -66,8 +66,9 @@ export class NodesService implements OnModuleInit {
     const existing = await this.prisma.node.findUnique({ where: { id: nodeId } });
     // A board nobody added yet: with a single organization (a self-hosted install) it goes straight
     // into that organization's stock; on a shared platform it waits, unclaimed, until staff add its ID.
+    // (also a board that first announced itself before the setup had made the organization)
     let orgId = existing?.orgId ?? null;
-    if (!existing) orgId = await this.autoClaimOrg();
+    if (!orgId) orgId = await this.autoClaimOrg();
     const node = await this.prisma.node.upsert({
       where: { id: nodeId },
       create: {

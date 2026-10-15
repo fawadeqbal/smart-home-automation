@@ -8,6 +8,7 @@
  */
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { errorText, post } from './api';
+import { HandsFree, HandsFreeStatus, handsFreeSupported } from './handsfree';
 
 export interface Line {
   id: number;
@@ -22,6 +23,8 @@ interface Reply {
   audio?: string | null;
 }
 export type Phase = 'idle' | 'recording' | 'thinking';
+/** Where a hands-free exchange is: shown by the voice overlay. */
+export type VoiceStage = 'idle' | 'listening' | 'hearing' | 'thinking' | 'speaking';
 
 interface AssistantCtx {
   open: boolean;
@@ -40,10 +43,18 @@ interface AssistantCtx {
   cancelRecording: () => void;
   play: (audio?: string | null) => void;
   reset: () => void;
+  /** "Hey Switchboard": wake word on this device. */
+  handsFree: { supported: boolean; enabled: boolean; status: HandsFreeStatus; phrase: string; stage: VoiceStage; detail?: string };
+  toggleHandsFree: () => void;
+  /** Stop the current hands-free exchange (the overlay's close button). */
+  dismissVoice: () => void;
 }
 
 const Ctx = createContext<AssistantCtx | null>(null);
 const MAX_RECORDING_MS = 15_000;
+const HANDS_FREE_KEY = 'sb_hands_free';
+const readFlag = () => { try { return localStorage.getItem(HANDS_FREE_KEY) === '1'; } catch { return false; } };
+const writeFlag = (on: boolean) => { try { localStorage.setItem(HANDS_FREE_KEY, on ? '1' : '0'); } catch { /* private mode */ } };
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 
 export function AssistantProvider({ children, homeId }: { children: ReactNode; homeId: string | null }) {
@@ -61,6 +72,16 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
   const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const meter = useRef<{ ctx: AudioContext; raf: number } | null>(null);
   const nextId = useRef(1);
+  const hf = useRef<HandsFree | null>(null);
+  const [hfEnabled, setHfEnabled] = useState(false);
+  const [hfStatus, setHfStatus] = useState<HandsFreeStatus>('off');
+  const [hfDetail, setHfDetail] = useState<string | undefined>();
+  const [hfPhrase, setHfPhrase] = useState('Hey Switchboard');
+  const [stage, setStage] = useState<VoiceStage>('idle');
+  const [hfSupported, setHfSupported] = useState(false);
+  useEffect(() => setHfSupported(handsFreeSupported()), []);
+  const stageRef = useRef<VoiceStage>('idle');
+  const go = (s: VoiceStage) => { stageRef.current = s; setStage(s); };
   /** The chat on screen is empty: the next message starts a new conversation on the assistant too. */
   const fresh = useRef(true);
 
@@ -105,7 +126,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
     p.play().catch(() => setNotice('The browser blocked the sound. Tap the speaker next to the reply to hear it.'));
   }, [unlockSound]);
 
-  const request = useCallback(async (fn: () => Promise<Reply>, shown?: string) => {
+  const request = useCallback(async (fn: () => Promise<Reply>, shown?: string, quiet = false): Promise<Reply | null> => {
     setPhase('thinking');
     setError(null);
     if (shown) add({ who: 'me', text: shown });
@@ -113,9 +134,11 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
       const reply = await fn();
       if (reply.heard && !shown) add({ who: 'me', text: reply.heard });
       add({ who: 'bot', text: reply.reply, audio: reply.audio });
-      play(reply.audio);
+      if (!quiet) play(reply.audio);
+      return reply;
     } catch (err) {
       setError(errorText(err));
+      return null;
     } finally {
       setPhase('idle');
     }
@@ -153,6 +176,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
     setOpen(true);
     unlockSound();
     player.current?.pause();
+    hf.current?.idle();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       // loudness for the waveform
@@ -183,6 +207,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
         stream.getTracks().forEach((t) => t.stop());
         stopMeter();
         const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        hf.current?.listenForWake();
         if (cancelled.current || blob.size < 1000) {
           setPhase('idle');
           return;
@@ -201,6 +226,117 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
     }
   }, [phase, request, stopRecording, unlockSound]);
 
+  // ---------------------------------------------------------------- hands-free ("Hey Switchboard")
+  const afterWake = useRef(false);
+  const handleUtterance = useCallback(async (wav: Blob) => {
+    const engine = hf.current;
+    if (!engine) return;
+    go('thinking');
+    const form = new FormData();
+    form.append('audio', wav, 'speech.wav');
+    form.append('fresh', String(takeFresh()));
+    form.append('afterWake', String(afterWake.current));
+    const reply = await request(() => post<Reply>('/assistant/voice', form), undefined, true);
+    if (!hf.current) return;
+    if (!reply) {
+      engine.chime('cancel');
+      go('idle');
+      engine.listenForWake();
+      return;
+    }
+    // while it answers, "Hey Switchboard" interrupts it
+    engine.listenForWake();
+    if (reply.audio) {
+      go('speaking');
+      setSpeaking(true);
+      await engine.speak(reply.audio);
+      setSpeaking(false);
+    }
+    if (stageRef.current !== 'speaking' && stageRef.current !== 'thinking') return;   // interrupted by a new wake word
+    if (/[?؟]\s*$/.test(reply.reply)) {
+      // it asked something ("which light?"): listen for the answer without the wake word
+      engine.chime('listen');
+      go('listening');
+      afterWake.current = false;
+      engine.capture(6000);
+    } else {
+      // leave the answer on screen a moment, like Siri, unless something new has started
+      setTimeout(() => { if (stageRef.current === 'speaking') go('idle'); }, 2500);
+    }
+  }, [request]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const engineFor = useCallback(() => {
+    if (hf.current) return hf.current;
+    hf.current = new HandsFree({
+      onStatus: (s, detail) => { setHfStatus(s); setHfDetail(detail); },
+      onWake: () => {
+        const engine = hf.current;
+        if (!engine) return;
+        engine.stopSpeaking();
+        player.current?.pause();
+        setSpeaking(false);
+        engine.chime('listen');
+        go('listening');
+        afterWake.current = true;
+        engine.capture(5000, 160);
+      },
+      onSpeech: () => go('hearing'),
+      onUtterance: (wav) => void handleUtterance(wav),
+      onNothing: () => {
+        hf.current?.chime('cancel');
+        go('idle');
+        hf.current?.listenForWake();
+      },
+      onLevel: (v) => setLevel(v),
+    });
+    return hf.current;
+  }, [handleUtterance]);
+
+  const startHandsFree = useCallback(async () => {
+    const engine = engineFor();
+    await engine.start();
+    setHfPhrase(engine.phrase);
+  }, [engineFor]);
+
+  const toggleHandsFree = useCallback(() => {
+    if (hfEnabled) {
+      hf.current?.stop();
+      hf.current = null;
+      setHfEnabled(false);
+      writeFlag(false);
+      go('idle');
+      return;
+    }
+    unlockSound();
+    setHfEnabled(true);
+    writeFlag(true);
+    void startHandsFree();
+  }, [hfEnabled, startHandsFree, unlockSound]);
+
+  const dismissVoice = useCallback(() => {
+    const engine = hf.current;
+    engine?.stopSpeaking();
+    setSpeaking(false);
+    go('idle');
+    engine?.listenForWake();
+  }, []);
+
+  // turned on last time: start again; the browser may need one tap first
+  useEffect(() => {
+    if (!readFlag() || !handsFreeSupported()) return;
+    setHfEnabled(true);
+    void startHandsFree();
+    const wake = () => { void hf.current?.resume(); };
+    window.addEventListener('pointerdown', wake);
+    window.addEventListener('keydown', wake);
+    return () => {
+      window.removeEventListener('pointerdown', wake);
+      window.removeEventListener('keydown', wake);
+      hf.current?.stop();
+      hf.current = null;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const reset = useCallback(() => {
     setLines([]);
     fresh.current = true;
@@ -211,7 +347,11 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
   }, []);
 
   return (
-    <Ctx.Provider value={{ open, setOpen, lines, phase, error, notice, micOk, level, speaking, send, startRecording, stopRecording, cancelRecording, play, reset }}>
+    <Ctx.Provider value={{
+      open, setOpen, lines, phase, error, notice, micOk, level, speaking, send, startRecording, stopRecording, cancelRecording, play, reset,
+      handsFree: { supported: hfSupported, enabled: hfEnabled, status: hfStatus, phrase: hfPhrase, stage, detail: hfDetail },
+      toggleHandsFree, dismissVoice,
+    }}>
       {children}
     </Ctx.Provider>
   );

@@ -191,3 +191,17 @@ def test_timer_and_cancel_go_through_the_schedule_tools(devices):
 def test_schedule_needs_a_time(devices):
     tools = build_tools(FakeApi("tok", devices), devices)
     assert tools.execute(ToolCall("1", "schedule_device", {"device": "bulb", "state": "off"})).startswith("Error")
+
+
+def test_the_wake_word_is_not_part_of_the_request(devices):
+    client, apis = make(devices, stt=FakeSTT("Hey Switchboard, turn on the bulb"))
+    res = client.post("/v1/voice", files={"audio": ("speech", b"x", "audio/wav")}, data=WHO, headers=HEADERS).json()
+    assert res["heard"] == "turn on the bulb" and apis[0].commands == [("d1", {"on": True})]
+    from assistant.web import strip_wake_word
+    assert strip_wake_word("Board, turn off the fan.", after_wake=True) == "turn off the fan."
+    assert strip_wake_word("Davis, turn off the fan.", after_wake=True) == "turn off the fan."
+    assert strip_wake_word("board light on please") == "board light on please"      # push-to-talk: words are words
+    assert strip_wake_word("turn off the fan", after_wake=True) == "turn off the fan"
+    client, apis = make(devices, stt=FakeSTT("Hey Switchboard."))
+    res = client.post("/v1/voice", files={"audio": ("speech", b"x", "audio/wav")}, data=WHO, headers=HEADERS).json()
+    assert res["reply"] == "Yes?" and apis[0].commands == []
