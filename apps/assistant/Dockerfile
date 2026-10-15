@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY assistant ./assistant
-COPY instructions.md .
+COPY instructions.md instructions-console.md ./
 ENV ASSISTANT_HOST=0.0.0.0 ASSISTANT_PORT=8000 PYTHONUNBUFFERED=1 TZ=Asia/Karachi \
     FASTEMBED_CACHE_PATH=/root/.cache/fastembed
 EXPOSE 8000

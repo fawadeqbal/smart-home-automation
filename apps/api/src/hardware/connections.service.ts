@@ -175,12 +175,29 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** A board's internet connection: where it is now, how steady it has been, and its recent connections. */
-  async forNode(homeId: string, nodeId: string) {
+  /** All boards the caller's scope covers (see staffScope), with how their connection has been. */
+  fleet(where: Prisma.NodeWhereInput) {
+    return fleetOf(this.prisma, where, this.tracking);
+  }
+
+    async forNode(homeId: string, nodeId: string) {
+    return this.forBoard({ id: nodeId, homeId });
+  }
+
+  /**
+   * One board's connection, for whoever may see it: `where` carries the caller's scope (the home they are
+   * in, or the homes their staff role covers), so a board outside it is simply "not found".
+   */
+  async forBoard(where: Prisma.NodeWhereInput) {
     const node = await this.prisma.node.findFirst({
-      where: { id: nodeId, homeId },
-      select: { online: true, publicIp: true, publicPlace: true, publicIsp: true, publicIpAt: true },
+      where,
+      select: {
+        id: true, name: true, online: true, lastSeenAt: true, publicIp: true, publicPlace: true, publicIsp: true, publicIpAt: true,
+        home: { select: { id: true, name: true, city: true } },
+      },
     });
     if (!node) throw new NotFoundException('No such board.');
+    const nodeId = node.id;
     const rows = await this.prisma.nodeConnection.findMany({ where: { nodeId }, orderBy: { connectedAt: 'desc' }, take: 60 });
     const now = Date.now();
     const since = (ms: number) => rows.filter((r) => now - r.connectedAt.getTime() < ms);
@@ -194,6 +211,7 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
     const ips = new Set(week.map((r) => r.ip));
     return {
       tracking: this.tracking,
+      board: { id: node.id, name: node.name, online: node.online, lastSeenAt: node.lastSeenAt, home: node.home },
       current: node.publicIp
         ? {
             ip: node.publicIp, place: node.publicPlace, isp: node.publicIsp, ipSince: node.publicIpAt,
@@ -217,6 +235,47 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
+/** Every board in scope with how its connection has been: the console's "how are all my boards doing". */
+export async function fleetOf(prisma: PrismaService, where: Prisma.NodeWhereInput, tracking: boolean) {
+  const nodes = await prisma.node.findMany({
+    where,
+    select: {
+      id: true, name: true, status: true, online: true, lastSeenAt: true, rssi: true, firmware: true,
+      publicIp: true, publicPlace: true, publicIsp: true, publicIpAt: true,
+      home: { select: { id: true, name: true, city: true, installer: { select: { name: true } } } },
+    },
+    orderBy: [{ home: { name: 'asc' } }, { name: 'asc' }],
+  });
+  const weekAgo = new Date(Date.now() - 7 * 86400_000);
+  const rows = nodes.length
+    ? await prisma.nodeConnection.findMany({
+        where: { nodeId: { in: nodes.map((n) => n.id) }, OR: [{ connectedAt: { gte: weekAgo } }, { endedAt: null }] },
+        orderBy: { connectedAt: 'desc' },
+        select: { nodeId: true, connectedAt: true, endedAt: true, endReason: true, endNote: true },
+      })
+    : [];
+  const dayAgo = Date.now() - 86400_000;
+  return {
+    tracking,
+    boards: nodes.map((n) => {
+      const mine = rows.filter((r) => r.nodeId === n.id);
+      const week = mine.filter((r) => r.connectedAt >= weekAgo);
+      const open = mine.find((r) => !r.endedAt);
+      const lastEnded = mine.find((r) => r.endedAt);
+      return {
+        id: n.id, name: n.name, status: n.status, online: n.online, lastSeenAt: n.lastSeenAt, rssi: n.rssi, firmware: n.firmware,
+        home: n.home ? { id: n.home.id, name: n.home.name, city: n.home.city, installer: n.home.installer?.name ?? null } : null,
+        publicIp: n.publicIp, publicPlace: n.publicPlace, publicIsp: n.publicIsp, publicIpAt: n.publicIpAt,
+        connectedSince: n.online && open ? open.connectedAt : null,
+        connects24h: week.filter((r) => r.connectedAt.getTime() >= dayAgo).length,
+        connects7d: week.length,
+        ends7d: countEnds(week),
+        lastEnd: lastEnded ? { at: lastEnded.endedAt, reason: lastEnded.endReason, note: lastEnded.endNote } : null,
+      };
+    }),
+  };
+}
+
 export function duration(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s} s`;
@@ -226,4 +285,11 @@ export function duration(ms: number) {
   if (h < 24) return `${h} h ${m % 60} min`;
   const d = Math.floor(h / 24);
   return `${d} day${d === 1 ? '' : 's'}${h % 24 ? ` ${h % 24} h` : ''}`;
+}
+
+/** Ends by reason, counted. */
+function countEnds(rows: { endReason: string | null }[]) {
+  const out: Record<EndReason, number> = { timeout: 0, closed: 0, clean: 0, replaced: 0, error: 0 };
+  for (const r of rows) if (r.endReason && r.endReason in out) out[r.endReason as EndReason] += 1;
+  return out;
 }

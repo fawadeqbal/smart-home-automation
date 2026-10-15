@@ -192,7 +192,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <CrumbsContext.Provider value={{ set: setCrumbs }}>
-      <AssistantProvider homeId={home?.id ?? null}>
+      <AssistantProvider homeId={platform ? 'console' : home?.id ?? null} console={platform && !!staffRole}>
       <div className="app">
         <aside className="side" aria-label="Main">
           <Link href={platform ? (staffRole === 'INSTALLER' ? '/console/homes' : '/console') : '/'} className="side-brand">
@@ -296,7 +296,8 @@ export function Shell({ children }: { children: ReactNode }) {
         <NoticeToasts />
         <ScheduleNotices userId={me.id} isAdmin={isAdmin} />
         {palette && <CommandPalette onClose={() => setPalette(false)} />}
-        {!platform && home && !home.readOnly && <><AssistantLauncher /><AssistantDrawer /><VoiceOverlay /></>}
+        {/* in a home: people who may act there; in the console: any staff (read-only tools, their role's homes) */}
+        {(platform ? !!staffRole : home && !home.readOnly) && <><AssistantLauncher /><AssistantDrawer /><VoiceOverlay /></>}
       </div>
       </AssistantProvider>
     </CrumbsContext.Provider>

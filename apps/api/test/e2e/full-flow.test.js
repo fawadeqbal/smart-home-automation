@@ -291,6 +291,18 @@ test('board connections: public IP, why each ended, history; re-reading changes 
   assert.equal((await prisma.nodeConnection.count({ where: { nodeId: NODE_ID } })), 2);
   // only owners and admins
   assert.equal((await member.get(`/nodes/${NODE_ID}/connections`)).status, 403);
+
+  // the console (super admin): every board of the company, and one board's story
+  const fleet = (await owner.get('/platform/connectivity')).body;
+  const mine = fleet.boards.find((b) => b.id === NODE_ID);
+  assert.equal(mine.publicIp, '203.0.113.9');
+  assert.equal(mine.home.name, 'Test home');
+  assert.equal(mine.ends7d.timeout, 1);
+  assert.equal(mine.lastEnd.reason, 'timeout');
+  assert.equal((await owner.get(`/platform/boards/${NODE_ID}/connections`)).body.current.ip, '203.0.113.9');
+  // not staff: no console, and no console assistant (refused before anything reaches the AI)
+  assert.equal((await member.get('/platform/connectivity')).status, 403);
+  assert.equal((await member.post('/assistant/console/chat', { text: 'which boards are offline?' })).status, 403);
 });
 
 test('scenes run at once; timers run later with their creator\'s rights', async () => {
@@ -554,6 +566,20 @@ test('SaaS: a second organization is isolated, staff roles do what they should',
   installer.home = shah;
   assert.equal((await installer.get('/auth/me')).body.home.canSetup, true);
   installer.home = null;
+
+  // who sees which boards' connections in the console (and so what the console assistant can tell them)
+  const nowFine = (await other.get('/platform/homes')).body.find((h) => h.name === 'Now fine').id;
+  assert.equal((await other.post('/platform/inventory', { ids: ['esp-other02'], board: 'NODEMCU_V2' })).status, 201);
+  assert.equal((await other.post('/platform/inventory/esp-other02/assign', { homeId: nowFine })).status, 200);
+  const ids = async (who) => (await who.get('/platform/connectivity')).body.boards.map((b) => b.id).sort();
+  assert.deepEqual(await ids(other), ['esp-move01', 'esp-other02']);          // super admin: the whole company
+  assert.deepEqual(await ids(support), ['esp-move01', 'esp-other02']);        // support: everything, read-only
+  assert.deepEqual(await ids(installer), ['esp-move01']);                     // installer: only their jobs
+  assert.equal((await installer.get('/platform/boards/esp-other02/connections')).status, 404);
+  assert.equal((await installer.get('/platform/boards/esp-move01/connections')).body.current.ip, '39.45.77.1');
+  assert.ok(!(await ids(other)).includes(NODE_ID), 'another company never sees our boards');
+  assert.equal((await other.get(`/platform/boards/${NODE_ID}/connections`)).status, 404);
+
   // back to stock: the next customer must not see where this home is
   assert.equal((await other.post('/platform/inventory/esp-move01/unassign')).status, 200);
   assert.equal(await prisma.nodeConnection.count({ where: { nodeId: 'esp-move01' } }), 0);

@@ -66,3 +66,14 @@ class HomeApi:
 
     def nodes(self) -> List[Dict[str, Any]]:
         return self._call("GET", "/nodes")
+
+    def node_connections(self, node_id: str) -> Dict[str, Any]:
+        """One board of the current home: its public IP, place, provider and recent connections (owners, admins)."""
+        return self._call("GET", f"/nodes/{node_id}/connections")
+
+    # the console (staff): every board in the homes this person looks after; their role decides which
+    def connectivity(self) -> Dict[str, Any]:
+        return self._call("GET", "/platform/connectivity")
+
+    def board_connections(self, node_id: str) -> Dict[str, Any]:
+        return self._call("GET", f"/platform/boards/{node_id}/connections")

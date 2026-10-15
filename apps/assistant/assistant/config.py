@@ -51,6 +51,11 @@ class Settings:
     def instructions_file(self) -> Path:
         return Path(self.base_dir) / "instructions.md"
 
+    @property
+    def console_instructions_file(self) -> Path:
+        """The console assistant (staff, about all the homes they look after)."""
+        return Path(self.base_dir) / "instructions-console.md"
+
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv(REPO_ROOT / ".env")                 # real environment variables win

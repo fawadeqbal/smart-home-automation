@@ -8,11 +8,18 @@ import { Icon } from '../Icon';
 import { Spinner } from '../Loader';
 
 /** Things to say, made from this person's own devices. */
-function useSuggestions(enabled: boolean) {
+/** What staff can ask in the console, by role (installers only ever hear about their own jobs). */
+const CONSOLE_SUGGESTIONS: Record<string, string[]> = {
+  SUPERADMIN: ['Which boards are offline?', 'Which boards keep losing contact this week?', 'How are the boards in Lahore?', 'Which homes are on PTCL?'],
+  SUPPORT: ['Which boards are offline?', 'Which boards keep losing contact this week?', 'How do I help a customer whose board is offline?'],
+  INSTALLER: ['Are all my jobs online?', 'Which of my boards dropped this week?', 'Where is each of my boards connecting from?'],
+};
+
+function useSuggestions(enabled: boolean, console = false) {
   const [devices, setDevices] = useState<Device[] | null>(null);
   useEffect(() => {
-    if (enabled && !devices) void get<Device[]>('/devices').then(setDevices).catch(() => setDevices([]));
-  }, [enabled, devices]);
+    if (enabled && !console && !devices) void get<Device[]>('/devices').then(setDevices).catch(() => setDevices([]));
+  }, [enabled, devices, console]);
   return useMemo(() => {
     const list: string[] = [];
     const usable = (devices ?? []).filter((d) => d.online && d.access !== 'VIEW');
@@ -133,7 +140,9 @@ export function AssistantDrawer() {
   const [text, setText] = useState('');
   const input = useRef<HTMLTextAreaElement>(null);
   const log = useRef<HTMLDivElement>(null);
-  const suggestions = useSuggestions(a.open && a.lines.length === 0);
+  const { staffRole } = useSession();
+  const homeSuggestions = useSuggestions(a.open && a.lines.length === 0, a.console);
+  const suggestions = a.console ? (CONSOLE_SUGGESTIONS[staffRole ?? ''] ?? CONSOLE_SUGGESTIONS.SUPPORT) : homeSuggestions;
 
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }); }, [a.lines, a.phase]);
   useEffect(() => {
@@ -164,7 +173,7 @@ export function AssistantDrawer() {
         <header className="ai-head">
           <span className={`ai-orb ${a.phase !== 'idle' || a.speaking ? 'live' : ''}`}><Icon name="sparkles" size={17} /></span>
           <div className="grow stack-tight">
-            <b>Assistant</b>
+            <b>{a.console ? 'Console assistant' : 'Assistant'}</b>
             <span className={`ai-status ${a.phase}`}>{status}</span>
           </div>
           {a.lines.length > 0 && (
@@ -184,8 +193,12 @@ export function AssistantDrawer() {
           {a.lines.length === 0 && a.phase === 'idle' && (
             <div className="ai-hello">
               <span className="ai-orb lg"><Icon name="sparkles" size={24} /></span>
-              <h2>Hi {me.name.split(' ')[0]}, what should I do?</h2>
-              <p>Switch lights and fans, check a room’s temperature, or set a timer — by voice or by typing.</p>
+              <h2>Hi {me.name.split(' ')[0]}, {a.console ? 'what would you like to know?' : 'what should I do?'}</h2>
+              <p>{a.console
+                ? staffRole === 'INSTALLER'
+                  ? 'Ask about the boards in your jobs: which are offline, why one dropped, where it connects from.'
+                  : 'Ask about any board in any home: which are offline, why one dropped, where it connects from, how stable it’s been.'
+                : 'Switch lights and fans, check a room’s temperature, or set a timer — by voice or by typing.'}</p>
               <div className="ai-suggest">
                 {suggestions.map((s) => (
                   <button key={s} className="ai-chip" onClick={() => a.send(s)}><Icon name="sparkles" size={13} />{s}</button>

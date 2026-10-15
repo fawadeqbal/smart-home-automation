@@ -19,7 +19,8 @@ from .domain.ports import LLMProvider, SpeechToText, TextToSpeech
 from .home_api import HomeApi, HomeApiError
 from .quick import QuickCommands
 from .knowledge import KnowledgeBase, local_embedder
-from .tools import SearchHelpTool, build_tools, describe_home, home_zone
+from .connections import fleet_summary, role_text
+from .tools import SearchHelpTool, build_console_tools, build_tools, describe_home, home_zone
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,9 @@ def strip_wake_word(text: str, after_wake: bool = False) -> str:
     return rest
 
 
+CONSOLE = "console"   # the conversation key of a staff member's console chat (never a home id)
+
+
 class Identity(BaseModel):
     """Who is speaking and in which home: each (person, home) pair has its own conversation."""
     user_id: str
@@ -49,6 +53,10 @@ class Identity(BaseModel):
     home_name: str = ""
     timezone: str = ""          # the home's, e.g. Asia/Karachi
     token: str
+    # the console: staff asking about all the homes they look after (the API lets only staff send this)
+    console: bool = False
+    staff_role: str = ""        # SUPERADMIN | INSTALLER | SUPPORT: what they may see is enforced by the API
+    company: str = ""
 
 
 class ChatIn(Identity):
@@ -89,6 +97,7 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
     knowledge = knowledge or KnowledgeBase(embed)
     if embed is not None:                               # load the embedding model now, not on the first question
         threading.Thread(target=lambda: embed(["warm up"]), daemon=True).start()
+    console_prompt = PromptBuilder(settings.console_instructions_file)
     conversation = ConversationService(llm, PromptBuilder(settings.instructions_file), max_turns=settings.max_turns,
                                        fast_replies=settings.fast_replies, idle_minutes=settings.idle_minutes)
     for part in (llm, stt):                             # load the models now, not on the first question
@@ -111,11 +120,25 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
             log.warning("Could not load devices for %s: %s", who.user_name, exc)
             return []
 
+    def console_state(api: HomeApi, who: Identity) -> str:
+        """Who is asking (their role sets what they may see) and how their boards are doing right now."""
+        try:
+            boards = fleet_summary(api.connectivity())
+        except HomeApiError as exc:
+            boards = f"(Could not load the boards: {exc})"
+        return f"They are {role_text(who.staff_role, who.company)}.\n\n# Their boards right now\n\n{boards}"
+
     def answer(text: str, who: Identity, speak: bool, fresh: bool = False, api: Optional[HomeApi] = None,
                devices: Optional[List[dict]] = None) -> ReplyOut:
         api = api or make_api(who.token)
-        devices = load_devices(api, who) if devices is None else devices
         tz = home_zone(who.timezone or settings.timezone)
+        if who.console:
+            # staff in the console: read-only tools about the boards their role covers, their own conversation
+            reply = conversation.ask(who.user_id, who.user_name, text, build_console_tools(api, tz, knowledge), None,
+                                     home_id=CONSOLE, home_name="", fresh=fresh, tz=tz,
+                                     home_state=console_state(api, who), prompt=console_prompt)
+            return speak_reply(text, reply, speak)
+        devices = load_devices(api, who) if devices is None else devices
         clock = lambda: datetime.now(tz)                # noqa: E731 - the home's clock, shared by both
         tools = build_tools(api, devices, tz, clock, knowledge)
         quick = QuickCommands(api, devices, tools, clock=clock) if settings.quick_commands else None
@@ -123,6 +146,9 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         reply = conversation.ask(who.user_id, who.user_name, text, tools, quick,
                                  home_id=who.home_id, home_name=who.home_name, fresh=fresh,
                                  tz=tz, home_state=describe_home(devices, scenes))
+        return speak_reply(text, reply, speak)
+
+    def speak_reply(text: str, reply: str, speak: bool) -> ReplyOut:
         audio = None
         if speak:
             try:
@@ -155,14 +181,15 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
     @app.post("/v1/voice", response_model=ReplyOut, dependencies=[Depends(check_secret)])
     def voice(audio: UploadFile = File(...), user_id: str = Form(...), user_name: str = Form("there"),
               token: str = Form(...), home_id: str = Form(""), home_name: str = Form(""), timezone: str = Form(""),
-              fresh: bool = Form(False), after_wake: bool = Form(False)):
+              fresh: bool = Form(False), after_wake: bool = Form(False),
+              console: bool = Form(False), staff_role: str = Form(""), company: str = Form("")):
         data = audio.file.read(MAX_AUDIO_BYTES + 1)
         if len(data) > MAX_AUDIO_BYTES:
             raise HTTPException(413, "Recording too long.")
         caller = Identity(user_id=user_id, user_name=user_name, home_id=home_id, home_name=home_name,
-                          timezone=timezone, token=token)
+                          timezone=timezone, token=token, console=console, staff_role=staff_role, company=company)
         api = make_api(token)
-        devices = load_devices(api, caller)
+        devices = [] if console else load_devices(api, caller)
         try:
             heard = stt.transcribe(data, hint=hint_for(devices))
         except Exception as exc:  # noqa: BLE001 - undecodable or empty audio
@@ -193,7 +220,7 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
 
     @app.post("/v1/reset", status_code=204, dependencies=[Depends(check_secret)])
     def reset(who: Identity):
-        conversation.reset(who.user_id, who.home_id)
+        conversation.reset(who.user_id, CONSOLE if who.console else who.home_id)
 
     app.state.conversation = conversation
     return app

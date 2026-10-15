@@ -1,9 +1,11 @@
 import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
-import { Plan, StaffRole } from '@prisma/client';
+import { ForbiddenException } from '@nestjs/common';
+import { Plan, Prisma, StaffRole } from '@prisma/client';
 import { z } from 'zod';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Staff } from '../auth/decorators';
 import { ZodPipe } from '../common/zod';
+import { ConnectionsService } from '../hardware/connections.service';
 import { PlatformService } from './platform.service';
 
 const name = z.string().trim().min(1).max(80);
@@ -34,10 +36,36 @@ const orgSchema = z.object({
 
 const ALL = [StaffRole.SUPERADMIN, StaffRole.INSTALLER, StaffRole.SUPPORT] as const;
 
+/**
+ * Which boards a staff member may look at: super admins and support see every board in a home of their
+ * company; installers only boards in homes assigned to them. Stock boards (no home) are inventory, not here.
+ */
+export function staffScope(user: AuthUser): Prisma.NodeWhereInput {
+  if (!user.orgId || !user.staffRole) throw new ForbiddenException('This is for platform staff only.');
+  return user.staffRole === StaffRole.INSTALLER
+    ? { orgId: user.orgId, home: { orgId: user.orgId, archivedAt: null, installerId: user.id } }
+    : { orgId: user.orgId, home: { orgId: user.orgId, archivedAt: null } };
+}
+
 /** The platform console: an organization's homes, board inventory, staff, audit log and billing. */
 @Controller('platform')
 export class PlatformController {
-  constructor(private readonly platform: PlatformService) {}
+  constructor(private readonly platform: PlatformService, private readonly connections: ConnectionsService) {}
+
+  // ---------------------------------------------------------------- board connections (all homes in scope)
+  /** Every board the caller looks after: online or not, where it connects from, how often it dropped. */
+  @Staff(...ALL)
+  @Get('connectivity')
+  connectivity(@CurrentUser() user: AuthUser) {
+    return this.connections.fleet(staffScope(user));
+  }
+
+  /** One board's connection history, if it is in the caller's scope. */
+  @Staff(...ALL)
+  @Get('boards/:id/connections')
+  boardConnections(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.connections.forBoard({ ...staffScope(user), id });
+  }
 
   @Staff('SUPERADMIN', 'SUPPORT')
   @Get('overview')

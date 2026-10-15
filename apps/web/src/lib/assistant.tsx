@@ -48,6 +48,8 @@ interface AssistantCtx {
   toggleHandsFree: () => void;
   /** Stop the current hands-free exchange (the overlay's close button). */
   dismissVoice: () => void;
+  /** The console assistant (staff, about all the homes they look after) rather than a home's. */
+  console: boolean;
 }
 
 const Ctx = createContext<AssistantCtx | null>(null);
@@ -57,7 +59,10 @@ const readFlag = () => { try { return localStorage.getItem(HANDS_FREE_KEY) === '
 const writeFlag = (on: boolean) => { try { localStorage.setItem(HANDS_FREE_KEY, on ? '1' : '0'); } catch { /* private mode */ } };
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 
-export function AssistantProvider({ children, homeId }: { children: ReactNode; homeId: string | null }) {
+export function AssistantProvider({ children, homeId, console = false }: { children: ReactNode; homeId: string | null; console?: boolean }) {
+  // the console has its own staff-only routes; the API decides what each role may hear about
+  const baseRef = useRef('/assistant');
+  baseRef.current = console ? '/assistant/console' : '/assistant';
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [phase, setPhase] = useState<Phase>('idle');
@@ -154,7 +159,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
     if (!value || phase !== 'idle') return;
     unlockSound();
     const isFresh = takeFresh();
-    void request(() => post<Reply>('/assistant/chat', { text: value, speak: true, fresh: isFresh }), value);
+    void request(() => post<Reply>(`${baseRef.current}/chat`, { text: value, speak: true, fresh: isFresh }), value);
   }, [phase, request, unlockSound]);
 
   const stopMeter = () => {
@@ -220,7 +225,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
         const form = new FormData();
         form.append('audio', blob, 'speech');
         form.append('fresh', String(takeFresh()));
-        void request(() => post<Reply>('/assistant/voice', form));
+        void request(() => post<Reply>(`${baseRef.current}/voice`, form));
       };
       recorder.current = rec;
       rec.start();
@@ -241,7 +246,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
     form.append('audio', wav, 'speech.wav');
     form.append('fresh', String(takeFresh()));
     form.append('afterWake', String(afterWake.current));
-    const reply = await request(() => post<Reply>('/assistant/voice', form), undefined, true);
+    const reply = await request(() => post<Reply>(`${baseRef.current}/voice`, form), undefined, true);
     if (!hf.current) return;
     if (!reply) {
       engine.chime('cancel');
@@ -353,14 +358,14 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
     setError(null);
     setNotice(null);
     player.current?.pause();
-    void post('/assistant/reset').catch(() => undefined);
+    void post(`${baseRef.current}/reset`).catch(() => undefined);
   }, []);
 
   return (
     <Ctx.Provider value={{
       open, setOpen, lines, phase, error, notice, micOk, level, speaking, send, startRecording, stopRecording, cancelRecording, play, reset,
       handsFree: { supported: hfSupported, enabled: hfEnabled, status: hfStatus, phrase: hfPhrase, stage, detail: hfDetail },
-      toggleHandsFree, dismissVoice,
+      toggleHandsFree, dismissVoice, console,
     }}>
       {children}
     </Ctx.Provider>

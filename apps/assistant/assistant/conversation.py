@@ -89,7 +89,8 @@ class ConversationService:
 
     def ask(self, user_id: str, user_name: str, text: str, tools: ToolRegistry,
             quick: Optional[QuickCommands] = None, *, home_id: str = "", home_name: str = "",
-            fresh: bool = False, tz: Optional[tzinfo] = None, home_state: str = "") -> str:
+            fresh: bool = False, tz: Optional[tzinfo] = None, home_state: str = "",
+            prompt: Optional["PromptBuilder"] = None) -> str:
         key = (user_id, home_id)
         with self._lock_for(key):                       # one question at a time per person per home
             history = self._history_for(key, fresh)
@@ -102,7 +103,7 @@ class ConversationService:
                 self._trim(history)
                 return instant
             try:
-                reply = self._run(history, self._prompt.build(user_name, home_name, tz, home_state), user_name, tools)
+                reply = self._run(history, (prompt or self._prompt).build(user_name, home_name, tz, home_state), user_name, tools)
             except LLMError as exc:
                 del history[checkpoint:]                # forget the failed exchange
                 return str(exc)

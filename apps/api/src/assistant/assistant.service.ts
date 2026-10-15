@@ -28,28 +28,47 @@ export class AssistantService {
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
-  async chat(user: AuthUser, text: string, speak: boolean, fresh = false): Promise<AssistantReply> {
-    const body = JSON.stringify({ text, speak, fresh, ...(await this.identity(user)) });
+  /** console: staff asking about all the homes they look after (the controller checks they are staff). */
+  async chat(user: AuthUser, text: string, speak: boolean, fresh = false, console = false): Promise<AssistantReply> {
+    const body = JSON.stringify({ text, speak, fresh, ...(await this.identity(user, console)) });
     return this.call('/v1/chat', { body, headers: { 'Content-Type': 'application/json' } });
   }
 
   /** afterWake: recorded straight after "Hey Switchboard" (hands-free), so its tail may be in it. */
-  async voice(user: AuthUser, audio: Buffer, mimeType: string, fresh = false, afterWake = false): Promise<AssistantReply> {
+  async voice(user: AuthUser, audio: Buffer, mimeType: string, fresh = false, afterWake = false, console = false): Promise<AssistantReply> {
     const form = new FormData();
     form.append('audio', new Blob([new Uint8Array(audio)], { type: mimeType || 'audio/webm' }), 'speech');
-    for (const [k, v] of Object.entries(await this.identity(user))) form.append(k, v);
+    for (const [k, v] of Object.entries(await this.identity(user, console))) form.append(k, String(v));
     form.append('fresh', String(fresh));
     form.append('after_wake', String(afterWake));
     return this.call('/v1/voice', { body: form });
   }
 
-  async reset(user: AuthUser) {
-    const body = JSON.stringify(await this.identity(user));
+  async reset(user: AuthUser, console = false) {
+    const body = JSON.stringify(await this.identity(user, console));
     await this.call('/v1/reset', { body, headers: { 'Content-Type': 'application/json' } });
   }
 
-  /** Who is speaking and in which home: the assistant keys its conversation on both. */
-  private async identity(user: AuthUser) {
+  /**
+   * Who is speaking and in which home: the assistant keys its conversation on both. In the console there is
+   * no home: the conversation is the person's console one, and the assistant gets their staff role so it
+   * knows what to offer; what it may actually see is still decided here, by the token (their own rights).
+   */
+  private async identity(user: AuthUser, console = false) {
+    if (console) {
+      const org = user.orgId ? await this.prisma.organization.findUnique({ where: { id: user.orgId }, select: { name: true } }) : null;
+      return {
+        user_id: user.id,
+        user_name: user.name,
+        home_id: '',
+        home_name: '',
+        timezone: '',
+        console: true,
+        staff_role: user.staffRole ?? '',
+        company: org?.name ?? '',
+        token: await this.auth.onBehalfToken({ ...user, homeId: '' }),
+      };
+    }
     const home = user.homeId
       ? await this.prisma.home.findUnique({ where: { id: user.homeId }, select: { name: true, timezone: true } })
       : null;

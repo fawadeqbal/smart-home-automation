@@ -469,11 +469,25 @@ def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]], tz: Optio
         scenes = api.scenes()
     except Exception:  # noqa: BLE001 - no scenes is fine
         scenes = []
+    from .connections import BoardConnectionsTool  # here: connections.py builds on this module
     return ToolRegistry([
         SetDeviceTool(api, devices), GetDevicesTool(devices), ReadSensorsTool(devices),
         ScheduleDeviceTool(api, devices, tz, clock), ListSchedulesTool(api, tz), CancelScheduleTool(api, tz),
-        RunSceneTool(api, scenes), DiagnoseHomeTool(api, devices, tz),
+        RunSceneTool(api, scenes), DiagnoseHomeTool(api, devices, tz), BoardConnectionsTool(api, tz),
         *([SearchHelpTool(api, knowledge)] if knowledge is not None else []),
+    ])
+
+
+def build_console_tools(api: Optional[HomeApi], tz: Optional[tzinfo] = None,
+                        knowledge: Optional[KnowledgeBase] = None) -> ToolRegistry:
+    """The console (staff): read-only tools about the boards in the homes they look after, and the Help Center
+    as staff see it. No device switching here: that happens inside a home."""
+    if api is None:
+        return ToolRegistry()
+    from .connections import BoardConnectionsTool, FleetStatusTool
+    return ToolRegistry([
+        FleetStatusTool(api, tz), BoardConnectionsTool(api, tz, console=True),
+        *([SearchHelpTool(api, knowledge, customer_view=False)] if knowledge is not None else []),
     ])
 
 
