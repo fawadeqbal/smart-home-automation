@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import re
 import threading
 from typing import Optional, Sequence
@@ -76,29 +77,37 @@ class WhisperSTT:
         if self._model is None:
             from faster_whisper import WhisperModel
             log.info("Loading Whisper model '%s' (first time can take a minute)...", self._model_name)
-            self._model = WhisperModel(self._model_name, device="cpu", compute_type="int8")
+            self._model = WhisperModel(self._model_name, device="cpu", compute_type="int8",
+                                       cpu_threads=max(1, os.cpu_count() or 1))
         return self._model
 
-    def _pick_language(self, samples) -> str:
-        """Whisper's language guess, limited to the languages this family speaks."""
-        if self._language:
-            return self._language
-        if len(self._languages) == 1:
-            return self._languages[0]
-        _, info = self._load().transcribe(samples, language=None, beam_size=1, vad_filter=False)
-        scores = dict(info.all_language_probs or [])
-        best = max(self._languages, key=lambda lang: scores.get(lang, 0.0))
-        log.info("Language: %s (%s)", best, ", ".join(f"{l} {scores.get(l, 0):.2f}" for l in self._languages))
-        return best
-
-    def _recognize(self, samples, vad: bool, language: str, hint: str = "") -> tuple:
+    def _recognize(self, samples, vad: bool, language: Optional[str], hint: str = "") -> tuple:
         segments, info = self._load().transcribe(
             samples, language=language, beam_size=5, vad_filter=vad,
             vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 500} if vad else None,
             # the home's device and room names: "geyser", "pankha", "Ali's room" are heard right
             initial_prompt=hint or None, condition_on_previous_text=False,
         )
-        return " ".join(s.text for s in segments).strip(), info.language
+        return " ".join(s.text for s in segments).strip(), info
+
+    def _transcribe(self, samples, vad: bool, hint: str) -> tuple:
+        """One pass in the common case: Whisper guesses the language from the same work it does to listen.
+        Only when it guesses a language this family doesn't speak (often Hindi for Urdu) is it run again,
+        in the closest allowed one."""
+        if self._language or len(self._languages) == 1:
+            language = self._language or self._languages[0]
+            text, _ = self._recognize(samples, vad, language, hint)
+            return text, language
+        text, info = self._recognize(samples, vad, None, hint)
+        if info.language in self._languages:
+            return text, info.language
+        scores = dict(info.all_language_probs or [])
+        if info.language == "hi":
+            scores["ur"] = scores.get("ur", 0.0) + scores.get("hi", 0.0)    # spoken Hindi and Urdu are one language
+        best = max(self._languages, key=lambda lang: scores.get(lang, 0.0))
+        log.info("Whisper guessed %s; listening again as %s", info.language, best)
+        text, _ = self._recognize(samples, vad, best, hint)
+        return text, best
 
     def transcribe(self, audio, hint: str = "") -> str:
         """`audio`: file bytes (webm / ogg / mp4 / wav) as recorded by the browser or the phone.
@@ -113,10 +122,9 @@ class WhisperSTT:
             samples = samples * (TARGET_PEAK / peak)    # quiet microphone: make it louder
 
         with self._lock:
-            language = self._pick_language(samples)
-            text, _ = self._recognize(samples, vad=True, language=language, hint=hint)
+            text, language = self._transcribe(samples, vad=True, hint=hint)
             if not text:                                # the speech filter was too strict: try once without it
-                text, _ = self._recognize(samples, vad=False, language=language, hint=hint)
+                text, language = self._transcribe(samples, vad=False, hint=hint)
         if text and (is_phantom(text) or (hint and text.strip(" .").lower() == hint.strip(" .").lower())):
             log.info("Ignored what Whisper invented from noise: %r", text)
             text = ""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hmac
 import logging
+import re
 import threading
 from datetime import datetime
 from typing import Callable, List, Optional
@@ -23,6 +24,20 @@ log = logging.getLogger(__name__)
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 DID_NOT_HEAR = "Sorry, I did not catch that. Please try again."
+YES = "Yes?"
+# "Hey Switchboard, ..." can slip into the recording after the wake word: never treat it as the request
+WAKE_PHRASE = re.compile(
+    r"^\W*(?:(?:hey|hi|hay|ok|okay|a)\W+)?(?:switch\W?board|switch\W?bored|switch\W?bord|jarvis)\b\W*", re.I)
+# ...or only its tail, when the recording starts a moment late: "board, turn off the fan"
+WAKE_TAIL = re.compile(r"^\W*(?:board|bored|bord|jarvis|davis|harvis|service)\W+(?=\w+\s+\w+)", re.I)
+
+
+def strip_wake_word(text: str, after_wake: bool = False) -> str:
+    """`after_wake`: recorded straight after the wake word (hands-free), where its tail can slip in."""
+    rest = WAKE_PHRASE.sub("", text, count=1).strip()
+    if after_wake and rest == text.strip():
+        rest = WAKE_TAIL.sub("", rest, count=1).strip()
+    return rest
 
 
 class Identity(BaseModel):
@@ -128,7 +143,7 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
     @app.post("/v1/voice", response_model=ReplyOut, dependencies=[Depends(check_secret)])
     def voice(audio: UploadFile = File(...), user_id: str = Form(...), user_name: str = Form("there"),
               token: str = Form(...), home_id: str = Form(""), home_name: str = Form(""), timezone: str = Form(""),
-              fresh: bool = Form(False)):
+              fresh: bool = Form(False), after_wake: bool = Form(False)):
         data = audio.file.read(MAX_AUDIO_BYTES + 1)
         if len(data) > MAX_AUDIO_BYTES:
             raise HTTPException(413, "Recording too long.")
@@ -142,6 +157,11 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
             log.warning("Could not transcribe audio: %s", exc)
             heard = ""
         who = caller
+        if heard and not strip_wake_word(heard, after_wake):
+            # only the wake word: ask what they want (the app then listens without the wake word)
+            spoken = tts.synthesize(YES)
+            return ReplyOut(heard=heard, reply=YES, audio=base64.b64encode(spoken).decode() if spoken else None)
+        heard = strip_wake_word(heard, after_wake)
         if not heard:
             spoken = tts.synthesize(DID_NOT_HEAR)
             return ReplyOut(heard="", reply=DID_NOT_HEAR, audio=base64.b64encode(spoken).decode() if spoken else None)

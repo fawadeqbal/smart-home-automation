@@ -33,11 +33,13 @@ export class AssistantService {
     return this.call('/v1/chat', { body, headers: { 'Content-Type': 'application/json' } });
   }
 
-  async voice(user: AuthUser, audio: Buffer, mimeType: string, fresh = false): Promise<AssistantReply> {
+  /** afterWake: recorded straight after "Hey Switchboard" (hands-free), so its tail may be in it. */
+  async voice(user: AuthUser, audio: Buffer, mimeType: string, fresh = false, afterWake = false): Promise<AssistantReply> {
     const form = new FormData();
     form.append('audio', new Blob([new Uint8Array(audio)], { type: mimeType || 'audio/webm' }), 'speech');
     for (const [k, v] of Object.entries(await this.identity(user))) form.append(k, v);
     form.append('fresh', String(fresh));
+    form.append('after_wake', String(afterWake));
     return this.call('/v1/voice', { body: form });
   }
 

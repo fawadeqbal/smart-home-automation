@@ -62,13 +62,67 @@ function RecordingTimer() {
 
 /** The round button that opens the assistant, on every page of the home app. */
 export function AssistantLauncher() {
-  const { open, setOpen, phase } = useAssistant();
-  if (open) return null;
+  const { open, setOpen, phase, handsFree } = useAssistant();
+  if (open || handsFree.stage !== 'idle') return null;     // the voice overlay is showing
+  const ears = handsFree.enabled && handsFree.status === 'ready';
   return (
-    <button className={`ai-fab ${phase !== 'idle' ? 'busy' : ''}`} onClick={() => setOpen(true)} aria-label="Open the assistant" title="Assistant">
+    <button className={`ai-fab ${phase !== 'idle' ? 'busy' : ''}`} onClick={() => setOpen(true)} aria-label="Open the assistant"
+      title={ears ? `Listening for “${handsFree.phrase}”` : 'Assistant'}>
       <Icon name="sparkles" size={20} />
       <span className="ai-fab-label">Ask</span>
+      {ears && <span className="ai-ears" aria-hidden />}
     </button>
+  );
+}
+
+const HF_TEXT: Record<string, string> = {
+  loading: 'Getting ready…',
+  'needs-tap': 'Tap anywhere to start listening',
+  denied: 'Microphone blocked: allow it in the browser’s site settings',
+  unsupported: 'This browser can’t listen hands-free (needs https and a recent browser)',
+  error: 'Hands-free stopped working. Turn it off and on again.',
+};
+
+/** The "Hey Switchboard" switch, with what it is doing right now. */
+export function HandsFreeSwitch() {
+  const { handsFree: hf, toggleHandsFree } = useAssistant();
+  if (!hf.supported) return null;
+  const note = hf.enabled ? (hf.status === 'ready' ? `Say “${hf.phrase}” any time` : HF_TEXT[hf.status]) : 'Talk without touching the screen';
+  return (
+    <div className={`hf-switch ${hf.enabled && hf.status === 'ready' ? 'on' : ''}`}>
+      <span className="hf-ear"><Icon name="mic" size={15} /></span>
+      <div className="grow stack-tight">
+        <b>“{hf.phrase}”</b>
+        <span className="small muted">{note}</span>
+      </div>
+      <button type="button" role="switch" aria-checked={hf.enabled} aria-label={`Hands-free: ${hf.phrase}`}
+        className={`hf-toggle ${hf.enabled ? 'on' : ''}`} onClick={toggleHandsFree}><i /></button>
+    </div>
+  );
+}
+
+const STAGE_TEXT = { listening: 'Listening…', hearing: 'Listening…', thinking: 'Working on it…', speaking: '' } as const;
+
+/** Siri-style: what hands-free is doing, over whatever page is open. */
+export function VoiceOverlay() {
+  const a = useAssistant();
+  const stage = a.handsFree.stage;
+  if (stage === 'idle' || a.open) return null;
+  const lastMe = [...a.lines].reverse().find((l) => l.who === 'me');
+  const lastBot = [...a.lines].reverse().find((l) => l.who === 'bot');
+  const asked = stage === 'thinking' || stage === 'speaking' ? lastMe?.text : null;
+  return (
+    <div className={`voice-card ${stage}`} role="status" aria-live="polite">
+      <div className="voice-orb" style={{ ['--lv' as string]: stage === 'hearing' || stage === 'listening' ? a.level : 0.15 }}>
+        <span /><span /><span />
+      </div>
+      <div className="voice-text grow">
+        {asked && <p className="voice-asked">“{asked}”</p>}
+        <p className="voice-main">{stage === 'speaking' ? lastBot?.text : STAGE_TEXT[stage]}</p>
+        {a.error && stage !== 'speaking' && <p className="voice-err">{a.error}</p>}
+      </div>
+      <button className="icon-btn" onClick={a.dismissVoice} aria-label="Stop"><Icon name="x" size={16} /></button>
+    </div>
   );
 }
 
@@ -91,7 +145,10 @@ export function AssistantDrawer() {
   }, [a.open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!a.open) return null;
-  const status = a.phase === 'recording' ? 'Listening…' : a.phase === 'thinking' ? 'Thinking…' : a.speaking ? 'Speaking…' : 'Ready · speaks English and Urdu';
+  const hfStage = a.handsFree.stage;
+  const status = a.phase === 'recording' || hfStage === 'listening' || hfStage === 'hearing' ? 'Listening…'
+    : a.phase === 'thinking' ? 'Thinking…' : a.speaking ? 'Speaking…'
+    : a.handsFree.enabled && a.handsFree.status === 'ready' ? `Say “${a.handsFree.phrase}” · English and Urdu` : 'Ready · speaks English and Urdu';
 
   function submit(e?: FormEvent) {
     e?.preventDefault();
@@ -186,6 +243,7 @@ export function AssistantDrawer() {
               )}
             </form>
           )}
+          <HandsFreeSwitch />
           <p className="ai-hint">{a.micOk ? 'Press Enter to send · the assistant can only do what you may do' : 'Voice works on https:// or http://localhost — typing works everywhere.'}</p>
         </footer>
       </aside>

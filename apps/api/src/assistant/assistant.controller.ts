@@ -29,9 +29,14 @@ export class AssistantController {
   @Post('voice')
   @HttpCode(200)
   @UseInterceptors(FileInterceptor('audio', { limits: { fileSize: 10 * 1024 * 1024 } }))
-  voice(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File, @Body('fresh') fresh?: string) {
+  voice(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+    @Body('fresh') fresh?: string,
+    @Body('afterWake') afterWake?: string,
+  ) {
     if (!file?.buffer?.length) throw new BadRequestException('No audio received.');
-    return this.assistant.voice(user, file.buffer, file.mimetype, fresh === 'true');
+    return this.assistant.voice(user, file.buffer, file.mimetype, fresh === 'true', afterWake === 'true');
   }
 
   @Post('reset')

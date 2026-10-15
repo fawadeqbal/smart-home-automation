@@ -1,0 +1,6 @@
+{
+  "phrase": "Hey Switchboard",
+  "model": "hey_switchboard.onnx",
+  "threshold": 0.5,
+  "patience": 1
+}
