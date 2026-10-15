@@ -24,6 +24,10 @@ log = logging.getLogger(__name__)
 
 EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 CHUNK_WORDS = 220
+# meaning matches count only when this close: the small model is a rescue for phrasings no keyword covers,
+# and below this it mostly adds noise (measured on the starter articles: tests/test_help_quality.py)
+MEANING_FLOOR = 0.4
+TITLE_WEIGHT = 2
 CATEGORY_WORDS = {
     "USAGE": "how to use", "TROUBLESHOOTING": "troubleshooting problem fix", "PROCESS": "process steps",
     "POLICY": "policy", "FAQ": "question answer",
@@ -121,6 +125,16 @@ class _Bm25:
         return out
 
 
+def _head(text: str) -> str:
+    """A chunk's title line and keywords line."""
+    return text.split("\n")[0] + " " + _keywords_line(text)
+
+
+def _keywords_line(text: str) -> str:
+    m = re.search(r"^Keywords: (.*)$", text, re.M)
+    return m.group(1) if m else ""
+
+
 def _normalise(v: List[float]) -> List[float]:
     n = math.sqrt(sum(x * x for x in v)) or 1.0
     return [x / n for x in v]
@@ -131,11 +145,20 @@ class Index:
 
     def __init__(self, articles: List[dict], embed: Optional[Embedder]) -> None:
         self.chunks: List[Chunk] = [c for a in articles for c in split_article(a)]
-        self._bm25 = _Bm25([tokens(c.text + " " + CATEGORY_WORDS.get(c.category, "")) for c in self.chunks])
+        # the title and keywords say what an article is about: they count TITLE_WEIGHT times over its text
+        self._bm25 = _Bm25([tokens(" ".join([_head(c.text)] * TITLE_WEIGHT) + " " + c.text + " "
+                                   + CATEGORY_WORDS.get(c.category, "")) for c in self.chunks])
         self._vectors: Optional[List[List[float]]] = None
+        self._heads: Optional[List[List[float]]] = None
         if embed and self.chunks:
             try:
                 self._vectors = [_normalise(v) for v in embed([c.text for c in self.chunks])]
+                # small models match a short question best against short text: each chunk is also
+                # compared through its article's title and keywords
+                heads = [c.text.split("\n\n", 1)[0].split("\n")[0] + ". " + _keywords_line(c.text) for c in self.chunks]
+                unique = sorted(set(heads))
+                vecs = dict(zip(unique, (_normalise(v) for v in embed(unique))))
+                self._heads = [vecs[h] for h in heads]
             except Exception:  # noqa: BLE001 - keywords alone still work
                 log.exception("Could not embed the help articles; searching by keywords only")
         self._embed = embed
@@ -151,7 +174,9 @@ class Index:
             try:
                 q = _normalise(self._embed([query])[0])
                 sims = [sum(a * b for a, b in zip(q, v)) for v in self._vectors]
-                mean_order = [i for i in sorted(range(len(sims)), key=lambda i: -sims[i]) if sims[i] > 0.2]
+                if self._heads is not None:
+                    sims = [max(s, sum(a * b for a, b in zip(q, h))) for s, h in zip(sims, self._heads)]
+                mean_order = [i for i in sorted(range(len(sims)), key=lambda i: -sims[i]) if sims[i] > MEANING_FLOOR]
             except Exception:  # noqa: BLE001
                 log.exception("Embedding the question failed; keywords only")
         # reciprocal rank fusion: good in either list is good
@@ -212,6 +237,7 @@ def local_embedder(model: str = EMBED_MODEL) -> Optional[Embedder]:
             if "m" not in holder:
                 log.info("Loading the embedding model %s ...", model)
                 holder["m"] = TextEmbedding(model)
-        return [list(map(float, v)) for v in holder["m"].embed(list(texts))]  # type: ignore[attr-defined]
+        # small batches: embedding a whole Help Center at once can use more memory than the server has
+        return [list(map(float, v)) for v in holder["m"].embed(list(texts), batch_size=8)]  # type: ignore[attr-defined]
 
     return embed
