@@ -22,8 +22,9 @@ def make(devices, llm=None, stt=None):
         apis.append(api)
         return api
 
+    from assistant.knowledge import KnowledgeBase
     app = create_app(Settings(shared_secret=SECRET), llm=llm or bulb_llm(), stt=stt or FakeSTT(), tts=FakeTTS(),
-                     api_factory=factory)
+                     api_factory=factory, knowledge=KnowledgeBase(None))
     return TestClient(app), apis
 
 

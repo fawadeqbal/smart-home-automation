@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from .domain.models import ToolCall, ToolSpec
 from .home_api import HomeApi, HomeApiError
+from .knowledge import KnowledgeBase
 
 log = logging.getLogger(__name__)
 
@@ -360,8 +361,108 @@ class RunSceneTool(Tool):
         return f"Scene {found[0]['name']}: {result.get('summary', 'done')}"
 
 
+class SearchHelpTool(Tool):
+    name = "search_help"
+    description = (
+        "Search the Help Center: how to use the app and the assistant, fixing problems (board offline, "
+        "Wi-Fi, sensors, sign-in, voice), how installation and support work, and the company's policies "
+        "(warranty, service visits and charges, refunds, privacy). Use it for any question about the product "
+        "or the company that isn't switching a device right now. Write the query in English with the key "
+        "words, even when the person spoke Urdu or Roman Urdu."
+    )
+
+    def __init__(self, api: HomeApi, knowledge: KnowledgeBase, customer_view: bool = False) -> None:
+        self._api = api
+        self._kb = knowledge
+        self._customer_view = customer_view
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {
+            "query": {"type": "string", "description": "What to look for, in English: 'board offline after power cut'"},
+        }, "required": ["query"]}
+
+    def hits(self, query: str, limit: int = 4):
+        key = self._api.help_key(self._customer_view)
+        index = self._kb.index(key, lambda: self._api.help_articles(self._customer_view))
+        return index.search(query, limit=limit)
+
+    def run(self, args: dict) -> str:
+        found = self.hits(str(args.get("query", "")))
+        if not found:
+            return ("No Help Center article matches. Say you don't have that information; offer to pass the "
+                    "question on to their installer (Me, then Message your expert) instead of guessing.")
+        parts = []
+        for n, h in enumerate(found, 1):
+            text = h.chunk.text if len(h.chunk.text) <= 1500 else h.chunk.text[:1500] + " ..."
+            parts.append(f"[{n}] {h.chunk.title} ({h.chunk.category.lower()})\n{text}")
+        return ("Answer only from these Help Center excerpts; if they don't answer the question, say so.\n\n"
+                + "\n\n".join(parts))
+
+
+class DiagnoseHomeTool(Tool):
+    name = "diagnose_home"
+    description = (
+        "Check this home right now: boards that are offline (and since when), weak Wi-Fi, settings not applied "
+        "to a board, devices not responding, sensors without readings. Use it when the person says something "
+        "isn't working, before suggesting a fix."
+    )
+
+    def __init__(self, api: HomeApi, devices: List[dict], tz: Optional[tzinfo] = None) -> None:
+        self._api = api
+        self._devices = devices
+        self._tz = tz or home_zone(None)
+
+    def _ago(self, iso: Optional[str]) -> str:
+        if not iso:
+            return "never"
+        then = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        minutes = int((datetime.now(timezone.utc) - then).total_seconds() // 60)
+        if minutes < 2:
+            return "just now"
+        if minutes < 120:
+            return f"{minutes} minutes ago"
+        if minutes < 48 * 60:
+            return f"{minutes // 60} hours ago"
+        local = then.astimezone(self._tz)
+        return local.strftime("on %d %B at ") + spoken_clock(local.hour, local.minute)
+
+    def run(self, args: dict) -> str:
+        lines: List[str] = []
+        offline = [d for d in self._devices if not d.get("online")]
+        if offline:
+            lines.append("Devices not responding (their board is offline): " + ", ".join(_describe(d) for d in offline) + ".")
+        silent = [d for d in self._devices if d.get("online") and not d.get("controllable") and _state_text(d) == "no reading yet"]
+        if silent:
+            lines.append("Sensors online but without a reading yet: " + ", ".join(_describe(d) for d in silent) + ".")
+        try:
+            boards = self._api.nodes()
+        except HomeApiError:
+            boards = None                                 # members don't see boards: devices are enough
+        if boards is not None:
+            for b in boards:
+                name = b.get("name") or b.get("id")
+                problems = []
+                if b.get("status") != "ADOPTED":
+                    problems.append(f"not set up yet (status {str(b.get('status', '')).lower()})")
+                if not b.get("online"):
+                    problems.append(f"offline, last seen {self._ago(b.get('lastSeenAt'))}")
+                rssi = (b.get("health") or {}).get("rssi", b.get("rssi"))
+                if b.get("online") and isinstance(rssi, (int, float)) and rssi < -80:
+                    problems.append(f"weak Wi-Fi ({rssi} dBm; under -80 drops out)")
+                if b.get("configError"):
+                    problems.append(f"its settings were refused: {b['configError']}")
+                elif b.get("online") and b.get("appliedRev") is not None and b.get("appliedRev") != b.get("configRev"):
+                    problems.append("new settings not applied yet")
+                lines.append(f"Board {name}: " + ("; ".join(problems) if problems else
+                                                  f"online, Wi-Fi {rssi} dBm, firmware {b.get('firmware')}") + ".")
+        if not lines:
+            return "Everything this person can see is online and reporting."
+        return " ".join(lines)
+
+
 def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]], tz: Optional[tzinfo] = None,
-                clock: Optional[Callable[[], datetime]] = None) -> ToolRegistry:
+                clock: Optional[Callable[[], datetime]] = None, knowledge: Optional[KnowledgeBase] = None) -> ToolRegistry:
     if api is None:
         return ToolRegistry()
     try:
@@ -371,7 +472,8 @@ def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]], tz: Optio
     return ToolRegistry([
         SetDeviceTool(api, devices), GetDevicesTool(devices), ReadSensorsTool(devices),
         ScheduleDeviceTool(api, devices, tz, clock), ListSchedulesTool(api, tz), CancelScheduleTool(api, tz),
-        RunSceneTool(api, scenes),
+        RunSceneTool(api, scenes), DiagnoseHomeTool(api, devices, tz),
+        *([SearchHelpTool(api, knowledge)] if knowledge is not None else []),
     ])
 
 

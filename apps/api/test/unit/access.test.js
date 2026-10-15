@@ -25,3 +25,14 @@ test('guests are never given manage rights', async () => {
   const levels = await new AccessService(prisma).roomLevels({ id: 'u', role: 'GUEST' });
   assert.equal(levels.get('r1'), 'CONTROL');
 });
+
+test('help articles: front matter, tags, policies start as drafts', () => {
+  const { parseArticle } = require('../../dist/help/help.service.js');
+  const a = parseArticle('---\ntitle: "Board offline"\ncategory: troubleshooting\naudience: everyone\ntags: [wifi nahi, "power"]\n---\n\nCheck the power.\n');
+  assert.deepEqual(a, { title: 'Board offline', category: 'TROUBLESHOOTING', audience: 'EVERYONE', tags: ['wifi nahi', 'power'], body: 'Check the power.', published: true });
+  assert.equal(parseArticle('---\ntitle: Warranty\ncategory: policy\n---\nx').published, false);
+  assert.equal(parseArticle('---\ntitle: Warranty\ncategory: policy\npublished: true\n---\nx').published, true);
+  assert.equal(parseArticle('---\ntitle: Adopt\ncategory: process\naudience: staff\n---\nx').audience, 'STAFF');
+  assert.equal(parseArticle('no front matter'), null);
+  assert.equal(parseArticle('---\ntitle: X\ncategory: nonsense\n---\nx'), null);
+});

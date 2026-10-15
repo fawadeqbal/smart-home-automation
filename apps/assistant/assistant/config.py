@@ -38,6 +38,9 @@ class Settings:
     # the time zone of a home whose own zone is unknown
     timezone: str = "Asia/Karachi"
 
+    # Help Center search: also by meaning (a small multilingual model on this server), not only keywords
+    help_embeddings: bool = True
+
     # Speech
     whisper_model: str = "small"
     language: Optional[str] = None               # force one language, e.g. "en"
@@ -66,6 +69,7 @@ class Settings:
             idle_minutes=float(env("CONVERSATION_IDLE_MINUTES") or "30"),
             quick_commands=env("QUICK_COMMANDS", "true").strip().lower() != "false",
             fast_replies=env("FAST_REPLIES", "true").strip().lower() != "false",
+            help_embeddings=(env("HELP_EMBEDDINGS") or "true").strip().lower() != "false",
             whisper_model=env("WHISPER_MODEL") or "small",
             language=env("LANGUAGE") or None,
             # an empty LANGUAGES (Compose passes "" when it isn't set) means the default, not English only

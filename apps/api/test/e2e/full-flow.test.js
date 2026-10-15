@@ -57,6 +57,7 @@ before(async () => {
   process.env.COMMAND_TIMEOUT_MS = '2000';
   process.env.ALLOW_SIGNUP = 'true'; // the SaaS test signs up a second organization
   process.env.PUBLIC_API_URL = 'http://127.0.0.1:4555'; // where the fake board downloads firmware
+  process.env.HELP_DIR = path.join(__dirname, 'help-fixture'); // three small starter articles
   const { createApp } = require('../../dist/main.js');
   const { PrismaClient } = require('@prisma/client');
   prisma = new PrismaClient();
@@ -589,4 +590,46 @@ test('sign-up and first run: password rules, the invite page, the owner and comp
   const wrong = await new Client().post('/auth/login', { email: 'faraz@glow.example', password: 'nope' });
   assert.equal(wrong.status, 401);
   assert.match(wrong.body.message, /^Wrong email or password\./);
+});
+
+test('Help Center: starter articles, policies as drafts, staff-only articles, editing, isolation', async () => {
+  const list = (await owner.get('/platform/help')).body;
+  assert.deepEqual(list.map((a) => a.slug).sort(), ['policy/warranty', 'process/adopt-a-board', 'usage/switch-a-device']);
+  const warranty = list.find((a) => a.slug === 'policy/warranty');
+  assert.equal(warranty.published, false); // a policy is a promise to customers: it starts as a draft
+  assert.deepEqual(list.find((a) => a.slug === 'usage/switch-a-device').tags, ['batti', 'pankha']);
+
+  // what the assistant gets: published only; staff articles only for the company's staff
+  const titles = (r) => r.body.articles.map((a) => a.title).sort();
+  assert.deepEqual(titles(await owner.get('/help/feed?articles=1')), ['Adopt a board on installation day', 'Switch a device on or off']);
+  assert.deepEqual(titles(await owner.get('/help/feed?articles=1&view=customer')), ['Switch a device on or off']);
+  assert.deepEqual(titles(await member.get('/help/feed?articles=1&view=staff')), ['Switch a device on or off']);
+  const before = (await member.get('/help/feed')).body.key;
+
+  // only super admins edit; members can't even read the console list
+  assert.equal((await member.get('/platform/help')).status, 403);
+  assert.equal((await member.patch(`/platform/help/${warranty.id}`, { published: true })).status, 403);
+  assert.equal((await owner.patch(`/platform/help/${warranty.id}`, { published: true, body: 'Boards: 12 months.' })).status, 200);
+  const after = await member.get('/help/feed?articles=1');
+  assert.notEqual(after.body.key, before); // the assistant rebuilds its index
+  assert.ok(after.body.articles.some((a) => a.title === 'Warranty' && a.body === 'Boards: 12 months.'));
+
+  const made = await owner.post('/platform/help', { title: 'Service hours', category: 'POLICY', body: 'Mon to Sat.', published: true });
+  assert.equal(made.status, 201);
+  assert.equal((await owner.post('/platform/help', { title: 'x', category: 'POLICY', body: '' })).status, 400);
+  assert.equal((await owner.del(`/platform/help/${made.body.id}`)).status, 204);
+  assert.ok(!(await owner.get('/platform/help')).body.some((a) => a.id === made.body.id));
+  // removed starter articles stay removed (kept archived, matched by slug)
+  assert.equal((await owner.del(`/platform/help/${warranty.id}`)).status, 204);
+  const archived = await prisma.helpArticle.findUnique({ where: { id: warranty.id } });
+  assert.ok(archived.archivedAt);
+
+  // another company gets its own copy and can't touch this one's
+  const other = new Client();
+  assert.equal((await other.post('/auth/signup', { orgName: 'Help Co', name: 'Hina', email: 'hina@help.example', password: 'secret123' })).status, 201);
+  const theirs = (await other.get('/platform/help')).body;
+  assert.equal(theirs.length, 3);
+  assert.ok(theirs.every((a) => !list.some((b) => b.id === a.id)));
+  const mine = (await owner.get('/platform/help')).body[0];
+  assert.equal((await other.patch(`/platform/help/${mine.id}`, { title: 'Hacked' })).status, 404);
 });

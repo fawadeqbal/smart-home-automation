@@ -92,18 +92,20 @@ export function Shell({ children }: { children: ReactNode }) {
         href: '/console/homes', label: staffRole === 'INSTALLER' ? 'My jobs' : 'Homes', icon: 'house', count: counts ? String(counts.homes) : null,
         sub: wsMatch && wsName ? { href: `/console/homes/${wsMatch[1]}`, label: wsName } : undefined,
       };
-      if (staffRole === 'INSTALLER') return [homesItem];
+      const help: NavItem = { href: '/console/help', label: 'Help Center', icon: 'help' };
+      if (staffRole === 'INSTALLER') return [homesItem, help];
       const base: NavItem[] = [
         { href: '/console', label: 'Overview', icon: 'layout-grid', exact: true, count: counts?.attention ? String(counts.attention) : null, countBad: true },
         homesItem,
       ];
       const visits: NavItem = { href: '/console/requests', label: 'Visit requests', icon: 'phone', count: counts?.visits ? String(counts.visits) : null };
-      if (staffRole === 'SUPPORT') return [...base, visits, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
+      if (staffRole === 'SUPPORT') return [...base, visits, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, help, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
       return [
         ...base,
         visits,
         { href: '/console/inventory', label: 'Inventory', icon: 'package', count: counts ? String(counts.stock) : null },
         { href: '/console/team', label: 'Team', icon: 'users' },
+        help,
         { href: '/console/roles', label: 'Roles & permissions', icon: 'key' },
         { href: '/console/audit', label: 'Audit log', icon: 'file-text' },
         me.staff?.org.selfHosted

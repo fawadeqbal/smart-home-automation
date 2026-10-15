@@ -4,6 +4,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { AccessModule } from './access/access.service';
 import { AssistantController } from './assistant/assistant.controller';
 import { AssistantService } from './assistant/assistant.service';
+import { HelpController } from './help/help.controller';
+import { HelpService } from './help/help.service';
 import { AuthController } from './auth/auth.controller';
 import { AutomationController } from './automation/automation.controller';
 import { AutomationService } from './automation/automation.service';
@@ -54,11 +56,11 @@ export function createAppModule(settings: Settings) {
       JwtModule.register({ global: true, secret: settings.jwtSecret }),
     ],
     controllers: [
-      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController,
+      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, UsersService, LogsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService,
+      AuthService, UsersService, LogsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
     ],
   })
   class AppModule {}
