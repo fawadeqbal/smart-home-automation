@@ -547,29 +547,7 @@ button.tile-body:focus-visible { outline: 2px solid var(--ac); outline-offset: -
 .usage { display: flex; flex-direction: column; gap: 6px; }
 .usage .spread { font-size: 13px; }
 
-/* ---------------------------------------------------------------- auth */
-.auth-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100vh; }
-.auth-side-wrap { padding: 12px; }
-.auth-side { height: 100%; border-radius: 20px; background: var(--ink); color: var(--inkt); padding: 32px clamp(24px, 4vw, 48px); display: flex; flex-direction: column; justify-content: space-between; gap: 40px; position: relative; overflow: hidden; }
-[data-theme='dark'] .auth-side { background: var(--sf); border: 1px solid var(--ln2); }
-.auth-side .side-brand { color: var(--inkt); padding: 0; }
-.auth-statement { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.06; font-weight: 600; letter-spacing: -0.04em; max-width: 14ch; }
-.auth-points { display: flex; flex-direction: column; gap: 10px; font-size: 14px; opacity: 0.8; }
-.auth-points span { display: flex; align-items: center; gap: 10px; }
-.auth-foot { font-family: 'Geist Mono', monospace; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; opacity: 0.5; }
-.auth-main { display: flex; flex-direction: column; padding: 20px clamp(16px, 4vw, 56px); }
-.auth-top { display: flex; justify-content: flex-end; }
-.auth-center { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px 0; }
-.auth-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 22px; }
-.auth-card h1 { font-size: 28px; }
-.auth-card form { display: flex; flex-direction: column; gap: 14px; }
-.auth-card input { height: 42px; font-size: 14px; }
-.auth-alt { font-size: 13px; color: var(--mu); text-align: center; }
-.auth-solo { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-@media (max-width: 760px) {
-  .auth-wrap { grid-template-columns: minmax(0, 1fr); }
-  .auth-side-wrap { display: none; }
-}
+/* auth and the first-run tours: components/auth/auth.css */
 .splash { min-height: 60vh; display: flex; align-items: center; justify-content: center; color: var(--mu); }
 
 /* ----------------------------------------------- shared older component styles */
@@ -1225,3 +1203,11 @@ input[type='file'] { height: auto; padding: 8px; }
 .pill.warn { background: var(--ons); color: var(--ont); }
 .fw-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .fw-cell-new { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px; border-radius: 999px; background: var(--ons); color: var(--ont); font-size: 11px; font-weight: 600; }
+
+/* ------------------------------------------------------------ visit requests */
+.visit-steps { display: flex; flex-direction: column; gap: 4px; }
+.visit-steps button { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; font-size: 13.5px; font-weight: 500; color: var(--mu); cursor: pointer; text-align: left; }
+.visit-steps button:hover:not(:disabled) { background: var(--sf2); color: var(--tx); }
+.visit-steps button.on { background: var(--sf2); border-color: var(--ln2); color: var(--tx); }
+.visit-steps button > span { width: 8px; height: 8px; border-radius: 999px; flex: none; opacity: .45; }
+.visit-steps button.on > span { opacity: 1; box-shadow: 0 0 0 3px var(--sf3); }

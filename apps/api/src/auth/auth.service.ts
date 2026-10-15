@@ -9,7 +9,7 @@ import type { CookieOptions, Response } from 'express';
 import { SETTINGS, Settings } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  ACCESS_COOKIE, ACCESS_TTL_SEC, AccessClaims, AuthUser, ON_BEHALF_TTL_SEC, REFRESH_COOKIE, REFRESH_TTL_SEC,
+  ACCESS_COOKIE, ACCESS_TTL_SEC, AccessClaims, AuthUser, ON_BEHALF_TTL_SEC, REFRESH_COOKIE, REFRESH_TTL_SEC, SESSION_MARKER_COOKIE,
 } from './auth.types';
 
 const TRIAL_DAYS = 14;
@@ -63,7 +63,8 @@ export class AuthService {
       });
       const home = await tx.home.create({ data: { orgId: org.id, name: input.homeName, installerId: user.id } });
       await tx.room.create({ data: { homeId: home.id, name: 'Living room' } });
-      await tx.membership.create({ data: { userId: user.id, homeId: home.id, role: Role.OWNER } });
+      // they set up their own home themselves: no "your installer did everything" tour
+      await tx.membership.create({ data: { userId: user.id, homeId: home.id, role: Role.OWNER, onboardedAt: new Date() } });
       return tx.user.update({ where: { id: user.id }, data: { lastHomeId: home.id } });
     });
   }
@@ -94,7 +95,9 @@ export class AuthService {
     if (!user || !ok) {
       const count = (state?.count ?? 0) + 1;
       this.failures.set(key, { count, lockedUntil: count >= MAX_FAILED_LOGINS ? Date.now() + LOCK_MS : 0 });
-      throw new UnauthorizedException('Wrong email or password.');
+      const left = MAX_FAILED_LOGINS - count;
+      if (left <= 0) throw new HttpException('Too many failed attempts. For your safety, sign-in is paused for 15 minutes.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new UnauthorizedException(`Wrong email or password.${left <= 3 ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}`);
     }
     if (user.disabled) throw new ForbiddenException('This account is disabled. Ask the home owner or your administrator.');
     this.failures.delete(key);
@@ -225,10 +228,13 @@ export class AuthService {
     const access = this.jwt.sign({ sub: userId, typ: 'access' } satisfies AccessClaims, { expiresIn: ACCESS_TTL_SEC });
     res.cookie(ACCESS_COOKIE, access, this.cookieOptions(ACCESS_TTL_SEC));
     res.cookie(REFRESH_COOKIE, refresh, this.cookieOptions(REFRESH_TTL_SEC, '/api/auth'));
+    // nothing secret: tells the web app's front door (/) to open the app rather than the public landing page
+    res.cookie(SESSION_MARKER_COOKIE, '1', this.cookieOptions(REFRESH_TTL_SEC));
   }
 
   private clearCookies(res: Response) {
     res.clearCookie(ACCESS_COOKIE, { path: '/' });
     res.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
+    res.clearCookie(SESSION_MARKER_COOKIE, { path: '/' });
   }
 }

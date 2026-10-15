@@ -57,6 +57,14 @@ export class HardwareController {
     return this.devices.get(user, id);
   }
 
+  /** Who switched what, newest first (the home app's "Just now" and Activity). */
+  @Get('events')
+  events(@CurrentUser() user: AuthUser, @Query('limit') limit?: string, @Query('deviceId') deviceId?: string,
+         @Query('roomId') roomId?: string, @Query('before') before?: string) {
+    const at = before ? new Date(before) : undefined;
+    return this.devices.events(user, { limit: Number(limit ?? 50) || 50, deviceId, roomId, before: at && !Number.isNaN(at.getTime()) ? at : undefined });
+  }
+
   @Get('devices/:id/history')
   history(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('limit') limit?: string) {
     return this.devices.history(user, id, Number(limit ?? 100));

@@ -120,7 +120,49 @@ export class DevicesService implements OnModuleInit {
     const events = await this.prisma.stateEvent.findMany({
       where: { deviceId: id }, orderBy: { at: 'desc' }, take: Math.min(Math.max(limit, 1), 1000),
     });
-    return events.map((e) => ({ state: e.state, source: e.source, at: e.at }));
+    const names = await this.userNames(events.map((e) => e.userId));
+    return events.map((e) => ({
+      state: e.state, source: e.source, at: e.at, via: eventVia(e.source, e.channel), by: e.userId ? names.get(e.userId) ?? null : null,
+    }));
+  }
+
+  /**
+   * What happened to the devices this person can see, newest first: who switched what, and how
+   * (app, voice, wall switch, schedule). Switches and contact sensors only — temperature readings
+   * would drown everything else. `before` pages back through older events.
+   */
+  async events(user: AuthUser, opts: { limit: number; deviceId?: string; roomId?: string; before?: Date }) {
+    const levels = await this.access.roomLevels(user);
+    const devices = await this.prisma.device.findMany({
+      where: {
+        node: { homeId: user.homeId, status: 'ADOPTED' },
+        ...(opts.deviceId ? { id: opts.deviceId } : {}), ...(opts.roomId ? { roomId: opts.roomId } : {}),
+      },
+      include: { room: true },
+    });
+    const visible = devices.filter((d) => (DEVICE_TYPES[d.type]?.controllable || d.type === 'contact') && this.access.levelFor(levels, d.roomId));
+    if (!visible.length) return [];
+    const byId = new Map(visible.map((d) => [d.id, d]));
+    const events = await this.prisma.stateEvent.findMany({
+      where: { deviceId: { in: [...byId.keys()] }, ...(opts.before ? { at: { lt: opts.before } } : {}) },
+      orderBy: { at: 'desc' }, take: Math.min(Math.max(opts.limit, 1), 200),
+    });
+    const names = await this.userNames(events.map((e) => e.userId));
+    return events.map((e) => {
+      const d = byId.get(e.deviceId)!;
+      return {
+        id: e.id.toString(), at: e.at, deviceId: d.id, deviceName: d.name, deviceType: d.type,
+        roomId: d.roomId, roomName: d.room?.name ?? null, state: e.state,
+        via: eventVia(e.source, e.channel), by: e.userId ? names.get(e.userId) ?? null : null,
+      };
+    });
+  }
+
+  private async userNames(ids: (string | null)[]) {
+    const unique = [...new Set(ids.filter((x): x is string => !!x))];
+    if (!unique.length) return new Map<string, string>();
+    const users = await this.prisma.user.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } });
+    return new Map(users.map((u) => [u.id, u.name]));
   }
 
   // ---------------------------------------------------------------- configuration (admins)
@@ -270,6 +312,10 @@ export class DevicesService implements OnModuleInit {
     const homeId = device.node.homeId;
     if (!homeId) return; // a board taken out of its home
     const fields = stateFields(payload);
+    // a change the server asked for: remember who asked, and how (app, voice, automation)
+    const cmd = cid ? await this.prisma.command.findUnique({ where: { id: cid }, select: { userId: true, channel: true } }) : null;
+    const by = cmd?.userId ? await this.prisma.user.findUnique({ where: { id: cmd.userId }, select: { name: true } }) : null;
+    const via = eventVia(src, cmd?.channel ?? null);
     if (Object.keys(fields).length > 0) {
       const changed = JSON.stringify(device.state?.state ?? null) !== JSON.stringify(fields);
       const saved = await this.prisma.deviceState.upsert({
@@ -278,10 +324,12 @@ export class DevicesService implements OnModuleInit {
         update: { state: fields as Prisma.InputJsonValue, source: src },
       });
       if (changed || DEVICE_TYPES[device.type]?.controllable === false) {
-        await this.prisma.stateEvent.create({ data: { deviceId: device.id, state: fields as Prisma.InputJsonValue, source: src } });
+        await this.prisma.stateEvent.create({
+          data: { deviceId: device.id, state: fields as Prisma.InputJsonValue, source: src, userId: cmd?.userId ?? null, channel: cmd?.channel ?? null },
+        });
       }
       this.realtime.deviceState(homeId, device.roomId, {
-        id: device.id, state: fields, source: src, updatedAt: saved.updatedAt,
+        id: device.id, state: fields, source: src, updatedAt: saved.updatedAt, via, by: by?.name ?? null,
       });
       void this.monitoring.deviceState({ ...device, node: { homeId } }, (device.state?.state ?? null) as Record<string, unknown> | null, fields)
         .catch((e) => this.log.warn(`notice failed: ${e}`));
@@ -292,4 +340,15 @@ export class DevicesService implements OnModuleInit {
       pending.resolve(fields);
     }
   }
+}
+
+/** How a change happened, in the words the apps show: app, voice, schedule, wall (switch), board (power-up) or sensor. */
+export type EventVia = 'app' | 'voice' | 'schedule' | 'wall' | 'board' | 'sensor';
+export function eventVia(source: string, channel: string | null): EventVia {
+  if (source === 'button') return 'wall';
+  if (source === 'boot') return 'board';
+  if (source === 'sensor') return 'sensor';
+  if (source === 'automation' || channel === 'automation') return 'schedule';
+  if (channel === 'voice') return 'voice';
+  return 'app';
 }

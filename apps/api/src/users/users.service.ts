@@ -43,6 +43,7 @@ export class UsersService {
             org: {
               id: user.org.id, name: user.org.name, plan: user.org.plan, planName: PLANS[user.org.plan].name,
               status: user.org.status, trialEndsAt: user.org.trialEndsAt,
+              logo: user.org.logo, onboarded: !!user.org.onboardedAt,
             },
           }
         : null,
@@ -52,6 +53,8 @@ export class UsersService {
             id: current.id, name: current.name, city: current.city, timezone: current.timezone,
             role: home.role, viaStaff: home.viaStaff, readOnly: home.readOnly,
             canSetup: canSetup({ staffRole: user.staffRole, viaStaff: home.viaStaff, homeId: current.id }),
+            // staff looking at a customer's home never get the owner's first-visit tour
+            onboarded: home.viaStaff || !!user.memberships.find((m) => m.homeId === current.id)?.onboardedAt,
           }
         : null,
       // kept for older clients: the role in the current home
@@ -219,12 +222,27 @@ export class UsersService {
     return invite;
   }
 
+  /** What the invite page shows: who invites you where, and (for a home) what is waiting there. */
   async describeInvite(token: string) {
     const invite = await this.openInvite(token);
-    const existing = await this.prisma.user.findUnique({ where: { email: invite.email }, select: { id: true } });
+    const existing = await this.prisma.user.findUnique({ where: { email: invite.email }, select: { id: true, name: true } });
+    const inviter = invite.createdBy ? await this.prisma.user.findUnique({ where: { id: invite.createdBy }, select: { name: true } }) : null;
+    const orgId = invite.orgId ?? invite.home?.orgId ?? null;
+    const org = orgId ? await this.prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, logo: true } }) : null;
+    let home = null;
+    if (invite.homeId && invite.home) {
+      const [rooms, devices, installer] = await Promise.all([
+        this.prisma.room.findMany({ where: { homeId: invite.homeId }, orderBy: [{ order: 'asc' }, { name: 'asc' }], select: { name: true, _count: { select: { devices: true } } } }),
+        this.prisma.device.count({ where: { node: { homeId: invite.homeId } } }),
+        invite.home.installerId ? this.prisma.user.findUnique({ where: { id: invite.home.installerId }, select: { name: true } }) : null,
+      ]);
+      home = { name: invite.home.name, city: invite.home.city, devices, installer: installer?.name ?? null, rooms: rooms.map((r) => ({ name: r.name, devices: r._count.devices })) };
+    }
     return {
       email: invite.email, name: invite.name, role: invite.role, staffRole: invite.staffRole,
-      homeName: invite.home?.name ?? null, orgName: invite.org?.name ?? null, existingAccount: !!existing,
+      homeName: invite.home?.name ?? null, orgName: org?.name ?? null, orgLogo: org?.logo ?? null,
+      inviter: inviter?.name ?? null, expiresAt: invite.expiresAt, home,
+      existingAccount: !!existing, accountName: existing?.name ?? null,
     };
   }
 

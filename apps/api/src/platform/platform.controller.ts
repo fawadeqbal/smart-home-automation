@@ -25,6 +25,11 @@ const updateStaff = z.object({ staffRole: z.nativeEnum(StaffRole).optional(), di
 const orgSchema = z.object({
   name: name.optional(), billingEmail: email.nullable().optional(), billingName: z.string().trim().max(120).nullable().optional(),
   taxId: z.string().trim().max(40).nullable().optional(), country: z.string().trim().max(60).nullable().optional(),
+  // a small square image as a data: URL (the screens shrink it to 256 px before sending)
+  logo: z.string().max(400_000).regex(/^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/, 'The logo must be a PNG, JPG, WebP or SVG image.').nullable().optional(),
+  cities: z.array(z.string().trim().min(1).max(40)).max(30).optional(),
+  teamSize: z.string().trim().max(20).nullable().optional(),
+  onboarded: z.boolean().optional(),
 });
 
 const ALL = [StaffRole.SUPERADMIN, StaffRole.INSTALLER, StaffRole.SUPPORT] as const;

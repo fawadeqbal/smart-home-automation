@@ -8,6 +8,12 @@
 #include "../core/Log.h"
 #include "../storage/Files.h"
 
+// Encrypted (TLS) connections use 8883. A board set to "encrypted" with the plain port 1883
+// (an old value left in the setup page) is corrected here, so it still reaches the cloud broker.
+static void fixTlsPort(BrokerSettings& b) {
+  if (b.tls && b.port == 1883) b.port = 8883;
+}
+
 void NodeSettings::begin() {
   char id[16];
   snprintf(id, sizeof(id), "esp-%06x", ESP.getChipId());
@@ -20,6 +26,7 @@ void NodeSettings::begin() {
     broker_.user = doc["user"] | "node";
     broker_.password = doc["password"] | "";
     broker_.tls = doc["tls"] | false;
+    fixTlsPort(broker_);
   }
 }
 
@@ -70,6 +77,7 @@ bool NodeSettings::runSetupPortal() {
     broker_.password = password.getValue();
     const String t = String(tls.getValue());
     broker_.tls = t.equalsIgnoreCase("yes") || t == "1" || t.equalsIgnoreCase("true");
+    fixTlsPort(broker_);
     save();
     LOG_INFO("Settings saved: server %s:%u%s", broker_.host.c_str(), broker_.port, broker_.tls ? " (TLS)" : "");
   }

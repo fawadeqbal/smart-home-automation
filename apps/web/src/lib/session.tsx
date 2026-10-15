@@ -45,6 +45,16 @@ export function landingFor(me: Pick<Me, 'staff' | 'home'>): string {
 }
 
 /**
+ * The first-run tour someone still has to see, if they open their start page: a home owner whose installer
+ * just handed the home over, or the super admin of a brand-new organization.
+ */
+function tourFor(me: Me, path: string): string | null {
+  if (path === '/' && me.home && me.home.role === 'OWNER' && !me.home.viaStaff && !me.home.onboarded) return '/onboarding/home';
+  if (path === '/console' && me.staff?.role === 'SUPERADMIN' && !me.staff.org.onboarded) return '/onboarding/company';
+  return null;
+}
+
+/**
  * Loads the signed-in person and the home they are looking at; sends them to /login, /setup or
  * /signup when needed. The current home goes into every API call (X-Home-Id).
  */
@@ -97,10 +107,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     router.replace('/login');
   }, [router]);
 
-  if (!me) return <Loader full />;
+  const tour = me ? tourFor(me, path) : null;
+  useEffect(() => { if (tour) router.replace(tour); }, [tour, router]);
+
+  if (!me || tour) return <Loader full />;
   const home = me.home;
   const isAdmin = !!home && (home.role === 'OWNER' || home.role === 'ADMIN');
-  void path;
   return (
     <SessionContext.Provider value={{ me, home, isAdmin, staffRole: me.staff?.role ?? null, reload, switchHome, logout }}>
       {children}

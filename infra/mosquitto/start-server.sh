@@ -1,0 +1,38 @@
+#!/bin/sh
+# Starts Mosquitto on Server B: logins from .env, TLS certificate from the server's Caddy.
+# Caddy renews the certificate by itself; when the file changes this script exits and Docker
+# restarts the container with the new one (boards reconnect within seconds).
+set -eu
+DIR="/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$MQTT_TLS_HOST"
+CRT="$DIR/$MQTT_TLS_HOST.crt"
+KEY="$DIR/$MQTT_TLS_HOST.key"
+
+until [ -s "$CRT" ] && [ -s "$KEY" ]; do
+  echo "waiting for Caddy's certificate for $MQTT_TLS_HOST ..."
+  sleep 15
+done
+mkdir -p /mosquitto/certs
+cp "$CRT" /mosquitto/certs/cert.pem
+cp "$KEY" /mosquitto/certs/key.pem
+chown -R mosquitto:mosquitto /mosquitto/certs
+chmod 0600 /mosquitto/certs/key.pem
+
+rm -f /mosquitto/data/passwd
+mosquitto_passwd -c -b /mosquitto/data/passwd api "$MQTT_API_PASSWORD"
+mosquitto_passwd -b /mosquitto/data/passwd node "$MQTT_NODE_PASSWORD"
+chown mosquitto:mosquitto /mosquitto/data/passwd
+chmod 0700 /mosquitto/data/passwd
+
+mosquitto -c /mosquitto/config/mosquitto.conf &
+PID=$!
+trap 'kill "$PID" 2>/dev/null; wait "$PID"; exit 0' TERM INT
+SUM="$(sha256sum < "$CRT")"
+while kill -0 "$PID" 2>/dev/null; do
+  sleep 60
+  if [ "$(sha256sum < "$CRT" 2>/dev/null)" != "$SUM" ]; then
+    echo "certificate renewed: restarting to load it"
+    kill "$PID"; wait "$PID" || true
+    exit 0
+  fi
+done
+wait "$PID"

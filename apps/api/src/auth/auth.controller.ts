@@ -11,7 +11,12 @@ import { Inject } from '@nestjs/common';
 import { SETTINGS, Settings } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 
-export const passwordSchema = z.string().min(8, 'Password must be at least 8 characters').max(200);
+/** Very common passwords people pick first; the sign-up screens show the same list as a rule. */
+export const COMMON_PASSWORDS = ['password', 'password1', '12345678', '123456789', '1234567890', '11111111', '00000000', 'qwertyui',
+  'qwerty123', 'iloveyou', 'abc12345', 'switchboard', 'pakistan', 'pakistan1', 'pakistan123', 'welcome1'];
+export const passwordSchema = z.string().min(8, 'Use at least 8 characters.').max(200)
+  .refine((p) => /[\d\W_]/.test(p), 'Add a number or a symbol to your password.')
+  .refine((p) => !COMMON_PASSWORDS.includes(p.toLowerCase()), 'That password is too common. Choose another one.');
 const emailSchema = z.string().trim().toLowerCase().email('Enter a valid email address');
 
 const setupSchema = z.object({

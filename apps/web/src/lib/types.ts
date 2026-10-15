@@ -16,6 +16,8 @@ export interface CurrentHome {
   viaStaff: boolean;
   readOnly: boolean;
   canSetup: boolean;
+  /** has seen the first-visit tour of this home (always true for staff looking in) */
+  onboarded: boolean;
 }
 
 export interface Me {
@@ -24,7 +26,8 @@ export interface Me {
   email: string;
   staff: {
     role: StaffRole;
-    org: { id: string; name: string; plan: Plan; planName: string; status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; trialEndsAt: string | null };
+    org: { id: string; name: string; plan: Plan; planName: string; status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; trialEndsAt: string | null;
+      logo: string | null; onboarded: boolean };
   } | null;
   homes: { id: string; name: string; city: string; role: Role }[];
   home: CurrentHome | null;
@@ -40,7 +43,9 @@ export interface Overview {
     boardsInstalled: number; boardsOnline: number; inStock: number; assigned: number;
     commands: number; confirmed: number; failed: number; byChannel: Record<string, number>;
   };
-  attention: { tone: Tone; title: string; homeId: string; home: string; detail: string; at: string | null; tab: string; nodeId?: string }[];
+  attention: { tone: Tone; title: string; homeId: string; home: string; detail: string; at: string | null; tab: string; nodeId?: string; href?: string }[];
+  /** visit requests from the website still waiting for a call */
+  visitsWaiting: number;
   attentionCount: number;
   services: { key: string; name: string; ok: boolean; line: string; metric: string }[];
   allOk: boolean;
@@ -111,6 +116,7 @@ export interface StaffList {
 export interface OrgDetails {
   id: string; name: string; plan: Plan; status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; trialEndsAt: string | null;
   billingEmail: string | null; billingName: string | null; taxId: string | null; country: string | null; createdAt: string;
+  logo: string | null; cities: string[]; teamSize: string | null; onboarded: boolean;
   usage: { homes: number; boards: number; staff: number };
   limits: { homes: number | null; boards: number | null; staff: number | null };
   plans: { id: Plan; name: string; priceUsd: number; homes: number | null; boards: number | null; staff: number | null; blurb: string }[];
@@ -270,3 +276,10 @@ export interface Scene {
   canRun: boolean;
   actions: ScheduleAction[];
 }
+
+export type VisitStatus = 'NEW' | 'CONTACTED' | 'SCHEDULED' | 'CUSTOMER' | 'CLOSED';
+export interface VisitRequest {
+  id: string; name: string; phone: string; city: string; homeSize: string; status: VisitStatus; statusLabel: string;
+  note: string; createdAt: string; updatedAt: string; home: { id: string; name: string } | null; handledBy: string | null;
+}
+export interface VisitList { counts: Record<VisitStatus, number>; requests: VisitRequest[] }

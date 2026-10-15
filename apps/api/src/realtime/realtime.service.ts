@@ -44,6 +44,11 @@ export class RealtimeService {
     this.server?.to(`home:${homeId}`).emit('schedule.ran', payload);
   }
 
+  /** A visit request came in or changed (the console's badge and list). */
+  visitsChanged(orgId: string) {
+    this.server?.to(`org:${orgId}`).emit('visits.changed', {});
+  }
+
   /** A firmware build was uploaded or deleted: staff screens refresh their "latest version" labels. */
   firmwareChanged(orgId: string) {
     this.server?.to(`org:${orgId}`).emit('firmware.changed', {});

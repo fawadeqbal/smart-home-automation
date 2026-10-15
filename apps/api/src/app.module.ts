@@ -31,6 +31,8 @@ import { RealtimeModule } from './realtime/realtime.service';
 import { RoomsController } from './rooms/rooms.controller';
 import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
+import { VisitsController } from './visits/visits.controller';
+import { VisitsService } from './visits/visits.service';
 
 /**
  * Composition root. Shared infrastructure (database, broker, live updates, access rules, audit)
@@ -52,11 +54,11 @@ export function createAppModule(settings: Settings) {
       JwtModule.register({ global: true, secret: settings.jwtSecret }),
     ],
     controllers: [
-      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, PlatformController, HomeController, MonitoringController, FirmwareController,
+      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController,
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, UsersService, LogsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService,
+      AuthService, UsersService, LogsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService,
     ],
   })
   class AppModule {}

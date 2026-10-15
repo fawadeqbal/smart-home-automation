@@ -33,7 +33,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       const pages: [string, string, string, boolean][] = [
         ['Overview', '/console', 'layout-grid', staffRole !== 'INSTALLER'],
         [staffRole === 'INSTALLER' ? 'My jobs' : 'Homes', '/console/homes', 'house', true],
+        ['Visit requests', '/console/requests', 'phone', staffRole !== 'INSTALLER'],
         ['Inventory', '/console/inventory', 'package', staffRole !== 'INSTALLER'],
+        ['Website (landing page)', '/welcome', 'external', staffRole !== 'INSTALLER'],
         ['Team', '/console/team', 'users', staffRole === 'SUPERADMIN'],
         ['Roles & permissions', '/console/roles', 'key', staffRole !== 'INSTALLER'],
         ['Audit log', '/console/audit', 'file-text', staffRole !== 'INSTALLER'],

@@ -94,6 +94,8 @@ model Membership {
   home      Home     @relation(fields: [homeId], references: [id], onDelete: Cascade)
   role      Role
   createdAt DateTime @default(now())
+  /// when this person finished the first-visit tour of the home (owners see it once)
+  onboardedAt DateTime?
 
   @@id([userId, homeId])
   @@index([homeId])
@@ -113,11 +115,18 @@ model Organization {
   country      String?
   /// Made by the first-run setup of a self-hosted install: boards that connect go into its stock by themselves.
   selfHosted   Boolean         @default(false)
+  /// a small square logo as a data: URL (shown to customers in invites and in the console)
+  logo         String?
+  cities       String[]        @default([])
+  teamSize     String?
+  /// when a super admin finished the company set-up (null: show it on first visit)
+  onboardedAt  DateTime?
   staff        User[]
   homes        Home[]
   nodes        Node[]
   invites      Invite[]
   firmware     FirmwareImage[]
+  visitRequests VisitRequest[]
   createdAt    DateTime        @default(now())
 }
 
@@ -296,6 +305,10 @@ model StateEvent {
   device   Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   state    Json
   source   String
+  /// who switched it, when it came from a command (app, voice or automation)
+  userId   String?
+  /// "web" | "voice" | "automation" for commands; null for wall switches, sensors and power-ups
+  channel  String?
   at       DateTime @default(now())
 
   @@index([deviceId, at])
@@ -424,4 +437,33 @@ model PushSubscription {
   auth      String
   userAgent String?
   createdAt DateTime @default(now())
+}
+
+/// Where a request for a free home visit (from the public landing page) stands.
+enum VisitStatus {
+  NEW
+  CONTACTED
+  SCHEDULED
+  CUSTOMER
+  CLOSED
+}
+
+/// "Book a free visit" on the landing page. Goes to the organization that runs the site.
+model VisitRequest {
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String
+  city        String
+  homeSize    String
+  status      VisitStatus  @default(NEW)
+  note        String       @default("")
+  /// the home made for this customer, once there is one
+  homeId      String?
+  handledById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([orgId, status, createdAt])
 }

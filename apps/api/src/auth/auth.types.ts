@@ -29,6 +29,8 @@ export interface AuthUser {
 
 export const ACCESS_COOKIE = 'access';
 export const REFRESH_COOKIE = 'refresh';
+/** Set while signed in (no secret in it): the web app shows the landing page at / to people without it. */
+export const SESSION_MARKER_COOKIE = 'sb_session';
 export const HOME_HEADER = 'x-home-id';
 export const ACCESS_TTL_SEC = 15 * 60;
 export const REFRESH_TTL_SEC = 30 * 24 * 3600;

@@ -1,0 +1,16 @@
+
+# --- Switchboard (home-platform, /opt/home-platform) ---
+home.fawadiqbal.dev {
+    # RSA key from Let's Encrypt: Mosquitto (port 8883) uses this same certificate, and the
+    # boards trust only Let's Encrypt's ISRG Root X1.
+    tls {
+        key_type rsa2048
+        issuer acme
+    }
+    request_body {
+        max_size 20MB
+    }
+    @api path /api/* /socket.io/*
+    reverse_proxy @api home-api:4000
+    reverse_proxy home-web:3000
+}

@@ -33,6 +33,20 @@ Creates one organization and its super admin — nothing else (homes, boards and
 
 To **erase everything** and start over with only that super admin, add `--wipe-all` (it asks you to type `WIPE`; `--yes` skips the question). Every organization, home, board, person, log and uploaded firmware is deleted; the database structure stays. Boards that are still powered reconnect and show up in the new organization's stock.
 
+### The website (landing page)
+
+Anyone who isn't signed in sees the landing page at `/` (also at `/welcome`); signed-in people go straight to their home or the console. Its **Book a free visit** form saves a request for the organization that runs the site (the self-hosted one, else the first). They appear in **Console → Visit requests** with a live badge and under *Needs attention*: call or WhatsApp the person, mark *Called* / *Visit booked*, keep notes, and **Create their home** — the request becomes a *Customer* linked to that home. The form is limited to 5 requests an hour per visitor and has a hidden trap field for bots. Texts and photos live in `apps/web/src/components/landing/Landing.tsx`.
+
+### Sign in, invites and the first-run tours
+
+- **Sign in** (`/login`) shows how many tries are left after a wrong password and pauses sign-in for 15 minutes after 5. *Forgot it?* explains that whoever invited you sends a new invite link (there is no email sending yet).
+- **New passwords** need 8+ characters, a number or symbol, and must not be a common one — the screens tick these off as you type, and the API enforces the same rules.
+- **Invite links** open a page made for the person: a home owner sees their home (rooms, things to control, who set it up); family see the home; staff see the organization, who invited them and what their role can and can't do. People who already have an account just confirm their password.
+- **Owner tour** (`/onboarding/home`): the first time an owner opens their home they see its rooms, switch a real light (when a board is online), invite family with room access, choose alerts and add the app to their home screen. Staff looking into a home never get it.
+- **Company tour** (`/onboarding/company`): a new organization adds its logo, cities and team size, creates a first home with the owner's invite, and invites installers and support. *Finish later* skips it. The super admin made by `seed` gets it too, the first time they open the console. Organizations that existed before this update are marked as done.
+
+Invite links are shown to copy or send on WhatsApp — Switchboard doesn't send email.
+
 ### Selling it (SaaS)
 
 - **Sign-up**: `/signup` creates an organization on a 14-day trial when `ALLOW_SIGNUP=true`. It is **off by default** because every board still logs in to the broker with the one shared `MQTT_NODE_PASSWORD`, which the installers of every tenant see in the setup guide. Before opening sign-up to strangers, give each board its own broker login (e.g. a per-board password created when it is added to stock, checked by a Mosquitto auth plugin) so one tenant cannot impersonate another tenant's boards.
@@ -52,6 +66,7 @@ To **erase everything** and start over with only that super admin, add `--wipe-a
 |---|---|---|
 | `apps/api` | The only writer to the database and the only broker client: sign-in, rights, boards, devices, commands with acknowledgement, history, live updates | NestJS 11, Prisma 6, mqtt.js, Socket.IO |
 | `apps/web` | Platform console (homes, inventory, team, roles, audit, billing) and the home app (devices, scenes, voice, diagnostics, people) | Next.js 15, React 19 |
+| `apps/mobile` | The home app for phones (owners, family, guests): Home, Rooms, Routines, Me and Ask by voice — same accounts and live updates as the web | Flutter, Riverpod, go_router |
 | `apps/assistant` | Speech to text, the AI with device tools (acting with the speaker's rights), text to speech | Python, FastAPI, faster-whisper, Ollama or Claude, Piper |
 | `firmware/home_node` | One firmware for every board; devices and pins come from the web app | ESP8266 Arduino, PubSubClient, WiFiManager |
 | `packages/contracts` | The shared language: MQTT topics and payloads, board pin rules, device types | TypeScript + zod |
@@ -113,6 +128,18 @@ python -m assistant.main
 The real board: flash `firmware/home_node` and follow `firmware/README.md` (setup page: server = your PC's IP, port 1883, login `node`, password `MQTT_NODE_PASSWORD`, encrypted `no`).
 
 **From your phone on the home Wi‑Fi:** open `http://<your-PC-IP>:3000` and add that address to `WEB_ORIGIN` in `.env` (comma separated) for live updates. Tapping works; the **microphone needs HTTPS**, so on the phone voice works once it runs in the cloud with your domain (on the PC, `localhost` counts as secure).
+
+### 6. The phone app (optional)
+
+Install [Flutter](https://docs.flutter.dev/get-started/install), then:
+
+```powershell
+cd apps/mobile
+flutter pub get
+flutter run          # pick your phone or an emulator; enter http://<this PC's IP>:4000 when it asks for the server
+```
+
+`flutter build apk --release` makes an Android app to install. See `apps/mobile/README.md` for how it is built and how to extend it.
 
 ### Everything in Docker instead
 

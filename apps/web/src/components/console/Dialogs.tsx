@@ -19,7 +19,7 @@ function useInstallers() {
 }
 
 /** Super admin: a new customer home, optionally with its installer, rooms and owner invite. */
-export function NewHomeDialog({ onClose, onCreated }: { onClose: () => void; onCreated?: (id: string) => void }) {
+export function NewHomeDialog({ onClose, onCreated, defaults }: { onClose: () => void; onCreated?: (id: string) => void; defaults?: { name?: string; city?: string } }) {
   const installers = useInstallers();
   const [created, setCreated] = useState<{ id: string; name: string; invite: { path: string } | null } | null>(null);
   return (
@@ -52,8 +52,8 @@ export function NewHomeDialog({ onClose, onCreated }: { onClose: () => void; onC
       )}
     >
       <div className="form-grid">
-        <label className="field">Home name<input name="name" required maxLength={80} placeholder="Sharma residence" /></label>
-        <label className="field">City<input name="city" maxLength={80} placeholder="Pune" /></label>
+        <label className="field">Home name<input name="name" required maxLength={80} placeholder="Sharma residence" defaultValue={defaults?.name} /></label>
+        <label className="field">City<input name="city" maxLength={80} placeholder="Lahore" defaultValue={defaults?.city} /></label>
         <label className="field">Time zone
           <select name="timezone" defaultValue={Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Karachi'}>
             {[...new Set([Intl.DateTimeFormat().resolvedOptions().timeZone, ...ZONES].filter(Boolean))].map((z) => <option key={z}>{z}</option>)}

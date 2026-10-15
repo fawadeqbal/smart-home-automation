@@ -35,6 +35,7 @@ export default function ConsoleOverview() {
   useCrumbs([{ label: 'Platform', href: '/console' }, { label: 'Overview' }]);
   useLive('inventory.changed', () => void reload());
   useLive('firmware.changed', () => void reload());
+  useLive('visits.changed', () => void reload());
   useLive('homes.changed', () => void reload());
   useLive('node.status', () => void reload());
 
@@ -111,7 +112,7 @@ export default function ConsoleOverview() {
                 <span className="sub">{a.detail}</span>
               </div>
               <span className="small muted nowrap">{ago(a.at)}</span>
-              <Link className="btn btn-sm" href={a.nodeId ? `/console/homes/${a.homeId}/boards/${encodeURIComponent(a.nodeId)}` : `/console/homes/${a.homeId}?tab=${a.tab}`}>{a.nodeId ? 'Open board' : 'Open'}</Link>
+              <Link className="btn btn-sm" href={a.href ?? (a.nodeId ? `/console/homes/${a.homeId}/boards/${encodeURIComponent(a.nodeId)}` : `/console/homes/${a.homeId}?tab=${a.tab}`)}>{a.nodeId ? 'Open board' : 'Open'}</Link>
             </div>
           ))}
         </section>

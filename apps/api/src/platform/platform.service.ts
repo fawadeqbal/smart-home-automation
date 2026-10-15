@@ -2,11 +2,12 @@ import {
   BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { BOARDS, isSafeId } from '@home/contracts';
-import { NodeStatus, OrgStatus, Plan, Prisma, Role, StaffRole } from '@prisma/client';
+import { NodeStatus, OrgStatus, Plan, Prisma, Role, StaffRole, VisitStatus } from '@prisma/client';
 import { randomToken, sha256 } from '../auth/auth.service';
 import { AuthUser, ROLE_LABEL, STAFF_LABEL } from '../auth/auth.types';
 import { AuditService, auditCategory } from '../common/audit.service';
 import { compareVersions, highestVersion } from '../common/version';
+import { VISIT_STATUS_LABEL } from '../visits/visits.service';
 import { Settings, SETTINGS } from '../config';
 import { NodesService } from '../hardware/nodes.service';
 import { MqttService } from '../mqtt/mqtt.service';
@@ -202,7 +203,7 @@ export class PlatformService {
     });
 
     // Things that need someone: broken boards first, then setup that is stuck.
-    const attention: { tone: Tone; title: string; homeId: string; home: string; detail: string; at: string | null; tab: string; nodeId?: string }[] = [];
+    const attention: { tone: Tone; title: string; homeId: string; home: string; detail: string; at: string | null; tab: string; nodeId?: string; href?: string }[] = [];
     for (const n of installed) {
       const c = condition(n, health.get(n.id) ?? null);
       const h = health.get(n.id);
@@ -225,6 +226,13 @@ export class PlatformService {
       if (!f.owner && f.ownerInvite) {
         attention.push({ tone: 'info', title: 'Owner hasn’t joined', homeId: h.id, home: h.name, detail: 'The owner invite is waiting to be accepted', at: null, tab: 'people' });
       }
+    }
+    // people who booked a free visit on the website and wait for a call
+    const visitsWaiting = await this.prisma.visitRequest.count({ where: { orgId, status: 'NEW' } });
+    if (visitsWaiting) {
+      const oldest = await this.prisma.visitRequest.findFirst({ where: { orgId, status: 'NEW' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } });
+      attention.push({ tone: 'info', title: `${visitsWaiting} visit request${visitsWaiting === 1 ? '' : 's'} waiting for a call`, homeId: '', home: 'Website',
+        detail: 'People who booked a free home visit on the website', at: oldest?.createdAt.toISOString() ?? null, tab: '', href: '/console/requests' });
     }
     const rank: Record<Tone, number> = { bad: 0, warn: 1, info: 2, ok: 3, mute: 4 };
     attention.sort((a, b) => rank[a.tone] - rank[b.tone]);
@@ -251,7 +259,7 @@ export class PlatformService {
       attention: attention.slice(0, 12),
       attentionCount: attention.filter((a) => a.tone === 'bad' || a.tone === 'warn').length + attention.filter((a) => a.tone === 'info').length,
       services, allOk: services.every((s) => s.ok || s.key === 'assistant'),
-      bars, currentFirmware: fw,
+      bars, currentFirmware: fw, visitsWaiting,
     };
   }
 
@@ -729,6 +737,8 @@ export class PlatformService {
       case 'scene.create': case 'scene.run': case 'schedule.create': case 'schedule.remove': return `${s('name')}${s('result') ? ` · ${s('result')}` : ''}`;
       case 'plan.change': return `${s('from')} → ${s('to')}`;
       case 'support.request': return s('message').slice(0, 120);
+      case 'visit.requested': return `${s('name')} · ${s('city')} · ${s('homeSize')}`;
+      case 'visit.update': return `${s('name')} → ${VISIT_STATUS_LABEL[d.to as VisitStatus] ?? s('to')}`;
       default: {
         const name = s('name');
         return name ? `${target} · ${name}` : target;
@@ -748,6 +758,7 @@ export class PlatformService {
     return {
       id: org.id, name: org.name, plan: org.plan, status: org.status, trialEndsAt: org.trialEndsAt,
       billingEmail: org.billingEmail, billingName: org.billingName, taxId: org.taxId, country: org.country, createdAt: org.createdAt,
+      logo: org.logo, cities: org.cities, teamSize: org.teamSize, onboarded: !!org.onboardedAt,
       usage: { homes, boards, staff },
       limits: { homes: PLANS[org.plan].homes, boards: PLANS[org.plan].boards, staff: PLANS[org.plan].staff },
       plans: PLAN_ORDER.map((p) => ({ id: p, ...PLANS[p] })),
@@ -755,10 +766,21 @@ export class PlatformService {
     };
   }
 
-  async updateOrganization(user: AuthUser, input: { name?: string; billingEmail?: string | null; billingName?: string | null; taxId?: string | null; country?: string | null }) {
+  async updateOrganization(user: AuthUser, input: {
+    name?: string; billingEmail?: string | null; billingName?: string | null; taxId?: string | null; country?: string | null;
+    logo?: string | null; cities?: string[]; teamSize?: string | null; onboarded?: boolean;
+  }) {
     const orgId = this.org(user);
-    await this.prisma.organization.update({ where: { id: orgId }, data: input });
-    await this.audit.record(null, user.id, 'org.update', orgId, input, orgId);
+    const { onboarded, cities, ...rest } = input;
+    await this.prisma.organization.update({
+      where: { id: orgId },
+      data: { ...rest, ...(cities ? { cities: [...new Set(cities)] } : {}), ...(onboarded !== undefined ? { onboardedAt: onboarded ? new Date() : null } : {}) },
+    });
+    // the logo itself is too big for the log: just say it changed
+    const logged: Record<string, unknown> = { ...input };
+    if ('logo' in logged) logged.logo = input.logo ? 'changed' : 'removed';
+    await this.audit.record(null, user.id, 'org.update', orgId, logged, orgId);
+    if (input.name !== undefined || input.logo !== undefined) this.realtime.homesChanged(orgId);
     return this.organization(user);
   }
 

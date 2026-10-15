@@ -1,0 +1,151 @@
+# Switchboard on Server B (145.241.156.60), next to KCP and Vibe, touching neither.
+#
+#   cd /opt/home-platform && bash infra/deploy-server.sh
+#
+# The server's own Caddy (/opt/global-proxy, container global-caddy) keeps ports 80/443 and the
+# certificates; infra/caddy/home.caddy is the block added to its Caddyfile. Only web and api join
+# that proxy's network (as home-web / home-api). Postgres, Mosquitto's plain port and the assistant
+# stay on this project's own network. Boards reach Mosquitto on 8883 (TLS) with the RSA
+# certificate Caddy keeps for home.fawadiqbal.dev (infra/mosquitto/start-server.sh).
+# Every service is named home-*: Compose registers service names on each network, and a plain
+# "api" or "web" on global-proxy would be picked up by KCP's gateway (which proxies to api / web).
+# No Traefik here: that is docker-compose.yml's "cloud" profile, for a server of its own.
+name: home
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: '3' }
+
+services:
+  home-postgres:
+    <<: *logging
+    image: postgres:16-alpine
+    container_name: home-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: home
+      POSTGRES_USER: home
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [home-internal]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U home -d home']
+      interval: 5s
+      retries: 10
+    mem_limit: 512m
+
+  home-mosquitto:
+    <<: *logging
+    image: eclipse-mosquitto:2
+    container_name: home-mosquitto
+    restart: unless-stopped
+    environment:
+      MQTT_API_PASSWORD: ${MQTT_API_PASSWORD:?set MQTT_API_PASSWORD in .env}
+      MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD:?set MQTT_NODE_PASSWORD in .env}
+      MQTT_TLS_HOST: ${DOMAIN:?set DOMAIN in .env}
+    command: [sh, /mosquitto/config/start-server.sh]
+    ports: ['8883:8883']
+    volumes:
+      - ./mosquitto/mosquitto.server.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/start-server.sh:/mosquitto/config/start-server.sh:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - mosquitto-data:/mosquitto/data
+      # Caddy's certificates (read only)
+      - caddy-data:/caddy:ro
+    networks: [home-internal]
+    mem_limit: 128m
+
+  home-api:
+    <<: *logging
+    build: { context: .., dockerfile: apps/api/Dockerfile }
+    image: home/api:latest
+    container_name: home-api
+    restart: unless-stopped
+    depends_on:
+      home-postgres: { condition: service_healthy }
+      home-mosquitto: { condition: service_started }
+    environment:
+      DATABASE_URL: postgresql://home:${POSTGRES_PASSWORD}@home-postgres:5432/home
+      MQTT_URL: mqtt://home-mosquitto:1883
+      MQTT_API_PASSWORD: ${MQTT_API_PASSWORD}
+      MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD}
+      MQTT_PUBLIC_PORT: '8883'
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+      PUBLIC_API_URL: https://${DOMAIN}
+      FIRMWARE_DIR: /data/firmware
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      WEB_ORIGIN: https://${DOMAIN}
+      COOKIE_SECURE: 'true'
+      ASSISTANT_URL: http://home-assistant:8000
+      ASSISTANT_SHARED_SECRET: ${ASSISTANT_SHARED_SECRET:?set ASSISTANT_SHARED_SECRET in .env}
+      API_PORT: '4000'
+    volumes:
+      - api-data:/data
+    networks:
+      home-internal: {}
+      global-proxy:
+        aliases: [home-api]
+    mem_limit: 768m
+
+  home-web:
+    <<: *logging
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_INTERNAL_URL: http://home-api:4000
+    image: home/web:latest
+    container_name: home-web
+    restart: unless-stopped
+    depends_on: [home-api]
+    environment:
+      API_INTERNAL_URL: http://home-api:4000
+    networks:
+      home-internal: {}
+      global-proxy:
+        aliases: [home-web]
+    mem_limit: 512m
+
+  home-assistant:
+    <<: *logging
+    build: { context: ../apps/assistant }
+    image: home/assistant:latest
+    container_name: home-assistant
+    restart: unless-stopped
+    environment:
+      API_URL: http://home-api:4000
+      ASSISTANT_SHARED_SECRET: ${ASSISTANT_SHARED_SECRET}
+      LLM_PROVIDER: claude
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-5-5}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      LANGUAGE: ${LANGUAGE:-}
+      LANGUAGES: ${LANGUAGES:-}
+      QUICK_COMMANDS: ${QUICK_COMMANDS:-true}
+      FAST_REPLIES: ${FAST_REPLIES:-true}
+      PIPER_MODEL: models/en_US-lessac-medium.onnx
+    volumes:
+      - ../apps/assistant/models:/app/models:ro
+      # Whisper's downloaded model, kept across restarts
+      - assistant-cache:/root/.cache
+    networks: [home-internal]
+    mem_limit: 2g
+    cpus: 1.5
+
+networks:
+  # Not "internal": the assistant calls the Claude API and downloads Whisper's model.
+  home-internal: {}
+  global-proxy:
+    external: true
+
+volumes:
+  pgdata:
+  mosquitto-data:
+  api-data:
+  assistant-cache:
+  caddy-data:
+    external: true
+    name: global-proxy_caddy_data

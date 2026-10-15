@@ -32,18 +32,19 @@ export function useCrumbs(crumbs: Crumb[]) {
 interface NavItem { href: string; label: string; icon: string; count?: string | null; countBad?: boolean; exact?: boolean; sub?: { href: string; label: string } }
 
 function useConsoleCounts(enabled: boolean, installer: boolean) {
-  const [counts, setCounts] = useState<{ attention: number; homes: number; stock: number } | null>(null);
+  const [counts, setCounts] = useState<{ attention: number; homes: number; stock: number; visits: number } | null>(null);
   const load = useCallback(() => {
     if (!enabled) return;
     if (installer) {
-      void get<unknown[]>('/platform/homes').then((h) => setCounts({ attention: 0, homes: h.length, stock: 0 })).catch(() => undefined);
+      void get<unknown[]>('/platform/homes').then((h) => setCounts({ attention: 0, homes: h.length, stock: 0, visits: 0 })).catch(() => undefined);
     } else {
-      void get<Overview>('/platform/overview').then((o) => setCounts({ attention: o.attentionCount, homes: o.kpis.homes, stock: o.kpis.inStock })).catch(() => undefined);
+      void get<Overview>('/platform/overview').then((o) => setCounts({ attention: o.attentionCount, homes: o.kpis.homes, stock: o.kpis.inStock, visits: o.visitsWaiting ?? 0 })).catch(() => undefined);
     }
   }, [enabled, installer]);
   useEffect(() => { load(); }, [load]);
   useLive('inventory.changed', load);
   useLive('homes.changed', load);
+  useLive('visits.changed', load);
   return counts;
 }
 
@@ -96,9 +97,11 @@ export function Shell({ children }: { children: ReactNode }) {
         { href: '/console', label: 'Overview', icon: 'layout-grid', exact: true, count: counts?.attention ? String(counts.attention) : null, countBad: true },
         homesItem,
       ];
-      if (staffRole === 'SUPPORT') return [...base, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
+      const visits: NavItem = { href: '/console/requests', label: 'Visit requests', icon: 'phone', count: counts?.visits ? String(counts.visits) : null };
+      if (staffRole === 'SUPPORT') return [...base, visits, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
       return [
         ...base,
+        visits,
         { href: '/console/inventory', label: 'Inventory', icon: 'package', count: counts ? String(counts.stock) : null },
         { href: '/console/team', label: 'Team', icon: 'users' },
         { href: '/console/roles', label: 'Roles & permissions', icon: 'key' },

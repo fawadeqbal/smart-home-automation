@@ -234,6 +234,16 @@ test('the wall button on the board is recorded as a button press', async () => {
   assert.equal(bulb.state.on, true);
   const history = (await owner.get(`/devices/${state.bulb}/history`)).body;
   assert.deepEqual(history.slice(0, 2).map((h) => h.source), ['button', 'remote']);
+  assert.deepEqual(history.slice(0, 2).map((h) => [h.via, h.by]), [['wall', null], ['app', 'Fawad']]);
+
+  // the activity feed: who switched what, and how — only for devices you can see
+  const feed = (await owner.get('/events?limit=5')).body;
+  assert.deepEqual(feed.slice(0, 2).map((e) => [e.deviceName, e.via, e.by, e.state.on]), [['Bulb', 'wall', null, true], ['Bulb', 'app', 'Fawad', false]]);
+  assert.equal(feed[0].roomName, 'Living room');
+  assert.ok(feed.every((e) => e.deviceType !== 'dht')); // temperature readings stay out of it
+  const older = (await owner.get(`/events?limit=5&before=${encodeURIComponent(feed[0].at)}`)).body;
+  assert.equal(older[0].id, feed[1].id);
+  assert.deepEqual((await new Client().get('/events')).status, 401);
 });
 
 test('scenes run at once; timers run later with their creator\'s rights', async () => {
@@ -476,4 +486,87 @@ test('SaaS: a second organization is isolated, staff roles do what they should',
   assert.equal((await other.post('/platform/org/plan', { plan: 'PRO' })).body.plan, 'PRO');
   assert.equal((await other.post('/platform/homes', { name: 'Now fine' })).status, 201);
   assert.equal((await installer.post('/platform/org/plan', { plan: 'BUSINESS' })).status, 403);
+});
+
+test('website: "Book a free visit" reaches the organization; the public form is guarded', async () => {
+  const send = (body, ip) => fetch(`${base}/public/visit-requests`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify(body),
+  });
+  const good = { name: 'Sana Malik', phone: '0300 1234567', city: 'Karachi', homeSize: '5 Marla' };
+  assert.equal((await send({ ...good, phone: 'call me' }, '203.0.113.7')).status, 400);
+  assert.equal((await send({ ...good, name: 'Bot', website: 'https://spam.example' }, '203.0.113.7')).status, 201); // a bot: thanked, not stored
+  assert.equal((await send(good, '203.0.113.7')).status, 201);
+
+  const list = await owner.get('/platform/visit-requests');
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.body.requests.map((r) => [r.name, r.status]), [['Sana Malik', 'NEW']]);
+  assert.equal(list.body.counts.NEW, 1);
+  assert.equal((await member.get('/platform/visit-requests')).status, 403); // home members never see them
+
+  const id = list.body.requests[0].id;
+  assert.equal((await owner.patch(`/platform/visit-requests/${id}`, { status: 'CONTACTED', note: 'Visit Saturday' })).status, 200);
+  assert.equal((await owner.get('/platform/visit-requests')).body.requests[0].statusLabel, 'Called');
+
+  // five an hour from one visitor; others are not affected
+  for (let i = 0; i < 4; i++) assert.equal((await send(good, '203.0.113.7')).status, 201);
+  assert.equal((await send(good, '203.0.113.7')).status, 429);
+  assert.equal((await send(good, '198.51.100.4')).status, 201);
+});
+
+test('sign-up and first run: password rules, the invite page, the owner and company tours', async () => {
+  const boss = new Client();
+  const weak = await boss.post('/auth/signup', { orgName: 'Glow Homes', name: 'Faraz', email: 'faraz@glow.example', password: 'onlyletters' });
+  assert.equal(weak.status, 400);
+  assert.match(weak.body.message, /number or a symbol/);
+  assert.match((await boss.post('/auth/signup', { orgName: 'Glow Homes', name: 'Faraz', email: 'faraz@glow.example', password: 'Password1' })).body.message, /too common/);
+  const signed = await boss.post('/auth/signup', { orgName: 'Glow Homes', name: 'Faraz Ali', email: 'faraz@glow.example', password: 'lamp-post-42' });
+  assert.equal(signed.status, 201);
+  assert.equal(signed.body.staff.org.onboarded, false); // a new organization gets the company tour
+  assert.equal((await owner.get('/auth/me')).body.home.onboarded, true); // setup: you made your own home, no owner tour
+
+  // step 1: the company
+  assert.equal((await boss.patch('/platform/org', { logo: 'data:text/html;base64,PGI+' })).status, 400);
+  const logo = 'data:image/png;base64,iVBORw0KGgo=';
+  assert.equal((await boss.patch('/platform/org', { logo, cities: ['Lahore', 'Lahore', 'Karachi'], teamSize: '2–5' })).status, 200);
+  const org = (await boss.get('/platform/org')).body;
+  assert.deepEqual([org.logo, org.cities, org.teamSize, org.onboarded], [logo, ['Lahore', 'Karachi'], '2–5', false]);
+  // step 2: a first home, with its owner's invite
+  const me = (await boss.get('/auth/me')).body;
+  const home = await boss.post('/platform/homes', { name: 'Khan residence', city: 'Lahore', installerId: me.id, owner: { email: 'ayesha@example.com', name: 'Ayesha Khan' }, rooms: ['Living room', 'Kitchen'] });
+  assert.equal(home.status, 201);
+  const token = home.body.invite.path.split('/').pop();
+  const page = (await new Client().get(`/invites/${token}`)).body;
+  assert.equal(page.role, 'OWNER');
+  assert.equal(page.inviter, 'Faraz Ali');
+  assert.equal(page.orgName, 'Glow Homes');
+  assert.equal(page.orgLogo, logo);
+  assert.equal(page.home.installer, 'Faraz Ali');
+  assert.deepEqual(page.home.rooms.map((r) => r.name).sort(), ['Kitchen', 'Living room']);
+  assert.equal(page.existingAccount, false);
+  // the owner's password follows the same rules
+  const ayesha = new Client();
+  assert.equal((await ayesha.post(`/invites/${token}/accept`, { name: 'Ayesha Khan', password: '12345678' })).status, 400);
+  const joined = await ayesha.post(`/invites/${token}/accept`, { name: 'Ayesha Khan', password: 'Sunflower#7' });
+  assert.equal(joined.status, 201);
+  assert.equal(joined.body.home.onboarded, false); // the owner tour is waiting
+  const welcome = (await ayesha.get('/home/welcome')).body;
+  assert.equal(welcome.home.name, 'Khan residence');
+  assert.equal(welcome.installer, 'Faraz Ali');
+  assert.equal(welcome.org.name, 'Glow Homes');
+  assert.equal(welcome.rooms.length, 2);
+  assert.equal(welcome.tryDevice, null); // nothing installed yet
+  assert.equal((await ayesha.post('/home/onboarded')).status, 204);
+  assert.equal((await ayesha.get('/auth/me')).body.home.onboarded, true);
+  // staff looking into the home never get the owner's tour
+  boss.home = home.body.id;
+  assert.equal((await boss.get('/auth/me')).body.home.onboarded, true);
+  boss.home = null;
+  // step 4: done
+  assert.equal((await boss.patch('/platform/org', { onboarded: true })).status, 200);
+  assert.equal((await boss.get('/auth/me')).body.staff.org.onboarded, true);
+
+  // a wrong password says so, without saying which part was wrong
+  const wrong = await new Client().post('/auth/login', { email: 'faraz@glow.example', password: 'nope' });
+  assert.equal(wrong.status, 401);
+  assert.match(wrong.body.message, /^Wrong email or password\./);
 });
