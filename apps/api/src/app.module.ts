@@ -15,6 +15,8 @@ import { AuditModule } from './common/audit.service';
 import { Settings, SETTINGS } from './config';
 import { DevicesService } from './hardware/devices.service';
 import { HardwareController } from './hardware/hardware.controller';
+import { ConnectionsService } from './hardware/connections.service';
+import { GeoService } from './hardware/geo.service';
 import { LogsService } from './hardware/logs.service';
 import { NodesService } from './hardware/nodes.service';
 import { HealthController } from './health/health.controller';
@@ -60,7 +62,7 @@ export function createAppModule(settings: Settings) {
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, UsersService, LogsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      AuthService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
     ],
   })
   class AppModule {}

@@ -826,7 +826,7 @@ label.field > span { display: inline-flex; align-items: center; }
 .net-advice.warn { background: var(--ons); color: var(--ont); }
 .net-advice.bad { background: var(--bads); color: var(--badt); }
 
-.net-path { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--ln); background: var(--sf2); }
+.net-path { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--ln); background: var(--sf2); }
 .net-hop { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; min-width: 0; }
 .net-hop + .net-hop::before { content: ''; position: absolute; left: -9px; top: 29px; width: 18px; height: 2px; border-radius: 2px; background: var(--ok); z-index: 1; }
 .net-path.is-down .net-hop + .net-hop::before { background: repeating-linear-gradient(90deg, var(--bad) 0 4px, transparent 4px 7px); }
@@ -1292,3 +1292,33 @@ input[type='file'] { height: auto; padding: 8px; }
 .help-checks ul { margin: 0; padding-left: 18px; }
 .help-body { white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; }
 .side-panel textarea.mono { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 1.5; }
+/* ------------------------------------------------------------- board internet connection */
+.conn-cards { display: grid; grid-template-columns: 1.25fr 1fr 1.25fr; gap: 12px; }
+.conn-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.conn-ip { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.conn-big { font-size: 26px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
+.conn-where { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.conn-where svg { color: var(--mu); flex: none; }
+.conn-ends { display: flex; flex-wrap: wrap; gap: 6px; }
+.conn-verdict { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; }
+.conn-verdict svg { flex: none; margin-top: 2px; }
+.conn-verdict.v-ok { background: var(--oks); color: var(--okt); }
+.conn-verdict.v-warn { background: var(--ons); color: var(--ont); }
+.conn-verdict.v-info, .conn-verdict.v-mute { background: var(--acs); color: var(--act); }
+.conn-verdict.v-bad { background: var(--bads); color: var(--badt); }
+.conn-table td { vertical-align: top; }
+.conn-why { margin-top: 4px; max-width: 340px; line-height: 1.4; }
+@media (max-width: 900px) {
+  .conn-cards { grid-template-columns: 1fr; }
+}
+/* phones: each connection as a small card instead of a wide table */
+@media (max-width: 640px) {
+  .conn-table thead { display: none; }
+  .conn-table, .conn-table tbody, .conn-table tr, .conn-table td { display: block; width: 100%; }
+  .conn-table tr { padding: 12px 16px; border-bottom: 1px solid var(--ln); }
+  .conn-table tr:last-child { border-bottom: 0; }
+  .conn-table td { padding: 2px 0 !important; border: 0 !important; white-space: normal; }
+  .conn-table td:first-child { font-weight: 600; }
+  .conn-table td[data-label]::before { content: attr(data-label) ' · '; color: var(--mu); font-size: 12.5px; }
+  .conn-table td:last-child { margin-top: 6px; }
+}

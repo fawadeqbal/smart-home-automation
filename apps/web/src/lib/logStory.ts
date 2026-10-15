@@ -163,17 +163,41 @@ export function buildEvents(lines: RawLine[], devices: DeviceRef[], now = Date.n
       if ((m = msg.match(/^Board connected \(firmware ([^,]+), IP ([^)]+)\)$/))) {
         const e = findOpen(['online'], at);
         if (e) { fold(e, line); e.detail = `firmware ${m[1]} · IP ${m[2]}`; continue; }
-        push({ kind: 'online', at: line.at, lines: [line], tone: 'ok', title: 'Board online', detail: `firmware ${m[1]} · IP ${m[2]}`, open: { until: at + 10_000 } });
+        push({ kind: 'online', at: line.at, lines: [line], tone: 'ok', title: 'Board online', detail: `firmware ${m[1]} · IP ${m[2]}`, open: { until: at + 15_000 } });
         continue;
       }
       if (msg === 'Online') {
         const e = findOpen(['online'], at);
         if (e) { fold(e, line); continue; }
-        push({ kind: 'online', at: line.at, lines: [line], tone: 'ok', title: 'Board online', open: { until: at + 10_000 } });
+        push({ kind: 'online', at: line.at, lines: [line], tone: 'ok', title: 'Board online', open: { until: at + 15_000 } });
+        continue;
+      }
+      // from the broker's log: where it connected from ("Connected from 39.45.1.2 · Lahore, Punjab, PK · PTCL")
+      if ((m = msg.match(/^Connected from (\S+)(?: · (.+))?$/))) {
+        const from = m[2] ? m[2] : m[1];
+        const e = findOpen(['online'], at);
+        if (e) { fold(e, line); e.meta = `from ${from}`; continue; }
+        push({ kind: 'online', at: line.at, lines: [line], tone: 'ok', title: 'Board connected', detail: m[1], meta: `from ${from}`, open: { until: at + 15_000 } });
         continue;
       }
       if (msg.startsWith('Offline')) {
-        push({ kind: 'offline', at: line.at, lines: [line], tone: 'warn', title: 'Board went offline', detail: 'the connection to the board was lost' });
+        push({ kind: 'offline', at: line.at, lines: [line], tone: 'warn', title: 'Board went offline', detail: 'the connection to the board was lost', open: { until: at + 30_000 } });
+        continue;
+      }
+      // ... and why it ended ("Connection ended: lost contact — the board stopped answering: … (connected 2 h 5 min)")
+      if ((m = msg.match(/^Connection ended: (.+?) — (.+?)(?: \(connected (.+)\))?$/))) {
+        const [, what, why, lasted] = m;
+        const e = findOpen(['offline'], at, (x) => !x.meta);
+        const upFor = lasted ? `was up ${lasted}` : undefined;
+        if (e) {
+          fold(e, line);
+          e.title = `Board went offline: ${what}`;
+          e.detail = why;
+          e.meta = upFor;
+          continue;
+        }
+        const quiet = what === 'short drop' || what === 'restarted on purpose';
+        push({ kind: 'offline', at: line.at, lines: [line], tone: quiet ? 'info' : 'warn', title: what[0].toUpperCase() + what.slice(1), detail: why, meta: upFor });
         continue;
       }
       // ---- firmware

@@ -52,6 +52,8 @@ services:
       - ./mosquitto/start-server.sh:/mosquitto/config/start-server.sh:ro
       - ./mosquitto/acl:/mosquitto/config/acl:ro
       - mosquitto-data:/mosquitto/data
+      # its connection log, read by the API (board public IPs and why connections ended)
+      - mosquitto-log:/mosquitto/log
       # Caddy's certificates (read only)
       - caddy-data:/caddy:ro
     networks: [home-internal]
@@ -82,13 +84,15 @@ services:
       ASSISTANT_URL: http://home-assistant:8000
       ASSISTANT_SHARED_SECRET: ${ASSISTANT_SHARED_SECRET:?set ASSISTANT_SHARED_SECRET in .env}
       API_PORT: '4000'
+      BROKER_LOG: /broker-log/broker.log
     volumes:
       - api-data:/data
+      - mosquitto-log:/broker-log:ro
     networks:
       home-internal: {}
       global-proxy:
         aliases: [home-api]
-    mem_limit: 768m
+    mem_limit: 1g
 
   home-web:
     <<: *logging
@@ -145,6 +149,7 @@ networks:
 volumes:
   pgdata:
   mosquitto-data:
+  mosquitto-log:
   api-data:
   assistant-cache:
   caddy-data:

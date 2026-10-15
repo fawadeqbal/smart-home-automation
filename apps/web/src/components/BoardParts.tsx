@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { Fragment, ReactNode, useState } from 'react';
 import { BoardDiagram, pinStats } from '@/components/BoardDiagram';
+import { ConnectionPanel } from '@/components/ConnectionPanel';
 import { boardCondition, ConditionLight, hardwareFacts, HealthPanel, signalLabel } from '@/components/BoardHealth';
 import { DeviceForm, DeviceFormValues, freePins } from '@/components/DeviceForm';
 import { FirmwarePanel } from '@/components/FirmwarePanel';
@@ -17,8 +18,8 @@ import { timeAgo, useNow } from '@/lib/hooks';
 import type { BoardNode, Catalog, NodeDevice, Room, Tone } from '@/lib/types';
 import { isBehind } from '@/lib/version';
 
-export type BoardTab = 'overview' | 'devices' | 'pins' | 'network' | 'firmware' | 'logs';
-export const BOARD_TABS: BoardTab[] = ['overview', 'devices', 'pins', 'network', 'firmware', 'logs'];
+export type BoardTab = 'overview' | 'devices' | 'pins' | 'network' | 'internet' | 'firmware' | 'logs';
+export const BOARD_TABS: BoardTab[] = ['overview', 'devices', 'pins', 'network', 'internet', 'firmware', 'logs'];
 
 /** The board's sections, in the order an installer works: is it OK → what's on it → where the wires go → Wi‑Fi → updates → raw log. */
 const TABS: { id: BoardTab; label: string; icon: string; setupOnly?: boolean }[] = [
@@ -26,6 +27,7 @@ const TABS: { id: BoardTab; label: string; icon: string; setupOnly?: boolean }[]
   { id: 'devices', label: 'Devices & buttons', icon: 'lightbulb' },
   { id: 'pins', label: 'Pin map', icon: 'cpu' },
   { id: 'network', label: 'Wi‑Fi', icon: 'wifi', setupOnly: true },
+  { id: 'internet', label: 'Internet', icon: 'map-pin' },
   { id: 'firmware', label: 'Firmware', icon: 'download', setupOnly: true },
   { id: 'logs', label: 'Live log', icon: 'terminal' },
 ];
@@ -80,6 +82,16 @@ const HELP: Record<BoardTab, { title: string; body: ReactNode }> = {
       <ul>
         <li>Firmware is the program running on the board. Upload a build once, then install it on any board over Wi‑Fi.</li>
         <li>The board restarts after an update (about 10 seconds). Its devices and pins stay as they are.</li>
+      </ul>
+    ),
+  },
+  internet: {
+    title: 'How the board reaches the server',
+    body: (
+      <ul>
+        <li><b>Reaches the server from</b>: the home’s internet address, the city it belongs to and the provider (PTCL, Nayatel, Zong…). Approximate: the provider’s city, never the street.</li>
+        <li><b>Connections</b>: every time the board connected, how long it stayed, and why it ended — <b>Lost contact</b> (power cut or Wi‑Fi/internet down), <b>Connection cut</b> (board reset or the router dropped it), <b>Restarted on purpose</b>, <b>Short drop</b>.</li>
+        <li>Many “Lost contact” lines: check the power supply and the Wi‑Fi signal. A “New address”: the router got a new address, or the board was on another network.</li>
       </ul>
     ),
   },
@@ -188,6 +200,11 @@ function Overview({ node, catalog, rooms, canSetup, onTab, onModel, latestFirmwa
     {
       icon: 'cpu', title: 'Pins', sub: `${s.used} in use · ${s.free} free`, go: 'pins',
       value: <span className="progress ac" style={{ width: 64 }}><i style={{ width: `${(s.used / Math.max(1, s.used + s.free)) * 100}%` }} /></span>,
+    },
+    {
+      icon: 'map-pin', title: 'Internet',
+      sub: node.publicIp ? [node.publicPlace, node.publicIsp].filter(Boolean).join(' · ') || 'Where it connects from' : 'Shows after the board next connects',
+      value: node.publicIp ? <span className="mono small">{node.publicIp}</span> : '', go: 'internet',
     },
     { icon: 'terminal', title: 'Live log', sub: node.online ? 'See what the board is doing right now' : 'The board is offline', value: '', go: 'logs' },
   ];
@@ -479,6 +496,7 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
       {current === 'pins' && <BoardDiagram node={node} catalog={catalog} />}
       {current === 'network' && <NetworkPanel node={node} />}
       {current === 'firmware' && <FirmwarePanel node={node} />}
+      {current === 'internet' && <ConnectionPanel node={node} />}
       {current === 'logs' && <LogPanel nodeId={node.id} online={node.online} devices={node.devices} />}
 
       {dialog === 'rename' && (

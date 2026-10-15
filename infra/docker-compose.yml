@@ -49,6 +49,9 @@ services:
       - sh
       - -c
       - >-
+        mkdir -p /mosquitto/log && touch /mosquitto/log/broker.log &&
+        chown -R mosquitto:mosquitto /mosquitto/log && chmod 0644 /mosquitto/log/broker.log &&
+        if [ $$(wc -c < /mosquitto/log/broker.log) -gt 2097152 ]; then tail -n 8000 /mosquitto/log/broker.log > /tmp/l && cat /tmp/l > /mosquitto/log/broker.log; fi &&
         rm -f /mosquitto/data/passwd &&
         mosquitto_passwd -c -b /mosquitto/data/passwd api "$$MQTT_API_PASSWORD" &&
         mosquitto_passwd -b /mosquitto/data/passwd node "$$MQTT_NODE_PASSWORD" &&
@@ -58,6 +61,7 @@ services:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/acl:/mosquitto/config/acl:ro
       - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
     labels:
       - traefik.enable=true
       - traefik.tcp.routers.mqtt.rule=HostSNI(`mqtt.${DOMAIN:-localhost}`)
@@ -81,6 +85,7 @@ services:
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-https://${DOMAIN}}
       FIRMWARE_DIR: /data/firmware
+      BROKER_LOG: /broker-log/broker.log
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       WEB_ORIGIN: ${WEB_ORIGIN:-https://${DOMAIN}}
@@ -90,6 +95,7 @@ services:
       API_PORT: 4000
     volumes:
       - api-data:/data
+      - mosquitto-log:/broker-log:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`${DOMAIN:-localhost}`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))
@@ -134,3 +140,4 @@ volumes:
   certs:
   pgdata:
   mosquitto-data:
+  mosquitto-log:

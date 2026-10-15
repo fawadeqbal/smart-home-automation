@@ -6,6 +6,7 @@ import { CurrentUser, NoHome, Roles, Setup } from '../auth/decorators';
 import { ZodPipe } from '../common/zod';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DevicesService } from './devices.service';
+import { ConnectionsService } from './connections.service';
 import { NodesService } from './nodes.service';
 
 const name = z.string().trim().min(1).max(60);
@@ -35,6 +36,7 @@ export class HardwareController {
     private readonly nodes: NodesService,
     private readonly devices: DevicesService,
     private readonly mqtt: MqttService,
+    private readonly connectionsService: ConnectionsService,
   ) {}
 
   /** Board pin rules and device types, for the UI's forms. */
@@ -131,6 +133,13 @@ export class HardwareController {
   @HttpCode(204)
   forget(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.nodes.forget(user, id);
+  }
+
+  /** The board's internet connection: public IP, place and provider, how steady it is, recent connections. */
+  @Roles('OWNER', 'ADMIN')
+  @Get('nodes/:id/connections')
+  connections(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.connectionsService.forNode(user.homeId, id);
   }
 
   @Roles('OWNER', 'ADMIN')

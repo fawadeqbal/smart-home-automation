@@ -248,9 +248,36 @@ model Node {
   configRev     Int            @default(0)
   appliedRev    Int            @default(0)
   configError   String?
+  /// Where it reaches the server from (the home's internet address), from the broker's log.
+  publicIp      String?
+  /// "Lahore, Punjab, PK" and the internet provider, looked up for publicIp (DB-IP lite).
+  publicPlace   String?
+  publicIsp     String?
+  /// When publicIp last changed.
+  publicIpAt    DateTime?
   devices       Device[]
   inputs        Input[]
+  connections   NodeConnection[]
   createdAt     DateTime       @default(now())
+}
+
+/// One connection of a board to the broker: from where, how long, and how it ended.
+model NodeConnection {
+  id          String    @id @default(cuid())
+  nodeId      String
+  node        Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  ip          String
+  port        Int
+  connectedAt DateTime
+  endedAt     DateTime?
+  /// clean | closed | timeout | replaced | error (endNote has the broker's words for "error")
+  endReason   String?
+  endNote     String?
+  place       String?
+  isp         String?
+
+  @@unique([nodeId, connectedAt, port])
+  @@index([nodeId, connectedAt])
 }
 
 model Device {

@@ -17,6 +17,23 @@ cp "$KEY" /mosquitto/certs/key.pem
 chown -R mosquitto:mosquitto /mosquitto/certs
 chmod 0600 /mosquitto/certs/key.pem
 
+# Connection log for the API (see mosquitto.server.conf). Created here so it is readable (0644):
+# a file Mosquitto creates itself is private to it.
+LOG=/mosquitto/log/broker.log
+mkdir -p /mosquitto/log
+touch "$LOG"
+chown -R mosquitto:mosquitto /mosquitto/log
+chmod 0755 /mosquitto/log
+chmod 0644 "$LOG"
+# Keeps the newest lines when it passes 2 MB (rewritten in place: Mosquitto appends, so nothing is lost).
+trim_log() {
+  if [ "$(wc -c < "$LOG")" -gt 2097152 ]; then
+    tail -n 8000 "$LOG" > "$LOG.tmp" && cat "$LOG.tmp" > "$LOG"
+    rm -f "$LOG.tmp"
+  fi
+}
+trim_log
+
 rm -f /mosquitto/data/passwd
 mosquitto_passwd -c -b /mosquitto/data/passwd api "$MQTT_API_PASSWORD"
 mosquitto_passwd -b /mosquitto/data/passwd node "$MQTT_NODE_PASSWORD"
@@ -29,6 +46,7 @@ trap 'kill "$PID" 2>/dev/null; wait "$PID"; exit 0' TERM INT
 SUM="$(sha256sum < "$CRT")"
 while kill -0 "$PID" 2>/dev/null; do
   sleep 60
+  trim_log
   if [ "$(sha256sum < "$CRT" 2>/dev/null)" != "$SUM" ]; then
     echo "certificate renewed: restarting to load it"
     kill "$PID"; wait "$PID" || true

@@ -12,11 +12,14 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { io } = require('socket.io-client');
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const NODE_ID = 'esp-e2e01';
+const BROKER_LOG = path.join(os.tmpdir(), `home-e2e-broker-${process.pid}.log`);
 let app, base, fake, prisma;
 
 class Client {
@@ -58,6 +61,10 @@ before(async () => {
   process.env.ALLOW_SIGNUP = 'true'; // the SaaS test signs up a second organization
   process.env.PUBLIC_API_URL = 'http://127.0.0.1:4555'; // where the fake board downloads firmware
   process.env.HELP_DIR = path.join(__dirname, 'help-fixture'); // three small starter articles
+  // the broker's connection log (on the server Mosquitto writes it); no IP-location downloads in tests
+  process.env.BROKER_LOG = BROKER_LOG;
+  fs.writeFileSync(BROKER_LOG, '');
+  process.env.GEOIP = 'off';
   const { createApp } = require('../../dist/main.js');
   const { PrismaClient } = require('@prisma/client');
   prisma = new PrismaClient();
@@ -245,6 +252,45 @@ test('the wall button on the board is recorded as a button press', async () => {
   const older = (await owner.get(`/events?limit=5&before=${encodeURIComponent(feed[0].at)}`)).body;
   assert.equal(older[0].id, feed[1].id);
   assert.deepEqual((await new Client().get('/events')).status, 401);
+});
+
+test('board connections: public IP, why each ended, history; re-reading changes nothing', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const lines = [
+    `${now - 100}: New connection from 39.45.10.20:51000 on port 8883.`,
+    `${now - 100}: New client connected from 39.45.10.20:51000 as ${NODE_ID} (p4, c1, k15, u'node').`,
+    `${now - 99}: New client connected from 172.24.0.5:40000 as api-1234 (p4, c1, k60, u'api').`,
+    `${now - 40}: Client ${NODE_ID} [39.45.10.20:51000] disconnected: exceeded timeout.`,
+    `${now - 30}: New client connected from 203.0.113.9:52000 as ${NODE_ID} (p4, c1, k15, u'node').`,
+    `${now - 30}: Client ${NODE_ID} negotiated TLSv1.3 cipher TLS_AES_256_GCM_SHA384`,
+  ];
+  fs.appendFileSync(BROKER_LOG, lines.join('\n') + '\n');
+  const info = await until('connections recorded', async () => {
+    const r = (await owner.get(`/nodes/${NODE_ID}/connections`)).body;
+    return r.history?.length === 2 ? r : null;
+  });
+  assert.equal(info.tracking, true);
+  assert.equal(info.current.ip, '203.0.113.9');
+  const [latest, before] = info.history;
+  assert.equal(latest.endedAt, null);
+  assert.equal(latest.newAddress, true);
+  assert.equal(before.ip, '39.45.10.20');
+  assert.equal(before.endReason, 'timeout');
+  assert.equal(before.seconds, 60);
+  assert.equal(info.stats.ends7d.timeout, 1);
+  assert.equal(info.stats.addresses7d, 2);
+  const listed = (await owner.get('/nodes')).body.find((n) => n.id === NODE_ID);
+  assert.equal(listed.publicIp, '203.0.113.9');
+  const logs = (await owner.get(`/nodes/${NODE_ID}/logs`)).body;
+  assert.ok(logs.some((l) => l.source === 'server' && /^Connected from 203\.0\.113\.9/.test(l.msg)), 'live log: connected');
+  assert.ok(logs.some((l) => l.source === 'server' && /^Connection ended: lost contact/.test(l.msg)), 'live log: why it ended');
+
+  // the same lines again (a restart reads the file from the top): nothing new
+  fs.appendFileSync(BROKER_LOG, lines.join('\n') + '\n');
+  await new Promise((r) => setTimeout(r, 2600));
+  assert.equal((await prisma.nodeConnection.count({ where: { nodeId: NODE_ID } })), 2);
+  // only owners and admins
+  assert.equal((await member.get(`/nodes/${NODE_ID}/connections`)).status, 403);
 });
 
 test('scenes run at once; timers run later with their creator\'s rights', async () => {
@@ -501,11 +547,17 @@ test('SaaS: a second organization is isolated, staff roles do what they should',
   const shah = (await other.post('/platform/homes', { name: 'Shah house', installerId: bossId })).body.id;
   assert.equal((await other.post('/platform/inventory', { ids: ['esp-move01'], board: 'NODEMCU_V2' })).status, 201);
   assert.equal((await other.post('/platform/inventory/esp-move01/assign', { homeId: shah, installerId: raviId })).status, 200);
+  fs.appendFileSync(BROKER_LOG, `${Math.floor(Date.now() / 1000)}: New client connected from 39.45.77.1:50000 as esp-move01 (p4, c1, k15, u'node').\n`);
+  await until('connection of the assigned board', async () => (await prisma.nodeConnection.count({ where: { nodeId: 'esp-move01' } })) === 1);
   const jobs = (await installer.get('/platform/homes')).body;
   assert.ok(jobs.some((h) => h.id === shah && h.installerId === raviId), 'the job reaches the installer');
   installer.home = shah;
   assert.equal((await installer.get('/auth/me')).body.home.canSetup, true);
   installer.home = null;
+  // back to stock: the next customer must not see where this home is
+  assert.equal((await other.post('/platform/inventory/esp-move01/unassign')).status, 200);
+  assert.equal(await prisma.nodeConnection.count({ where: { nodeId: 'esp-move01' } }), 0);
+  assert.equal((await prisma.node.findUnique({ where: { id: 'esp-move01' } })).publicIp, null);
   assert.equal((await installer.post('/platform/org/plan', { plan: 'BUSINESS' })).status, 403);
 });
 

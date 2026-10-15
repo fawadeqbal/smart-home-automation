@@ -25,6 +25,7 @@
     "cookie": "^1.0.2",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
+    "maxmind": "^4.3.29",
     "mqtt": "^5.10.0",
     "prisma": "^6.2.0",
     "reflect-metadata": "^0.2.2",

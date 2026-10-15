@@ -203,6 +203,10 @@ export interface BoardNode {
   firmware: string | null;
   ip: string | null;
   mac?: string | null;
+  /** where it reaches the server from (the home's internet address), its place and provider */
+  publicIp?: string | null;
+  publicPlace?: string | null;
+  publicIsp?: string | null;
   rssi: number | null;
   lastSeenAt: string | null;
   configRev: number;

@@ -77,13 +77,19 @@ function NetPath({ node }: { node: BoardNode }) {
       tip: 'The exact router or Wi‑Fi extender the board joined (its hardware address). Two boards on different access points of the same network show different addresses here.',
     },
     { icon: 'router', title: 'Router', main: h?.gateway ? <span className="mono">{h.gateway}</span> : '—', sub: 'gateway' },
+    {
+      icon: 'map-pin', title: 'Internet',
+      main: node.publicIp ? <span className="mono">{node.publicIp}<Copy value={node.publicIp} label="public IP" /></span> : '—',
+      sub: [node.publicPlace, node.publicIsp].filter(Boolean).join(' · ') || undefined,
+      tip: 'The home’s address on the internet, as the server sees it, with the provider’s city and name. Shared by everything in the house; it can change when the router restarts. History: Internet tab.',
+    },
     { icon: 'server', title: 'Switchboard', main: live ? 'Connected' : 'No contact', sub: live ? `active ${timeAgo(node.lastSeenAt)}` : node.lastSeenAt ? `since ${timeAgo(node.lastSeenAt)}` : 'never' },
   ];
   return (
     <ol className={`net-path ${live ? 'is-up' : 'is-down'}`} aria-label="How the board reaches the server">
       {hops.map((x, i) => (
         <li key={x.title} className="net-hop">
-          <span className={`net-hop-icon ${i === 3 ? (live ? 'ok' : 'bad') : ''}`}><Icon name={x.icon} size={16} /></span>
+          <span className={`net-hop-icon ${i === hops.length - 1 ? (live ? 'ok' : 'bad') : ''}`}><Icon name={x.icon} size={16} /></span>
           <span className="net-hop-text">
             <span className="net-hop-title">{x.title}{x.tip && <Tip>{x.tip}</Tip>}</span>
             <b>{x.main}</b>

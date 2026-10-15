@@ -34,6 +34,10 @@ export interface Settings {
   mqttPublicPort: number;
   /** How boards reach this API for firmware downloads, e.g. http://192.168.1.119:4000 (default: this PC's LAN address). */
   publicApiUrl: string | null;
+  /** The broker's log file (read-only): board connections, their public IPs and why they ended. null: not tracked. */
+  brokerLog: string | null;
+  /** Where the free DB-IP lite databases (IP -> city, provider) are kept; null: no lookups (GEOIP=off). */
+  geoDir: string | null;
 }
 
 export function loadSettings(): Settings {
@@ -55,6 +59,8 @@ export function loadSettings(): Settings {
     mqttPublicPort: Number(process.env.MQTT_PUBLIC_PORT || 1883),
     firmwareDir: resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware')),
     publicApiUrl: process.env.PUBLIC_API_URL?.replace(/\/+$/, '') || null,
+    brokerLog: process.env.BROKER_LOG || null,
+    geoDir: process.env.GEOIP === 'off' ? null : resolve(process.env.GEOIP_DIR || resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware'), '../geo')),
     // Off by default: all boards share one broker login, so open sign-up would let any tenant's staff
     // read that password. Turn on once boards have their own credentials (see README → Selling it).
     allowSignup: process.env.ALLOW_SIGNUP === 'true',

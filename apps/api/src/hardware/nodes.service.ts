@@ -284,6 +284,7 @@ export class NodesService implements OnModuleInit {
     return nodes.map((n) => ({
       id: n.id, name: n.name, board: n.board, boardName: BOARDS[n.board]?.name ?? n.board, status: n.status, online: n.online, firmware: n.firmware, ip: n.ip, mac: n.mac,
       rssi: n.rssi, lastSeenAt: n.lastSeenAt, configRev: n.configRev, appliedRev: n.appliedRev, configError: n.configError,
+      publicIp: n.publicIp, publicPlace: n.publicPlace, publicIsp: n.publicIsp,
       health: this.health.get(n.id) ?? fallback.get(n.id) ?? null,
       devices: n.devices.map((d) => ({
         id: d.id, key: d.key, name: d.name, type: d.type, pin: d.pin, activeLow: d.activeLow, roomId: d.roomId,
@@ -344,9 +345,14 @@ export class NodesService implements OnModuleInit {
     const node = await this.prisma.$transaction(async (tx) => {
       await tx.input.deleteMany({ where: { nodeId } });
       await tx.device.deleteMany({ where: { nodeId } });
+      // the next customer must not see where the last one lives
+      await tx.nodeConnection.deleteMany({ where: { nodeId } });
       return tx.node.update({
         where: { id: nodeId },
-        data: { homeId: null, installerId: null, assignedAt: null, status, name: nodeId, configRev: { increment: 1 }, configError: null, ...(note !== undefined ? { note } : {}) },
+        data: {
+          homeId: null, installerId: null, assignedAt: null, status, name: nodeId, configRev: { increment: 1 }, configError: null,
+          publicIp: null, publicPlace: null, publicIsp: null, publicIpAt: null, ...(note !== undefined ? { note } : {}),
+        },
       });
     });
     this.logs.moved(nodeId);
