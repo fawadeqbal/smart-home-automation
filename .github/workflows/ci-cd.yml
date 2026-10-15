@@ -33,6 +33,7 @@ jobs:
     name: What changed
     runs-on: ubuntu-latest
     outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
       firmware: ${{ steps.filter.outputs.firmware }}
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +41,8 @@ jobs:
         id: filter
         with:
           filters: |
+            mobile:
+              - 'apps/mobile/**'
             firmware:
               - 'firmware/**'
               - 'packages/contracts/src/device-types.ts'
@@ -136,8 +139,37 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
 
-  # The phone app (apps/mobile) is not built in CI: build and test it on your PC
-  # (`flutter analyze`, `flutter test`, `flutter build apk`).
+  # ---------------------------------------------------------------- phone app (only when it changed)
+  mobile:
+    name: Phone app — analyze, test, build APK
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Build the Android app (arm64, test-signed)
+        run: flutter build apk --release --target-platform android-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Switchboard-home-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
 
   # ---------------------------------------------------------------- board firmware (only when it changed)
   firmware:

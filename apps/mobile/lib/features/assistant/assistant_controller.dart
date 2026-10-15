@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -112,6 +114,31 @@ class AssistantController extends Notifier<AskState> {
       _answer(reply.reply, reply.audioBase64);
     } catch (e) {
       _fail(e);
+    }
+  }
+
+  /// "Hey Switchboard": the request recorded after the wake word. The exchange goes into this
+  /// conversation like any other, but the hands-free controller speaks the answer itself (it has to
+  /// know when the answer ends). Null when the assistant couldn't be reached.
+  Future<({String? heard, String reply, List<int>? audio})?> askHandsFree(
+    List<int> wav, {
+    bool afterWake = true,
+  }) async {
+    unawaited(_player?.stop());
+    state = state.copyWith(phase: AskPhase.thinking);
+    try {
+      await _startIfFresh();
+      final r = await ref.read(assistantRepositoryProvider).voice(wav, afterWake: afterWake);
+      final heard = r.heard?.trim();
+      if (heard != null && heard.isNotEmpty) _add(ChatMessage(heard, mine: true));
+      final text = r.reply.isEmpty ? 'Done.' : r.reply;
+      _add(ChatMessage(text, mine: false));
+      state = state.copyWith(phase: AskPhase.idle);
+      unawaited(ref.read(devicesProvider.notifier).refresh());
+      return (heard: heard, reply: text, audio: AssistantRepository.decodeAudio(r.audioBase64));
+    } catch (e) {
+      _fail(e);
+      return null;
     }
   }
 

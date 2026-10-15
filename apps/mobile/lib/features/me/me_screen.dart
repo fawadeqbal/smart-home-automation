@@ -13,6 +13,7 @@ import '../../state/home_overview.dart';
 import '../../state/people.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
+import '../../voice/hands_free_ui.dart';
 import '../health/ask_for_help.dart';
 import '../home/home_actions.dart';
 
@@ -203,6 +204,8 @@ class MeScreen extends ConsumerWidget {
             ],
           ),
         ],
+        const SizedBox(height: 20),
+        const HandsFreeSettings(),
         const SizedBox(height: 20),
         GroupCard(
           children: [

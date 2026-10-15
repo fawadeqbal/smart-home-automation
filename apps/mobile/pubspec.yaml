@@ -46,6 +46,8 @@ dependencies:
   audioplayers: ^6.8.1
   share_plus: ^13.3.1
   intl: ^0.20.3
+  flutter_onnxruntime: ^1.9.0
+  flutter_foreground_task: ^11.0.3
 
 dev_dependencies:
   flutter_test:
@@ -67,6 +69,8 @@ flutter:
 
   assets:
     - assets/images/
+    # "Hey Switchboard": wake-word, speech-embedding and voice-activity models (see lib/voice)
+    - assets/voice/
 
   fonts:
     - family: Geist

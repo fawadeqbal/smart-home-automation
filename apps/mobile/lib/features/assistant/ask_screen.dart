@@ -12,6 +12,7 @@ import '../../data/models/device.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../state/automation.dart';
 import '../../state/devices.dart';
+import '../../voice/hands_free.dart';
 import '../devices/device_kinds.dart';
 import 'assistant_controller.dart';
 import 'voice_capture.dart';
@@ -31,9 +32,17 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   StreamSubscription<double>? _levelSub;
   double _level = 0;
   late bool _typing = !_voice.supported;
+  late final HandsFreeController _handsFree;
+
+  @override
+  void initState() {
+    super.initState();
+    _handsFree = ref.read(handsFreeProvider.notifier); // read here: `ref` can't be used in dispose
+  }
 
   @override
   void dispose() {
+    unawaited(_handsFree.resume()); // in case the screen closed in the middle of tap-to-talk
     _levelSub?.cancel();
     _voice.dispose();
     _text.dispose();
@@ -50,6 +59,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       ctl.setListening(false);
       setState(() => _level = 0);
       final audio = await _voice.stop();
+      unawaited(_handsFree.resume());
       if (audio == null) {
         _hint('I didn’t catch that — hold on a little longer.');
         return;
@@ -58,7 +68,10 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       return;
     }
     unawaited(HapticFeedback.mediumImpact());
+    // tap-to-talk needs the microphone to itself
+    await _handsFree.pause();
     if (!await _voice.start()) {
+      unawaited(_handsFree.resume());
       _hint(
         'Allow the microphone for Switchboard in your phone’s settings — or type instead.',
       );

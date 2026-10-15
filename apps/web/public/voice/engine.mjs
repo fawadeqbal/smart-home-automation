@@ -147,11 +147,12 @@ export class Vad {
       input.set(this.context);
       input.set(win, 64);
       this.context = win.slice(448);
+      // our silero_vad.onnx has the 16 kHz sample rate built in (no scalar input: simpler for every runtime)
       const feeds = {
         input: new this.ort.Tensor('float32', input, [1, 576]),
         state: new this.ort.Tensor('float32', this.state, [2, 1, 128]),
-        sr: new this.ort.Tensor('int64', BigInt64Array.from([16000n]), []),
       };
+      if (this.session.inputNames.includes('sr')) feeds.sr = new this.ort.Tensor('int64', BigInt64Array.from([16000n]), []);
       const out = await this.session.run(feeds);
       this.state = Float32Array.from(out.stateN.data);
       probs.push(out.output.data[0]);
