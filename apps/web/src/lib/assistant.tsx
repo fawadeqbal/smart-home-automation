@@ -1,7 +1,9 @@
 'use client';
 /**
  * The voice assistant and chat, shared by the whole home app: the conversation stays while you move
- * between pages. Voice: tap to talk, tap again to send (stops by itself after 15 s). Replies are
+ * between pages. It is this person's own conversation in this home: the first message of an empty chat
+ * is sent as "fresh", so the assistant remembers exactly what is on the screen and nothing from another
+ * home or an earlier visit. Voice: tap to talk, tap again to send (stops by itself after 15 s). Replies are
  * shown and spoken.
  */
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
@@ -59,6 +61,8 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
   const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const meter = useRef<{ ctx: AudioContext; raf: number } | null>(null);
   const nextId = useRef(1);
+  /** The chat on screen is empty: the next message starts a new conversation on the assistant too. */
+  const fresh = useRef(true);
 
   useEffect(() => {
     // browsers allow the microphone only on https:// or http://localhost
@@ -66,7 +70,14 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
   }, []);
 
   // a new home is a new conversation
-  useEffect(() => { setLines([]); setError(null); setNotice(null); }, [homeId]);
+  useEffect(() => { setLines([]); setError(null); setNotice(null); fresh.current = true; }, [homeId]);
+
+  /** Read once per request: true only for the first message of an empty chat. */
+  const takeFresh = () => {
+    const was = fresh.current;
+    fresh.current = false;
+    return was;
+  };
 
   const add = useCallback((l: Omit<Line, 'id' | 'at'>) => setLines((list) => [...list, { ...l, id: nextId.current++, at: Date.now() }]), []);
 
@@ -114,7 +125,8 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
     const value = text.trim();
     if (!value || phase !== 'idle') return;
     unlockSound();
-    void request(() => post<Reply>('/assistant/chat', { text: value, speak: true }), value);
+    const isFresh = takeFresh();
+    void request(() => post<Reply>('/assistant/chat', { text: value, speak: true, fresh: isFresh }), value);
   }, [phase, request, unlockSound]);
 
   const stopMeter = () => {
@@ -177,6 +189,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
         }
         const form = new FormData();
         form.append('audio', blob, 'speech');
+        form.append('fresh', String(takeFresh()));
         void request(() => post<Reply>('/assistant/voice', form));
       };
       recorder.current = rec;
@@ -190,6 +203,7 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
 
   const reset = useCallback(() => {
     setLines([]);
+    fresh.current = true;
     setError(null);
     setNotice(null);
     player.current?.pause();

@@ -27,7 +27,7 @@ def make(devices, llm=None, stt=None):
     return TestClient(app), apis
 
 
-WHO = {"user_id": "u1", "user_name": "Ali", "token": "tok-ali"}
+WHO = {"user_id": "u1", "user_name": "Ali", "home_id": "h1", "home_name": "Ali's house", "token": "tok-ali"}
 HEADERS = {"X-Assistant-Secret": SECRET}
 
 
@@ -65,12 +65,59 @@ def test_silence_gets_a_friendly_retry(devices):
 def test_each_person_has_their_own_history_and_can_reset_it(devices):
     client, _ = make(devices)
     client.post("/v1/chat", json={"text": "hello", **WHO}, headers=HEADERS)
-    client.post("/v1/chat", json={"text": "hi", "user_id": "u2", "user_name": "Sara", "token": "t2"}, headers=HEADERS)
+    client.post("/v1/chat", json={"text": "hi", "user_id": "u2", "user_name": "Sara", "home_id": "h1", "token": "t2"},
+                headers=HEADERS)
     conv = client.app.state.conversation
-    assert [m.content for m in conv.history("u1")] == ["hello", "echo: hello"]
-    assert [m.content for m in conv.history("u2")] == ["hi", "echo: hi"]
+    assert [m.content for m in conv.history("u1", "h1")] == ["hello", "echo: hello"]
+    assert [m.content for m in conv.history("u2", "h1")] == ["hi", "echo: hi"]
     assert client.post("/v1/reset", json=WHO, headers=HEADERS).status_code == 204
-    assert conv.history("u1") == []
+    assert conv.history("u1", "h1") == []
+    assert len(conv.history("u2", "h1")) == 2                           # Sara's conversation is untouched
+
+
+def test_the_same_person_has_a_separate_conversation_in_each_home(devices):
+    """Staff looking into several customers' homes (or an owner with two homes) never mix them up."""
+    llm = bulb_llm()
+    client, _ = make(devices, llm=llm)
+    client.post("/v1/chat", json={"text": "hello", **WHO}, headers=HEADERS)
+    other = {**WHO, "home_id": "h2", "home_name": "Sara's flat"}
+    client.post("/v1/chat", json={"text": "tell me a joke", **other}, headers=HEADERS)
+    conv = client.app.state.conversation
+    assert [m.content for m in conv.history("u1", "h1")] == ["hello", "echo: hello"]
+    assert [m.content for m in conv.history("u1", "h2")] == ["tell me a joke", "echo: tell me a joke"]
+    assert [m.content for m in llm.calls[1]["messages"]] == ["tell me a joke"]   # nothing from the other home
+    assert 'in the home "Sara\'s flat"' in llm.calls[1]["system"]
+
+
+def test_a_fresh_chat_screen_starts_a_fresh_conversation(devices):
+    llm = bulb_llm()
+    client, _ = make(devices, llm=llm)
+    client.post("/v1/chat", json={"text": "hello", **WHO}, headers=HEADERS)
+    client.post("/v1/chat", json={"text": "again", "fresh": True, **WHO}, headers=HEADERS)
+    assert [m.content for m in llm.calls[1]["messages"]] == ["again"]
+    client.post("/v1/voice", files={"audio": ("speech", b"webm", "audio/webm")}, data={**WHO, "fresh": "true"},
+                headers=HEADERS)
+    conv = client.app.state.conversation
+    assert [m.content for m in conv.history("u1", "h1")][0] == "turn on the bulb"
+
+
+def test_a_quiet_conversation_is_forgotten():
+    from pathlib import Path
+    from assistant.conversation import ConversationService, PromptBuilder
+    from assistant.tools import ToolRegistry
+    from conftest import FakeLLM
+
+    now = [0.0]
+    llm = FakeLLM()
+    service = ConversationService(llm, PromptBuilder(Path("nope.md")), idle_minutes=30, clock=lambda: now[0])
+    tools = ToolRegistry([])
+    service.ask("u1", "Ali", "hello", tools, home_id="h1")
+    now[0] += 29 * 60
+    service.ask("u1", "Ali", "still there", tools, home_id="h1")
+    assert len(llm.calls[1]["messages"]) == 3
+    now[0] += 31 * 60
+    service.ask("u1", "Ali", "back later", tools, home_id="h1")
+    assert [m.content for m in llm.calls[2]["messages"]] == ["back later"]
 
 
 def test_the_ai_is_only_told_about_devices_the_person_may_switch(devices):

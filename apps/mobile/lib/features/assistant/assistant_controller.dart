@@ -6,6 +6,7 @@ import '../../core/config/app_settings.dart';
 import '../../core/network/api_exception.dart';
 import '../../data/repositories/assistant_repository.dart';
 import '../../state/devices.dart';
+import '../../state/session.dart';
 
 @immutable
 class ChatMessage {
@@ -43,19 +44,42 @@ class AskState {
 
 /// The conversation with the assistant: typed or spoken, in Urdu or English. What it switches
 /// shows up in the app by itself (the live connection), so this only keeps the conversation.
+///
+/// It is the signed-in person's own conversation in the open home: switching home or account starts
+/// an empty one, and the first message of an empty chat also clears the assistant's memory on the
+/// server, so the AI remembers exactly what is on the screen.
 class AssistantController extends Notifier<AskState> {
   static const _speakKey = 'assistant_speak';
   AudioPlayer? _player;
+  bool _fresh = true;
 
   @override
   AskState build() {
-    ref.onDispose(() => _player?.dispose());
+    // a new person or a new home is a new conversation (this rebuilds with no messages)
+    ref.watch(sessionProvider.select((s) => s.value?.id));
+    ref.watch(currentHomeIdProvider);
+    _fresh = true;
+    ref.onDispose(() {
+      _player?.dispose();
+      _player = null;
+    });
     return AskState(
       speak: ref.read(sharedPrefsProvider).getBool(_speakKey) ?? !kIsWeb,
     );
   }
 
   void _add(ChatMessage m) => state = state.copyWith(messages: [...state.messages, m]);
+
+  /// First message of an empty chat: make the assistant forget anything from before.
+  Future<void> _startIfFresh() async {
+    if (!_fresh) return;
+    _fresh = false;
+    try {
+      await ref.read(assistantRepositoryProvider).reset();
+    } catch (_) {
+      // the question itself will report if the assistant is down
+    }
+  }
 
   void setListening(bool on) => state = state.copyWith(phase: on ? AskPhase.listening : AskPhase.idle);
 
@@ -71,6 +95,7 @@ class AssistantController extends Notifier<AskState> {
     _add(ChatMessage(q, mine: true));
     state = state.copyWith(phase: AskPhase.thinking);
     try {
+      await _startIfFresh();
       final reply = await ref.read(assistantRepositoryProvider).chat(q, speak: state.speak);
       _answer(reply.reply, reply.audioBase64);
     } catch (e) {
@@ -81,6 +106,7 @@ class AssistantController extends Notifier<AskState> {
   Future<void> askByVoice(List<int> audio) async {
     state = state.copyWith(phase: AskPhase.thinking);
     try {
+      await _startIfFresh();
       final reply = await ref.read(assistantRepositoryProvider).voice(audio);
       if (reply.heard != null && reply.heard!.trim().isNotEmpty) _add(ChatMessage(reply.heard!.trim(), mine: true));
       _answer(reply.reply, reply.audioBase64);
@@ -112,6 +138,7 @@ class AssistantController extends Notifier<AskState> {
 
   Future<void> reset() async {
     state = state.copyWith(messages: const []);
+    _fresh = false; // cleared on the server right here
     try {
       await ref.read(assistantRepositoryProvider).reset();
     } catch (_) {}
