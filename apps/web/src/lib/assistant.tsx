@@ -8,7 +8,7 @@
  */
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { errorText, post } from './api';
-import { HandsFree, HandsFreeStatus, handsFreeSupported } from './handsfree';
+import { HandsFree, HandsFreeStatus, wakeWordAvailable } from './handsfree';
 
 export interface Line {
   id: number;
@@ -79,7 +79,12 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
   const [hfPhrase, setHfPhrase] = useState('Hey Switchboard');
   const [stage, setStage] = useState<VoiceStage>('idle');
   const [hfSupported, setHfSupported] = useState(false);
-  useEffect(() => setHfSupported(handsFreeSupported()), []);
+  useEffect(() => {
+    void wakeWordAvailable().then((ok) => {
+      setHfSupported(!!ok);
+      if (ok) setHfPhrase(ok.phrase);
+    });
+  }, []);
   const stageRef = useRef<VoiceStage>('idle');
   const go = (s: VoiceStage) => { stageRef.current = s; setStage(s); };
   /** The chat on screen is empty: the next message starts a new conversation on the assistant too. */
@@ -323,13 +328,18 @@ export function AssistantProvider({ children, homeId }: { children: ReactNode; h
 
   // turned on last time: start again; the browser may need one tap first
   useEffect(() => {
-    if (!readFlag() || !handsFreeSupported()) return;
-    setHfEnabled(true);
-    void startHandsFree();
+    if (!readFlag()) return;
+    let gone = false;
     const wake = () => { void hf.current?.resume(); };
-    window.addEventListener('pointerdown', wake);
-    window.addEventListener('keydown', wake);
+    void wakeWordAvailable().then((ok) => {
+      if (!ok || gone) return;
+      setHfEnabled(true);
+      void startHandsFree();
+      window.addEventListener('pointerdown', wake);
+      window.addEventListener('keydown', wake);
+    });
     return () => {
+      gone = true;
       window.removeEventListener('pointerdown', wake);
       window.removeEventListener('keydown', wake);
       hf.current?.stop();

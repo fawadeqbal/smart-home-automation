@@ -1,6 +1,6 @@
 {
-  "phrase": "Hey Jarvis",
-  "model": "hey_jarvis_v0.1.onnx",
+  "phrase": "Hey Switchboard",
+  "model": "hey_switchboard.onnx",
   "threshold": 0.5,
   "patience": 1
 }

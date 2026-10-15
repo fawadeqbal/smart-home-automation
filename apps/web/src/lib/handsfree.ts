@@ -26,6 +26,19 @@ export function handsFreeSupported() {
     && typeof AudioWorkletNode !== 'undefined' && typeof Worker !== 'undefined' && typeof WebAssembly !== 'undefined';
 }
 
+/** Is the wake-word model deployed? (The switch stays hidden until it is.) */
+export async function wakeWordAvailable(): Promise<{ phrase: string } | null> {
+  if (!handsFreeSupported()) return null;
+  try {
+    const config = await (await fetch(`${BASE}wake.json`, { cache: 'no-cache' })).json() as { phrase?: string; model?: string };
+    if (!config.model) return null;
+    const model = await fetch(`${BASE}${config.model}`, { method: 'HEAD' });
+    return model.ok ? { phrase: config.phrase || 'Hey Switchboard' } : null;
+  } catch {
+    return null;
+  }
+}
+
 export class HandsFree {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
