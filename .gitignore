@@ -16,3 +16,5 @@ data/
 # the phone app's data layer (models, repositories) is source code, not runtime data
 !apps/mobile/lib/data/
 apps/web/public/voice/ort/
+# demo wake-word models: non-commercial licence, for local testing only
+apps/web/public/voice/hey_jarvis*.onnx

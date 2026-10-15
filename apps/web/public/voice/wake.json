@@ -1,0 +1,6 @@
+{
+  "phrase": "Hey Jarvis",
+  "model": "hey_jarvis_v0.1.onnx",
+  "threshold": 0.5,
+  "patience": 1
+}
