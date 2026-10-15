@@ -49,13 +49,14 @@ export class AssistantService {
   /** Who is speaking and in which home: the assistant keys its conversation on both. */
   private async identity(user: AuthUser) {
     const home = user.homeId
-      ? await this.prisma.home.findUnique({ where: { id: user.homeId }, select: { name: true } })
+      ? await this.prisma.home.findUnique({ where: { id: user.homeId }, select: { name: true, timezone: true } })
       : null;
     return {
       user_id: user.id,
       user_name: user.name,
       home_id: user.homeId,
       home_name: home?.name ?? '',
+      timezone: home?.timezone ?? '',
       token: await this.auth.onBehalfToken(user),
     };
   }

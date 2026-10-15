@@ -8,9 +8,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
+from zoneinfo import ZoneInfo
 
 from .domain.models import ToolCall, ToolSpec
 from .home_api import HomeApi, HomeApiError
@@ -58,6 +59,21 @@ class ToolRegistry:
         except Exception as exc:  # noqa: BLE001 - report to the AI instead of crashing the conversation
             log.exception("Tool %s failed", call.name)
             return f"Error: {call.name} failed ({exc})."
+
+
+# ------------------------------------------------------------------ the home's clock
+DEFAULT_TIMEZONE = "Asia/Karachi"
+
+
+def home_zone(name: Optional[str]) -> tzinfo:
+    """The home's time zone (the server itself runs on UTC, which is never what people mean by "11 pm")."""
+    for candidate in (name, DEFAULT_TIMEZONE):
+        if candidate:
+            try:
+                return ZoneInfo(candidate)
+            except Exception:  # noqa: BLE001 - unknown or missing zone data: try the next one
+                log.warning("Unknown time zone %r", candidate)
+    return timezone(timedelta(hours=5))                 # Pakistan, even without zone data
 
 
 # ------------------------------------------------------------------ device helpers
@@ -176,23 +192,38 @@ class ReadSensorsTool(Tool):
 DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
 
 
-def _when_text(s: dict) -> str:
+def spoken_clock(h: int, m: int) -> str:
+    """19:30 -> "7:30 pm", 7:00 -> "7 am"."""
+    suffix = "am" if h < 12 else "pm"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {suffix}" if m else f"{h12} {suffix}"
+
+
+def _when_text(s: dict, tz: Optional[tzinfo] = None) -> str:
     if s.get("kind") == "DAILY":
         days = s.get("days") or []
         on_days = "every day" if not days or len(days) == 7 else "on " + ", ".join(DAY_NAMES[d].capitalize() for d in days)
-        return f"{on_days} at {s.get('time')}"
+        t = re.match(r"^(\d{1,2}):(\d{2})$", str(s.get("time") or ""))
+        return f"{on_days} at {spoken_clock(int(t.group(1)), int(t.group(2))) if t else s.get('time')}"
     at = s.get("nextRunAt") or s.get("runAt")
     if not at:
         return "already ran"
-    local = datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone()
-    return "at " + local.strftime("%H:%M on %A %d %B")
+    zone = tz or home_zone(None)
+    local = datetime.fromisoformat(at.replace("Z", "+00:00")).astimezone(zone)
+    today = datetime.now(zone).date()
+    day = "today" if local.date() == today else "tomorrow" if local.date() == today + timedelta(days=1) \
+        else local.strftime("on %A %d %B")
+    return f"at {spoken_clock(local.hour, local.minute)} {day}"
 
 
 class ScheduleDeviceTool(Tool):
     name = "schedule_device"
 
-    def __init__(self, api: HomeApi, devices: List[dict]) -> None:
+    def __init__(self, api: HomeApi, devices: List[dict], tz: Optional[tzinfo] = None,
+                 clock: Optional[Callable[[], datetime]] = None) -> None:
         self._api = api
+        self._tz = tz or home_zone(None)
+        self._clock = clock or (lambda: datetime.now(self._tz))
         self._switches = [d for d in devices if d.get("controllable") and d.get("access") in ("CONTROL", "MANAGE")]
 
     @property
@@ -246,7 +277,7 @@ class ScheduleDeviceTool(Tool):
             m = re.match(r"^(\d{1,2}):(\d{2})$", at_time)
             if not m:
                 return "Error: at_time must be HH:MM."
-            now = datetime.now().astimezone()
+            now = self._clock().astimezone(self._tz)    # the home's clock, not the server's
             when = now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
             if when <= now:
                 when += timedelta(days=1)
@@ -254,29 +285,31 @@ class ScheduleDeviceTool(Tool):
         else:
             return "Error: say when - in_minutes, at_time, or repeat_daily with at_time."
         created = self._api.create_schedule(body)
-        return f"Scheduled (saved on the home server): {_describe(device)} {state} {_when_text(created)}."
+        return f"Scheduled (saved on the home server): {_describe(device)} {state} {_when_text(created, self._tz)}."
 
 
 class ListSchedulesTool(Tool):
     name = "list_schedules"
     description = "List the timers and daily schedules that are set (numbered, so one can be cancelled)."
 
-    def __init__(self, api: HomeApi) -> None:
+    def __init__(self, api: HomeApi, tz: Optional[tzinfo] = None) -> None:
         self._api = api
+        self._tz = tz
 
     def run(self, args: dict) -> str:
         rows = [s for s in self._api.schedules() if s.get("enabled")]
         if not rows:
             return "There are no timers or schedules."
-        return "; ".join(f"{i + 1}. {s['name']} {_when_text(s)}" for i, s in enumerate(rows))
+        return "; ".join(f"{i + 1}. {s['name']} {_when_text(s, self._tz)}" for i, s in enumerate(rows))
 
 
 class CancelScheduleTool(Tool):
     name = "cancel_schedule"
     description = "Cancel a timer or schedule, by its number from list_schedules or by the device name in it."
 
-    def __init__(self, api: HomeApi) -> None:
+    def __init__(self, api: HomeApi, tz: Optional[tzinfo] = None) -> None:
         self._api = api
+        self._tz = tz
 
     @property
     def parameters(self) -> dict:
@@ -295,9 +328,9 @@ class CancelScheduleTool(Tool):
         if not picked:
             return "Error: no matching timer or schedule. Use list_schedules first."
         if len(picked) > 1:
-            return "Error: that matches several: " + "; ".join(f"{s['name']} {_when_text(s)}" for s in picked) + ". Ask which one."
+            return "Error: that matches several: " + "; ".join(f"{s['name']} {_when_text(s, self._tz)}" for s in picked) + ". Ask which one."
         self._api.delete_schedule(picked[0]["id"])
-        return f"Cancelled: {picked[0]['name']} {_when_text(picked[0])}."
+        return f"Cancelled: {picked[0]['name']} {_when_text(picked[0], self._tz)}."
 
 
 class RunSceneTool(Tool):
@@ -327,7 +360,8 @@ class RunSceneTool(Tool):
         return f"Scene {found[0]['name']}: {result.get('summary', 'done')}"
 
 
-def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]]) -> ToolRegistry:
+def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]], tz: Optional[tzinfo] = None,
+                clock: Optional[Callable[[], datetime]] = None) -> ToolRegistry:
     if api is None:
         return ToolRegistry()
     try:
@@ -336,5 +370,30 @@ def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]]) -> ToolRe
         scenes = []
     return ToolRegistry([
         SetDeviceTool(api, devices), GetDevicesTool(devices), ReadSensorsTool(devices),
-        ScheduleDeviceTool(api, devices), ListSchedulesTool(api), CancelScheduleTool(api), RunSceneTool(api, scenes),
+        ScheduleDeviceTool(api, devices, tz, clock), ListSchedulesTool(api, tz), CancelScheduleTool(api, tz),
+        RunSceneTool(api, scenes),
     ])
+
+
+def describe_home(devices: List[Dict[str, Any]], scenes: Iterable[dict] = ()) -> str:
+    """What the AI is told about the home before each answer: every device the person can see, by room,
+    with its state right now and whether they may switch it. With this it answers "is the fan on?" and
+    resolves "the bedroom one" without guessing or an extra tool round."""
+    if not devices:
+        return "This person cannot see any devices in this home yet."
+    by_room: Dict[str, List[str]] = {}
+    for d in devices:
+        if d.get("controllable"):
+            right = "you may switch it" if d.get("access") in ("CONTROL", "MANAGE") else "view only, they may NOT switch it"
+        else:
+            right = "sensor"
+        names = [d["name"], *[a for a in d.get("aliases", []) if a]]
+        called = names[0] + (f" (also called {', '.join(names[1:])})" if len(names) > 1 else "")
+        by_room.setdefault(d.get("roomName") or "No room", []).append(f"{called}: {_state_text(d)}; {right}")
+    lines = ["Devices this person can see, right now:"]
+    for room, items in by_room.items():
+        lines.append(f"- {room}: " + " | ".join(items))
+    runnable = [s["name"] for s in scenes if s.get("canRun")]
+    if runnable:
+        lines.append("Scenes they can run: " + ", ".join(runnable) + ".")
+    return "\n".join(lines)

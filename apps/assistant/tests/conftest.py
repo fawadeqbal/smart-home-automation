@@ -40,7 +40,8 @@ class FakeSTT:
     def __init__(self, text: str = "turn on the bulb"):
         self.text = text
 
-    def transcribe(self, audio):
+    def transcribe(self, audio, hint=""):
+        self.hint = hint
         return self.text if audio else ""
 
 
