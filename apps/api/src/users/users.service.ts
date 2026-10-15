@@ -43,7 +43,7 @@ export class UsersService {
             org: {
               id: user.org.id, name: user.org.name, plan: user.org.plan, planName: PLANS[user.org.plan].name,
               status: user.org.status, trialEndsAt: user.org.trialEndsAt,
-              logo: user.org.logo, onboarded: !!user.org.onboardedAt,
+              logo: user.org.logo, onboarded: !!user.org.onboardedAt, selfHosted: user.org.selfHosted,
             },
           }
         : null,

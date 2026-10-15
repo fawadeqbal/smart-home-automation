@@ -326,6 +326,7 @@ export class PlatformService {
 
   private async planLimit(orgId: string, what: 'homes' | 'boards' | 'staff', adding = 1) {
     const org = await this.prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+    if (org.selfHosted) return; // your own company on your own server: no plans, no limits
     if (org.status === OrgStatus.CANCELED) throw new ForbiddenException('This organization’s subscription is cancelled. Choose a plan in Settings.');
     const limit = PLANS[org.plan][what];
     if (limit === null) return;
@@ -760,7 +761,10 @@ export class PlatformService {
       billingEmail: org.billingEmail, billingName: org.billingName, taxId: org.taxId, country: org.country, createdAt: org.createdAt,
       logo: org.logo, cities: org.cities, teamSize: org.teamSize, onboarded: !!org.onboardedAt,
       usage: { homes, boards, staff },
-      limits: { homes: PLANS[org.plan].homes, boards: PLANS[org.plan].boards, staff: PLANS[org.plan].staff },
+      selfHosted: org.selfHosted,
+      limits: org.selfHosted
+        ? { homes: null, boards: null, staff: null }
+        : { homes: PLANS[org.plan].homes, boards: PLANS[org.plan].boards, staff: PLANS[org.plan].staff },
       plans: PLAN_ORDER.map((p) => ({ id: p, ...PLANS[p] })),
       paymentsConnected: false,
     };
@@ -787,6 +791,7 @@ export class PlatformService {
   async changePlan(user: AuthUser, plan: Plan) {
     const orgId = this.org(user);
     const org = await this.prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+    if (org.selfHosted) throw new BadRequestException('Your own company has no plans: homes, boards and staff are unlimited.');
     const usage = (await this.organization(user)).usage;
     const limits = PLANS[plan];
     const over = (['homes', 'boards', 'staff'] as const).find((k) => limits[k] !== null && usage[k] > limits[k]!);

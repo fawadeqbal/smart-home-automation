@@ -21,15 +21,19 @@ function Usage({ label, used, limit }: { label: string; used: number; limit: num
   );
 }
 
-/** Super admin: organization details, plan, usage and the billing contact. */
+/**
+ * Super admin: organization details, plan, usage and the billing contact.
+ * Your own company (self-hosted): just its details and what it runs; no plans or limits.
+ */
 export default function SettingsPage() {
   const { reload: reloadMe } = useSession();
   const { data, error, reload, setData } = useLoad<OrgDetails>('/platform/org');
   const [confirm, setConfirm] = useState<Plan | null>(null);
   const [saved, setSaved] = useState(false);
   const { busy, error: saveError, run } = useAction();
-  useCrumbs([{ label: 'Platform', href: '/console' }, { label: 'Plan & billing' }]);
-  if (!data) return error ? <div className="alert">{error}</div> : <Loader label="Loading your plan…" />;
+  const own = !!data?.selfHosted;
+  useCrumbs([{ label: 'Platform', href: '/console' }, { label: own ? 'Company' : 'Plan & billing' }]);
+  if (!data) return error ? <div className="alert">{error}</div> : <Loader label="Loading…" />;
   const plan = data.plans.find((p) => p.id === data.plan)!;
   const trialDays = data.trialEndsAt ? Math.max(0, Math.ceil((new Date(data.trialEndsAt).getTime() - Date.now()) / 86400000)) : null;
 
@@ -43,9 +47,22 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHead eyebrow="Platform" title="Plan & billing" sub="Your organization, what your plan allows, and who receives invoices." />
+      {own
+        ? <PageHead eyebrow="Platform" title="Company" sub="Your company’s details and what it looks after. No plans or limits: it’s your own server." />
+        : <PageHead eyebrow="Platform" title="Plan & billing" sub="Your organization, what your plan allows, and who receives invoices." />}
 
       <div className="grid-2 mb20">
+        {own ? (
+          <section className="panel panel-pad stack">
+            <div className="stack-tight"><span className="eyebrow">Looking after</span><h2 style={{ fontSize: 20 }}>{data.name}</h2></div>
+            <div className="own-counts">
+              <div><b>{data.usage.homes}</b><span>home{data.usage.homes === 1 ? '' : 's'}</span></div>
+              <div><b>{data.usage.boards}</b><span>board{data.usage.boards === 1 ? '' : 's'}</span></div>
+              <div><b>{data.usage.staff}</b><span>staff</span></div>
+            </div>
+            <span className="small muted">Add as many homes, boards and team members as you need.</span>
+          </section>
+        ) : (
         <section className="panel panel-pad stack">
           <div className="spread">
             <div className="stack-tight"><span className="eyebrow">Current plan</span><h2 style={{ fontSize: 20 }}>{plan.name}</h2></div>
@@ -57,14 +74,15 @@ export default function SettingsPage() {
           <Usage label="Boards" used={data.usage.boards} limit={data.limits.boards} />
           <Usage label="Staff" used={data.usage.staff} limit={data.limits.staff} />
         </section>
+        )}
         <section className="panel panel-pad">
           <form className="stack" onSubmit={save}>
-            <h2>Organization</h2>
+            <h2>{own ? 'Company details' : 'Organization'}</h2>
             <div className="form-grid">
               <label className="field">Name<input name="name" defaultValue={data.name} required maxLength={80} /></label>
               <label className="field">Country<input name="country" defaultValue={data.country ?? ''} maxLength={60} /></label>
-              <label className="field">Billing name<input name="billingName" defaultValue={data.billingName ?? ''} maxLength={120} placeholder="Company legal name" /></label>
-              <label className="field">Invoice email<input name="billingEmail" type="email" defaultValue={data.billingEmail ?? ''} /></label>
+              <label className="field">{own ? 'Legal name' : 'Billing name'}<input name="billingName" defaultValue={data.billingName ?? ''} maxLength={120} placeholder="Company legal name" /></label>
+              <label className="field">{own ? 'Contact email' : 'Invoice email'}<input name="billingEmail" type="email" defaultValue={data.billingEmail ?? ''} /></label>
               <label className="field">Tax ID <span className="hint">optional</span><input name="taxId" defaultValue={data.taxId ?? ''} maxLength={40} /></label>
             </div>
             <ErrorBox error={saveError} />
@@ -73,6 +91,7 @@ export default function SettingsPage() {
         </section>
       </div>
 
+      {!own && <>
       <div className="section-head"><h2>Plans</h2></div>
       {!data.paymentsConnected && (
         <div className="notice mb16">Online payments aren’t connected on this server yet, so changing plan takes effect straight away without a charge. Connect a payment provider before selling plans.</div>
@@ -93,6 +112,7 @@ export default function SettingsPage() {
           </div>
         ))}
       </div>
+      </>}
       {confirm && (
         <Confirm title={`Switch to ${data.plans.find((p) => p.id === confirm)!.name}?`} confirmLabel="Switch plan" danger={false}
           body={<>Limits change right away. You’re on {plan.name} today.</>}

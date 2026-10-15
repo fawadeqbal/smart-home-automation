@@ -160,7 +160,9 @@ export function CompanyTour() {
             })}
           </nav>
           <div className="au-trial">
-            {org.status === 'TRIAL' ? (
+            {org.selfHosted ? (
+              <><b>Your company</b><span>No limits on homes, boards or team.</span></>
+            ) : org.status === 'TRIAL' ? (
               <><b>Trial · {daysLeft === 1 ? '1 day' : `${daysLeft} days`} left</b><span>{org.limits.homes ? `Add up to ${org.limits.homes} homes and ${org.limits.staff ?? 'any number of'} team members during the trial.` : 'No limits during the trial.'}</span></>
             ) : (
               <><b>{planName} plan</b><span>{org.limits.homes ? `Up to ${org.limits.homes} homes and ${org.limits.staff ?? 'unlimited'} team members.` : 'No limits on homes, boards or team.'}</span></>

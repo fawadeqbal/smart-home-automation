@@ -477,8 +477,16 @@ test('SaaS: a second organization is isolated, staff roles do what they should',
   assert.equal((await other.get('/nodes')).status, 403);
   other.home = null;
 
-  // plan limits and billing
+  // your own company (the self-hosted one): no plans, no limits
+  const mine = (await owner.get('/platform/org')).body;
+  assert.equal(mine.selfHosted, true);
+  assert.deepEqual(mine.limits, { homes: null, boards: null, staff: null });
+  assert.equal((await owner.post('/platform/org/plan', { plan: 'PRO' })).status, 400);
+  assert.equal((await owner.get('/auth/me')).body.staff.org.selfHosted, true);
+
+  // plan limits and billing (a company that signed up)
   const org = (await other.get('/platform/org')).body;
+  assert.equal(org.selfHosted, false);
   assert.equal(org.plan, 'STARTER');
   assert.equal(org.usage.homes, 1);
   for (let i = 0; i < 4; i++) assert.equal((await other.post('/platform/homes', { name: `Home ${i}` })).status, 201);

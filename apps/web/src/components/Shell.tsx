@@ -106,7 +106,9 @@ export function Shell({ children }: { children: ReactNode }) {
         { href: '/console/team', label: 'Team', icon: 'users' },
         { href: '/console/roles', label: 'Roles & permissions', icon: 'key' },
         { href: '/console/audit', label: 'Audit log', icon: 'file-text' },
-        { href: '/console/settings', label: 'Plan & billing', icon: 'credit-card' },
+        me.staff?.org.selfHosted
+          ? { href: '/console/settings', label: 'Company', icon: 'building' }
+          : { href: '/console/settings', label: 'Plan & billing', icon: 'credit-card' },
       ];
     }
     if (!home) return [{ href: '/', label: 'Home', icon: 'house', exact: true }];
@@ -130,7 +132,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const avatarRole = platform || !home || home.viaStaff ? (staffRole ? STAFF_LABEL[staffRole] : 'member') : ROLE_LABEL[home.role];
 
   const ctx = platform
-    ? { icon: 'shield', cls: 'platform', title: staffRole === 'INSTALLER' ? 'Field console' : 'Platform console', sub: me.staff ? `${me.staff.org.name} · ${me.staff.org.planName}` : '' }
+    ? { icon: 'shield', cls: 'platform', title: staffRole === 'INSTALLER' ? 'Field console' : 'Platform console', sub: me.staff ? (me.staff.org.selfHosted ? me.staff.org.name : `${me.staff.org.name} · ${me.staff.org.planName}`) : '' }
     : home
       ? { icon: 'house', cls: 'home', title: home.name, sub: home.viaStaff ? `Viewing as ${STAFF_LABEL[staffRole!].toLowerCase()}` : `${home.role === 'OWNER' ? 'Your home' : ROLE_LABEL[home.role]}${home.city ? ` · ${home.city}` : ''}` }
       : { icon: 'house', cls: 'home', title: 'No home yet', sub: 'Ask for an invite' };

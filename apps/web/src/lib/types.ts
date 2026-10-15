@@ -27,7 +27,9 @@ export interface Me {
   staff: {
     role: StaffRole;
     org: { id: string; name: string; plan: Plan; planName: string; status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; trialEndsAt: string | null;
-      logo: string | null; onboarded: boolean };
+      logo: string | null; onboarded: boolean;
+      /** your own company on your own server: no plans or limits */
+      selfHosted?: boolean };
   } | null;
   homes: { id: string; name: string; city: string; role: Role }[];
   home: CurrentHome | null;
@@ -119,6 +121,7 @@ export interface OrgDetails {
   logo: string | null; cities: string[]; teamSize: string | null; onboarded: boolean;
   usage: { homes: number; boards: number; staff: number };
   limits: { homes: number | null; boards: number | null; staff: number | null };
+  selfHosted?: boolean;
   plans: { id: Plan; name: string; priceUsd: number; homes: number | null; boards: number | null; staff: number | null; blurb: string }[];
   paymentsConnected: boolean;
 }

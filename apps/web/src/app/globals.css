@@ -546,6 +546,10 @@ button.tile-body:focus-visible { outline: 2px solid var(--ac); outline-offset: -
 .plan .btn { margin-top: auto; }
 .usage { display: flex; flex-direction: column; gap: 6px; }
 .usage .spread { font-size: 13px; }
+.own-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.own-counts > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 12px; background: var(--sf2); }
+.own-counts b { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.own-counts span { font-size: 13px; color: var(--mu); }
 
 /* auth and the first-run tours: components/auth/auth.css */
 .splash { min-height: 60vh; display: flex; align-items: center; justify-content: center; color: var(--mu); }

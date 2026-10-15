@@ -17,7 +17,7 @@ interface Item { key: string; icon: string; title: string; sub: string; href: st
 /** ⌘K: jump to a home, a board or a person, or any console page. */
 export function CommandPalette({ onClose }: { onClose: () => void }) {
   const router = useRouter();
-  const { staffRole } = useSession();
+  const { staffRole, me } = useSession();
   const [q, setQ] = useState('');
   const [res, setRes] = useState<Results | null>(null);
   const [focus, setFocus] = useState(0);
@@ -39,7 +39,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         ['Team', '/console/team', 'users', staffRole === 'SUPERADMIN'],
         ['Roles & permissions', '/console/roles', 'key', staffRole !== 'INSTALLER'],
         ['Audit log', '/console/audit', 'file-text', staffRole !== 'INSTALLER'],
-        ['Plan & billing', '/console/settings', 'credit-card', staffRole === 'SUPERADMIN'],
+        me.staff?.org.selfHosted
+          ? ['Company settings', '/console/settings', 'building', staffRole === 'SUPERADMIN']
+          : ['Plan & billing', '/console/settings', 'credit-card', staffRole === 'SUPERADMIN'],
       ];
       return pages.filter((p) => p[3] && p[0].toLowerCase().includes(q.toLowerCase())).map(([title, href, icon]) => ({ key: href, icon, title, sub: 'Go to page', href, group: 'Pages' }));
     }
