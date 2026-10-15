@@ -20,8 +20,8 @@ class LLMProvider(Protocol):
 
 @runtime_checkable
 class SpeechToText(Protocol):
-    def transcribe(self, audio: bytes) -> str:
-        """Audio file bytes (webm / ogg / mp4 / wav from the browser) -> text."""
+    def transcribe(self, audio: bytes, hint: str = "") -> str:
+        """Audio file bytes (webm / ogg / mp4 / wav from the browser) -> text. `hint`: likely words."""
 
 
 @runtime_checkable

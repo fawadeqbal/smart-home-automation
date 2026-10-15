@@ -120,10 +120,11 @@ services:
       ASSISTANT_SHARED_SECRET: ${ASSISTANT_SHARED_SECRET}
       LLM_PROVIDER: claude
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
-      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-5-5}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-5-5}
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       LANGUAGE: ${LANGUAGE:-}
-      LANGUAGES: ${LANGUAGES:-}
+      LANGUAGES: ${LANGUAGES:-en,ur}
+      HOME_TIMEZONE: ${HOME_TIMEZONE:-Asia/Karachi}
       QUICK_COMMANDS: ${QUICK_COMMANDS:-true}
       FAST_REPLIES: ${FAST_REPLIES:-true}
       PIPER_MODEL: models/en_US-lessac-medium.onnx

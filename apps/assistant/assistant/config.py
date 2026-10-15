@@ -26,17 +26,20 @@ class Settings:
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"
     anthropic_api_key: str = ""
-    claude_model: str = "claude-haiku-5-5"
-    max_tokens: int = 400
-    max_turns: int = 6
+    claude_model: str = "claude-sonnet-5-5"
+    max_tokens: int = 600
+    max_turns: int = 8
     # a conversation nobody has used for this long starts afresh (0 = never)
     idle_minutes: float = 30
     # speed: answer everyday commands without the AI, and skip the AI's second round after a plain action
     quick_commands: bool = True
     fast_replies: bool = True
 
+    # the time zone of a home whose own zone is unknown
+    timezone: str = "Asia/Karachi"
+
     # Speech
-    whisper_model: str = "base"
+    whisper_model: str = "small"
     language: Optional[str] = None               # force one language, e.g. "en"
     languages: Tuple[str, ...] = ("en", "ur")    # otherwise: pick the best match among these only
     piper_model: Path = APP_DIR / "models" / "en_US-lessac-medium.onnx"
@@ -57,14 +60,16 @@ class Settings:
             ollama_url=env("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
             ollama_model=env("OLLAMA_MODEL", "qwen2.5:3b"),
             anthropic_api_key=env("ANTHROPIC_API_KEY", ""),
-            claude_model=env("CLAUDE_MODEL", "claude-haiku-5-5"),
-            max_tokens=int(env("MAX_TOKENS", "400")),
-            max_turns=int(env("MAX_TURNS", "6")),
-            idle_minutes=float(env("CONVERSATION_IDLE_MINUTES", "30")),
+            claude_model=env("CLAUDE_MODEL") or "claude-sonnet-5-5",
+            max_tokens=int(env("MAX_TOKENS") or "600"),
+            max_turns=int(env("MAX_TURNS") or "8"),
+            idle_minutes=float(env("CONVERSATION_IDLE_MINUTES") or "30"),
             quick_commands=env("QUICK_COMMANDS", "true").strip().lower() != "false",
             fast_replies=env("FAST_REPLIES", "true").strip().lower() != "false",
-            whisper_model=env("WHISPER_MODEL", "base"),
+            whisper_model=env("WHISPER_MODEL") or "small",
             language=env("LANGUAGE") or None,
-            languages=tuple(x.strip() for x in env("LANGUAGES", "en,ur").split(",") if x.strip()) or ("en",),
+            # an empty LANGUAGES (Compose passes "" when it isn't set) means the default, not English only
+            languages=tuple(x.strip() for x in (env("LANGUAGES") or "en,ur").split(",") if x.strip()) or ("en", "ur"),
+            timezone=env("HOME_TIMEZONE") or "Asia/Karachi",
             piper_model=piper if piper.is_absolute() else APP_DIR / piper,
         )

@@ -5,7 +5,9 @@ from __future__ import annotations
 import base64
 import hmac
 import logging
-from typing import Callable, Optional
+import threading
+from datetime import datetime
+from typing import Callable, List, Optional
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -15,7 +17,7 @@ from .conversation import ConversationService, PromptBuilder
 from .domain.ports import LLMProvider, SpeechToText, TextToSpeech
 from .home_api import HomeApi, HomeApiError
 from .quick import QuickCommands
-from .tools import build_tools
+from .tools import build_tools, describe_home, home_zone
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ class Identity(BaseModel):
     user_name: str = "there"
     home_id: str = ""
     home_name: str = ""
+    timezone: str = ""          # the home's, e.g. Asia/Karachi
     token: str
 
 
@@ -61,10 +64,10 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
     make_api = api_factory or (lambda token: HomeApi(settings.api_url, token))
     conversation = ConversationService(llm, PromptBuilder(settings.instructions_file), max_turns=settings.max_turns,
                                        fast_replies=settings.fast_replies, idle_minutes=settings.idle_minutes)
-    warm = getattr(llm, "warm_up", None)
-    if callable(warm):                                  # load the model now, not on the first question
-        import threading
-        threading.Thread(target=warm, daemon=True).start()
+    for part in (llm, stt):                             # load the models now, not on the first question
+        warm = getattr(part, "warm_up", None)
+        if callable(warm):
+            threading.Thread(target=warm, daemon=True).start()
 
     app = FastAPI(title="Home assistant voice service", docs_url=None, redoc_url=None)
 
@@ -74,23 +77,48 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         if not hmac.compare_digest(x_assistant_secret, settings.shared_secret):
             raise HTTPException(401, "Wrong assistant secret.")
 
-    def answer(text: str, who: Identity, speak: bool, fresh: bool = False) -> ReplyOut:
-        api = make_api(who.token)
+    def load_devices(api: HomeApi, who: Identity) -> List[dict]:
         try:
-            devices = api.devices()
+            return api.devices()
         except HomeApiError as exc:
             log.warning("Could not load devices for %s: %s", who.user_name, exc)
-            devices = []
-        tools = build_tools(api, devices)
-        quick = QuickCommands(api, devices, tools) if settings.quick_commands else None
+            return []
+
+    def answer(text: str, who: Identity, speak: bool, fresh: bool = False, api: Optional[HomeApi] = None,
+               devices: Optional[List[dict]] = None) -> ReplyOut:
+        api = api or make_api(who.token)
+        devices = load_devices(api, who) if devices is None else devices
+        tz = home_zone(who.timezone or settings.timezone)
+        clock = lambda: datetime.now(tz)                # noqa: E731 - the home's clock, shared by both
+        tools = build_tools(api, devices, tz, clock)
+        quick = QuickCommands(api, devices, tools, clock=clock) if settings.quick_commands else None
+        scenes = getattr(tools.get("run_scene"), "_scenes", [])
         reply = conversation.ask(who.user_id, who.user_name, text, tools, quick,
-                                 home_id=who.home_id, home_name=who.home_name, fresh=fresh)
-        audio = tts.synthesize(reply) if speak else None
+                                 home_id=who.home_id, home_name=who.home_name, fresh=fresh,
+                                 tz=tz, home_state=describe_home(devices, scenes))
+        audio = None
+        if speak:
+            try:
+                audio = tts.synthesize(reply)
+            except Exception:  # noqa: BLE001 - the written reply still goes out
+                log.exception("Could not speak the reply")
         return ReplyOut(heard=text, reply=reply, audio=base64.b64encode(audio).decode() if audio else None)
+
+    def hint_for(devices: List[dict]) -> str:
+        """Device and room names, so Whisper spells them the way this home does."""
+        words: List[str] = []
+        for d in devices:
+            for w in [d.get("name"), d.get("roomName"), *d.get("aliases", [])]:
+                if w and w not in words:
+                    words.append(w)
+        return ", ".join(words[:40])
 
     @app.get("/health")
     def health():
-        return {"ok": True, "llm": settings.llm_provider}
+        describe = getattr(tts, "describe", None)
+        return {"ok": True, "llm": settings.llm_provider,
+                "model": settings.claude_model if settings.llm_provider == "claude" else settings.ollama_model,
+                "voice": describe() if callable(describe) else "unknown"}
 
     @app.post("/v1/chat", response_model=ReplyOut, dependencies=[Depends(check_secret)])
     def chat(body: ChatIn):
@@ -99,20 +127,25 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
 
     @app.post("/v1/voice", response_model=ReplyOut, dependencies=[Depends(check_secret)])
     def voice(audio: UploadFile = File(...), user_id: str = Form(...), user_name: str = Form("there"),
-              token: str = Form(...), home_id: str = Form(""), home_name: str = Form(""), fresh: bool = Form(False)):
+              token: str = Form(...), home_id: str = Form(""), home_name: str = Form(""), timezone: str = Form(""),
+              fresh: bool = Form(False)):
         data = audio.file.read(MAX_AUDIO_BYTES + 1)
         if len(data) > MAX_AUDIO_BYTES:
             raise HTTPException(413, "Recording too long.")
+        caller = Identity(user_id=user_id, user_name=user_name, home_id=home_id, home_name=home_name,
+                          timezone=timezone, token=token)
+        api = make_api(token)
+        devices = load_devices(api, caller)
         try:
-            heard = stt.transcribe(data)
+            heard = stt.transcribe(data, hint=hint_for(devices))
         except Exception as exc:  # noqa: BLE001 - undecodable or empty audio
             log.warning("Could not transcribe audio: %s", exc)
             heard = ""
-        who = Identity(user_id=user_id, user_name=user_name, home_id=home_id, home_name=home_name, token=token)
+        who = caller
         if not heard:
             spoken = tts.synthesize(DID_NOT_HEAR)
             return ReplyOut(heard="", reply=DID_NOT_HEAR, audio=base64.b64encode(spoken).decode() if spoken else None)
-        return answer(heard, who, speak=True, fresh=fresh)
+        return answer(heard, who, speak=True, fresh=fresh, api=api, devices=devices)
 
     @app.post("/v1/reset", status_code=204, dependencies=[Depends(check_secret)])
     def reset(who: Identity):

@@ -32,7 +32,14 @@ ho jaye jaye jana hai hain ho raha rahi rahe please thanks thank shukriya ok oka
 minute minutes min mins hour hours hr hrs ghanta ghante ghantay second seconds sec secs after baad bad later in within
 from today tonight tomorrow kal aaj subah shaam raat pm am baje bajay oclock o clock clock every daily roz rozana day night
 morning evening is are was be been will should shall get go going turned
+yaar yar bhai ji jee sir dear quickly quick again back
 """.split())
+# sentences that ask rather than tell
+QUESTION = re.compile(r"^(what|whats|what s|which|how|is|are|was|were|kya|kia|kab|kitn\w*|kaun|kon|who|where|why|"
+                      r"tell me|do you|does|did|have|has)\b")
+# words that name a place: if one of these isn't the device's own room, it isn't a plain command
+PLACE_WORDS = re.compile(r"\b(\w+room|room|kitchen|hall|lounge|garage|bath|washroom|office|store|roof|garden|lawn|"
+                         r"kamra|kamre|kamray|porch|balcony|basement|upstairs|downstairs|study|dining|drawing|tv lounge)\b")
 
 # words for the same kind of device ("bulb" finds "Light 1"); plurals included
 KINDS = [
@@ -49,6 +56,12 @@ NUM_WORDS = {"a": 1, "an": 1, "one": 1, "ek": 1, "two": 2, "three": 3, "teen": 3
              "half": 0.5, "half an": 0.5, "aadha": 0.5, "adha": 0.5, "aadhe": 0.5}
 NUM = r"(\d+(?:\.\d+)?|half an|" + "|".join(sorted((re.escape(k) for k in NUM_WORDS if k != "half an"), key=len, reverse=True)) + r")"
 UNIT = r"(seconds?|secs?|minutes?|mins?|minat|mint|hours?|hrs?|ghant[ae]y?|ghanta)"
+# "2 hours", "2 hours 30 minutes", "1 hour and 15 minutes"
+DUR = rf"({NUM}\s*{UNIT}(?:\s*(?:and\s+)?{NUM}\s*{UNIT})?)"
+
+
+def _dur_minutes(text: str) -> float:
+    return sum(_minutes(_num(m.group(1)), m.group(2)) for m in re.finditer(rf"{NUM}\s*{UNIT}", text))
 
 
 def _num(word: str) -> float:
@@ -89,6 +102,7 @@ class When:
     minutes: float = 0
     hour: int = 0
     minute: int = 0
+    exact: bool = True              # False for a bare "at 11": am or pm, whichever comes next
     days: List[str] = field(default_factory=list)
     duration: float = 0             # "on for 10 minutes": then the opposite after this many minutes
     spans: List[Tuple[int, int]] = field(default_factory=list)
@@ -102,11 +116,11 @@ def parse_when(text: str) -> Optional[When]:
     def take(m: re.Match) -> None:
         spans.append(m.span())
 
-    # "for 10 minutes" -> on now, off later
-    m = re.search(rf"\bfor\s+{NUM}\s*{UNIT}\b", text)
-    if m:
+    # "for 10 minutes" -> on now, off later. But "a timer for 10 minutes" is a delay, not a duration.
+    m = re.search(rf"\bfor\s+{DUR}\b", text)
+    if m and not re.search(r"\b(timers?|alarm)\b", text):
         take(m)
-        return When("now", duration=_minutes(_num(m.group(1)), m.group(2)), spans=spans)
+        return When("now", duration=_dur_minutes(m.group(1)), spans=spans)
 
     daily = re.search(r"\b(every ?day|every night|every morning|every evening|daily|roz(?:ana)?|har roz|har din)\b", text)
     days = [d for d in DAY_NAMES if re.search(rf"\b(every |on |har )?{d}s?\b", text)]
@@ -126,6 +140,7 @@ def parse_when(text: str) -> Optional[When]:
         hour, minute = int(h), int(mm or 0)
         if hour > 23 or minute > 59:
             return None
+        exact = bool(ampm and not re.match(r"o ?clock|baje|bajay", ampm)) or bool(part) or hour == 0 or hour > 12
         tag = (ampm or "") + " " + (part or "")
         if re.search(r"pm|p\.m\.|shaam|evening|raat|night", tag) and hour < 12:
             hour += 12
@@ -135,7 +150,7 @@ def parse_when(text: str) -> Optional[When]:
             hour = 0
         if re.search(r"raat|night", tag) and hour == 24:
             hour = 0
-        clock = (hour, minute)
+        clock = (hour, minute, exact)
         take(c)
         break
 
@@ -149,14 +164,14 @@ def parse_when(text: str) -> Optional[When]:
         return When("daily", hour=clock[0], minute=clock[1], days=chosen, spans=spans)
 
     # "in 5 minutes", "after 1 minute", "5 minute baad", "1 min later", "timer 2 minutes"
-    m = (re.search(rf"\b(?:in|after|within|timer(?: of| for)?)\s+{NUM}\s*{UNIT}\b", text)
-         or re.search(rf"\b{NUM}\s*{UNIT}\s+(?:baad|bad|later|ke baad|k baad|after|from now|mein|me)\b", text)
-         or re.search(rf"\b{NUM}\s*{UNIT}\b", text))
+    m = (re.search(rf"\b(?:in|after|within|timer(?: of| for)?|for)\s+{DUR}\b", text)
+         or re.search(rf"\b{DUR}\s+(?:baad|bad|later|ke baad|k baad|after|from now|mein|me)\b", text)
+         or re.search(rf"\b{DUR}\b", text))
     if m:
         take(m)
-        return When("in", minutes=_minutes(_num(m.group(1)), m.group(2)), spans=spans)
+        return When("in", minutes=_dur_minutes(m.group(1)), spans=spans)
     if clock:
-        return When("at", hour=clock[0], minute=clock[1], spans=spans)
+        return When("at", hour=clock[0], minute=clock[1], exact=clock[2], spans=spans)
     return When("now", spans=spans)
 
 
@@ -190,16 +205,26 @@ class QuickCommands:
             reply = intent(text)
             if reply is not None:
                 return reply
-        # "turn off the bulb and turn on the fan"
-        parts = [p.strip() for p in re.split(r"\b(?:and then|and|aur|phir|then)\b|,", text) if p.strip()]
+        # a question never switches anything ("what's on TV?", "is the fan on?" were answered above or go to the AI)
+        if QUESTION.match(text):
+            return None
+        # "turn off the bulb and turn on the fan", "turn on the fan and the bulb"
+        joined = re.sub(rf"\b({UNIT[1:-1]})\s+and\s+(?=\d|{NUM[1:-1]}\b)", r"\1 ", text)   # "1 hour and 15 minutes"
+        parts = [p.strip() for p in re.split(r"\b(?:and then|and|aur|phir|then|also)\b|,", joined) if p.strip()]
         if len(parts) > 1:
-            # understand every part first; act only if all of them are plain commands
-            plans = [self._plan(p, strict=True) for p in parts]
-            if all(plans):
-                questions = [p for p in plans if isinstance(p, str)]
-                if questions:
-                    return questions[0]
-                return " ".join(self._run(p) for p in plans)  # type: ignore[arg-type]
+            # act only when EVERY part is a plain command; anything else ("and tell me a joke", "it's hot",
+            # an unclear device) goes to the AI with the whole sentence, so nothing is half done
+            plans, state = [], None
+            for part in parts:
+                own = parse_state(part)
+                if own is None and state is not None and not re.search(rf"\b({ON_WORDS}|{OFF_WORDS})\b", part):
+                    part = f"{part} {state}"                 # "... and the bulb" = the same switch
+                plan = self._plan(part, strict=True)
+                if not isinstance(plan, tuple):
+                    return None
+                plans.append(plan)
+                state = plan[0]
+            return " ".join(self._run(p) for p in plans)
         plan = self._plan(text)
         if plan is None or isinstance(plan, str):
             return plan
@@ -241,6 +266,18 @@ class QuickCommands:
                     return found, [said.span()]
             return [], []
         top = max(s for s, _, _ in scored)
+        if top < 100:
+            # "the hall light" but the hall's light is called "Bulb": same kind of thing, in the named room
+            said_rooms = self._rooms_in(text)
+            if said_rooms:
+                for group in KINDS:
+                    said = re.search(rf"\b({'|'.join(group)})\b", text)
+                    if not said:
+                        continue
+                    found = [d for d in self._switches if _norm(d.get("roomName") or "") in said_rooms and re.search(
+                        rf"\b({'|'.join(group)})\b", _norm(" ".join([d["name"], *d.get("aliases", [])])))]
+                    if found:
+                        return found, [said.span()]
         best = [(d, span) for s, d, span in scored if s == top]
         spans = [span for _, span in best]
         for d, _ in best:
@@ -250,6 +287,11 @@ class QuickCommands:
                 if m and top >= 100:
                     spans.append(m.span())
         return [d for d, _ in best], spans
+
+    def _rooms_in(self, text: str) -> set:
+        """Names of this home's rooms that the text mentions."""
+        rooms = {_norm(d.get("roomName") or "") for d in self._devices} - {""}
+        return {r for r in rooms if re.search(rf"\b{re.escape(r)}\b", text)}
 
     def _leftover(self, text: str, spans: List[Tuple[int, int]], extra: Sequence[str] = ()) -> List[str]:
         """Words we did not understand. Many of them -> this isn't a plain command; let the AI read it."""
@@ -273,9 +315,15 @@ class QuickCommands:
         targets, spans = self._match_devices(text)
         if not targets:
             return None
+        # a place was named that isn't where the device is ("the fan in the guest room"): not for us to guess
+        said_rooms = self._rooms_in(text)
+        if said_rooms and not all(_norm(d.get("roomName") or "") in said_rooms for d in targets):
+            return None
         rooms = {w for d in self._devices for w in _norm(d.get("roomName") or "").split()}
         leftover = self._leftover(text, spans + when.spans, extra=rooms)
-        if len(leftover) > (0 if strict else 2):
+        if any(PLACE_WORDS.match(w) for w in leftover):
+            return None
+        if len(leftover) > (0 if strict else 1):
             return None
         plural = re.search(r"\b(all|sab|everything|sari|saari|tamam|har|lights|lamps|bulbs|fans|battiyan|pankhe)\b", text)
         if len(targets) > 1 and not plural:
@@ -331,6 +379,7 @@ class QuickCommands:
                 minutes, rounded = 1, True
             args["in_minutes"] = round(minutes, 2)
         elif when.kind == "at":
+            when = self._next_clock(when)
             args["at_time"] = f"{when.hour:02d}:{when.minute:02d}"
         else:
             args.update({"repeat_daily": True, "at_time": f"{when.hour:02d}:{when.minute:02d}", "days": when.days})
@@ -348,6 +397,18 @@ class QuickCommands:
             return f"OK, the {_describe(d)} turns {state} at {_clock(when.hour, when.minute)} {day}."
         on_days = "every day" if not when.days or len(when.days) == 7 else "every " + _and([x.capitalize() for x in when.days])
         return f"OK, {on_days} at {_clock(when.hour, when.minute)} the {_describe(d)} turns {state}."
+
+    def _next_clock(self, when: When) -> When:
+        """A bare "at 11" means whichever 11 o'clock comes next (11 pm when it's 7 pm now)."""
+        if when.exact:
+            return when
+        now = self._clock()
+        options = [(when.hour % 12), (when.hour % 12) + 12]
+        def wait(h: int) -> float:
+            t = now.replace(hour=h, minute=when.minute, second=0, microsecond=0)
+            return ((t - now).total_seconds()) % 86400
+        hour = min(options, key=wait)
+        return When("at", hour=hour, minute=when.minute, spans=when.spans)
 
     # -------------------------------------------------------------- timers
     def _list_timers(self, text: str) -> Optional[str]:
@@ -386,6 +447,8 @@ class QuickCommands:
 
     # -------------------------------------------------------------- sensors and states
     def _climate(self, text: str) -> Optional[str]:
+        if parse_state(text) is not None and not re.match(r"^(is|are|kya|what|whats|how)\b", text):
+            return None                                 # "turn on the fan, it's hot" is a command
         if not re.search(r"\b(temperature|temp|hot|cold|warm|garmi|sardi|thand|thandi|humidity|humid|nami|darja|degrees?|weather inside)\b", text):
             return None
         sensors = [d for d in self._devices if not d.get("controllable") and any(
@@ -408,6 +471,8 @@ class QuickCommands:
 
     def _status(self, text: str) -> Optional[str]:
         asks_all = re.search(r"\b(whats on|what is on|what s on|which (?:lights?|devices?|things?) (?:are|is) on|anything on|kya kya on|kaun ?sa on|kon ?sa on|konsi on|kaunsi on|kya on hai|status|what is running|whats running)\b", text)
+        if asks_all and self._leftover(text, [asks_all.span()], extra=("house", "home", "ghar", "currently", "still")):
+            return None                                 # "what's on TV" is not about the switches
         if asks_all:
             on = [d for d in self._devices if d.get("controllable") and d.get("online") and (d.get("state") or {}).get("on")]
             off_line = [d for d in self._devices if not d.get("online")]
@@ -417,10 +482,19 @@ class QuickCommands:
             return reply
         # "is the bulb on?" / "kya batti on hai?"
         if re.match(r"^(is|are|kya)\b", text) and re.search(r"\b(on|off|band|chal rah[ai]|jal rah[ai])\b", text):
-            for d in sorted(self._devices, key=lambda x: -len(x["name"])):
-                if any(re.search(rf"\b{re.escape(_norm(n))}s?\b", text) for n in [d["name"], *d.get("aliases", [])] if n):
-                    return f"The {_describe(d)} is {_state_text(d)}."
+            asked, _ = self._match_devices_any(text)
+            if asked:
+                return " ".join(f"The {_describe(d)} is {_state_text(d)}." for d in asked)
         return None
+
+    def _match_devices_any(self, text: str) -> Tuple[List[dict], List[Tuple[int, int]]]:
+        """Like _match_devices but over every device the person can see (questions need no right to switch)."""
+        switches = self._switches
+        try:
+            self._switches = [d for d in self._devices if d.get("controllable")]
+            return self._match_devices(text)
+        finally:
+            self._switches = switches
 
     # -------------------------------------------------------------- scenes
     def _scene(self, text: str) -> Optional[str]:

@@ -14,21 +14,29 @@ log = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------ translation (pure functions)
 def to_claude_messages(messages: Sequence[ChatMessage]) -> List[dict]:
-    """Claude wants tool calls as content blocks, and tool results grouped in one user message."""
+    """Claude wants tool calls as content blocks, tool results grouped in one user message, no empty
+    text, and turns that alternate user / assistant (neighbours with the same role are merged)."""
     out: List[dict] = []
+
+    def push(role: str, blocks: List[dict]) -> None:
+        if not blocks:
+            return
+        if out and out[-1]["role"] == role:
+            out[-1]["content"].extend(blocks)
+        else:
+            out.append({"role": role, "content": blocks})
+
     for m in messages:
         if m.role == Role.TOOL:
-            block = {"type": "tool_result", "tool_use_id": m.tool_call_id, "content": m.content}
-            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
-                out[-1]["content"].append(block)
-            else:
-                out.append({"role": "user", "content": [block]})
-        elif m.role == Role.ASSISTANT and m.tool_calls:
-            blocks = [{"type": "text", "text": m.content}] if m.content else []
+            push("user", [{"type": "tool_result", "tool_use_id": m.tool_call_id, "content": m.content or "(no result)"}])
+        elif m.role == Role.ASSISTANT:
+            blocks = [{"type": "text", "text": m.content}] if m.content.strip() else []
             blocks += [{"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments} for c in m.tool_calls]
-            out.append({"role": "assistant", "content": blocks})
-        else:
-            out.append({"role": m.role.value, "content": m.content})
+            push("assistant", blocks)
+        elif m.content.strip():
+            push("user", [{"type": "text", "text": m.content}])
+    while out and out[0]["role"] != "user":              # a conversation has to start with the person
+        out.pop(0)
     return out
 
 
@@ -48,7 +56,8 @@ class ClaudeProvider:
         self.max_tokens = settings.max_tokens
         if client is None:
             import anthropic                       # only needed when Claude is used
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            # retries with back-off on overload / rate limits / network blips; never hang the person for long
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=3, timeout=45.0)
         self._client = client
 
     def chat(self, system: str, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec]) -> LLMReply:

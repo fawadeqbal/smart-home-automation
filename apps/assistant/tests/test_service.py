@@ -59,7 +59,7 @@ def test_silence_gets_a_friendly_retry(devices):
     client, apis = make(devices, stt=FakeSTT(""))
     res = client.post("/v1/voice", files={"audio": ("speech", b"x", "audio/webm")}, data=WHO, headers=HEADERS)
     assert res.json()["reply"].startswith("Sorry, I did not catch that")
-    assert apis == []
+    assert all(api.commands == [] for api in apis)
 
 
 def test_each_person_has_their_own_history_and_can_reset_it(devices):
