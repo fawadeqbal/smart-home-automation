@@ -127,6 +127,7 @@ model Organization {
   invites      Invite[]
   firmware     FirmwareImage[]
   visitRequests VisitRequest[]
+  helpArticles HelpArticle[]
   createdAt    DateTime        @default(now())
 }
 
@@ -466,4 +467,43 @@ model VisitRequest {
   updatedAt   DateTime     @updatedAt
 
   @@index([orgId, status, createdAt])
+}
+
+enum HelpCategory {
+  USAGE
+  TROUBLESHOOTING
+  PROCESS
+  POLICY
+  FAQ
+}
+
+enum HelpAudience {
+  EVERYONE
+  STAFF
+}
+
+/// The Help Center: what the assistant knows about using the product, fixing problems, the company's
+/// processes and its policies. Edited by super admins in the console; the assistant searches the
+/// published ones (STAFF articles only for staff).
+model HelpArticle {
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// Stable key of a starter article ("troubleshooting/board-offline"), so a new version of the app
+  /// adds the starter articles a company doesn't have yet, and never touches ones it edited or removed.
+  slug        String
+  title       String
+  category    HelpCategory
+  audience    HelpAudience @default(EVERYONE)
+  tags        String[]     @default([])
+  body        String
+  published   Boolean      @default(false)
+  /// removed in the console (kept, so the starter set doesn't bring it back)
+  archivedAt  DateTime?
+  updatedById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([orgId, slug])
+  @@index([orgId, published])
 }

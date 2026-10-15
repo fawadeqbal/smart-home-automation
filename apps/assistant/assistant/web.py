@@ -18,7 +18,8 @@ from .conversation import ConversationService, PromptBuilder
 from .domain.ports import LLMProvider, SpeechToText, TextToSpeech
 from .home_api import HomeApi, HomeApiError
 from .quick import QuickCommands
-from .tools import build_tools, describe_home, home_zone
+from .knowledge import KnowledgeBase, local_embedder
+from .tools import SearchHelpTool, build_tools, describe_home, home_zone
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +58,12 @@ class ChatIn(Identity):
     fresh: bool = False
 
 
+class HelpQuery(BaseModel):
+    question: str = Field(min_length=1, max_length=300)
+    token: str
+    staff: bool = False          # search what staff see (else what a customer sees)
+
+
 class ReplyOut(BaseModel):
     heard: Optional[str] = None
     reply: str
@@ -65,7 +72,8 @@ class ReplyOut(BaseModel):
 
 def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Optional[SpeechToText] = None,
                tts: Optional[TextToSpeech] = None,
-               api_factory: Optional[Callable[[str], HomeApi]] = None) -> FastAPI:
+               api_factory: Optional[Callable[[str], HomeApi]] = None,
+               knowledge: Optional[KnowledgeBase] = None) -> FastAPI:
     """Composition root: real adapters by default, fakes in tests."""
     if llm is None:
         from .llm import create_provider
@@ -77,6 +85,10 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         from .speech import create_tts
         tts = create_tts(settings.piper_model)
     make_api = api_factory or (lambda token: HomeApi(settings.api_url, token))
+    embed = local_embedder() if knowledge is None and settings.help_embeddings else None
+    knowledge = knowledge or KnowledgeBase(embed)
+    if embed is not None:                               # load the embedding model now, not on the first question
+        threading.Thread(target=lambda: embed(["warm up"]), daemon=True).start()
     conversation = ConversationService(llm, PromptBuilder(settings.instructions_file), max_turns=settings.max_turns,
                                        fast_replies=settings.fast_replies, idle_minutes=settings.idle_minutes)
     for part in (llm, stt):                             # load the models now, not on the first question
@@ -105,7 +117,7 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         devices = load_devices(api, who) if devices is None else devices
         tz = home_zone(who.timezone or settings.timezone)
         clock = lambda: datetime.now(tz)                # noqa: E731 - the home's clock, shared by both
-        tools = build_tools(api, devices, tz, clock)
+        tools = build_tools(api, devices, tz, clock, knowledge)
         quick = QuickCommands(api, devices, tools, clock=clock) if settings.quick_commands else None
         scenes = getattr(tools.get("run_scene"), "_scenes", [])
         reply = conversation.ask(who.user_id, who.user_name, text, tools, quick,
@@ -166,6 +178,18 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
             spoken = tts.synthesize(DID_NOT_HEAR)
             return ReplyOut(heard="", reply=DID_NOT_HEAR, audio=base64.b64encode(spoken).decode() if spoken else None)
         return answer(heard, who, speak=True, fresh=fresh, api=api, devices=devices)
+
+    @app.post("/v1/help/search", dependencies=[Depends(check_secret)])
+    def help_search(body: HelpQuery):
+        """The console's "ask a test question": what the assistant would find for it."""
+        tool = SearchHelpTool(make_api(body.token), knowledge, customer_view=not body.staff)
+        try:
+            hits = tool.hits(body.question, limit=5)
+        except HomeApiError as exc:
+            raise HTTPException(502, str(exc))
+        return {"hits": [{"articleId": h.chunk.article_id, "title": h.chunk.title, "category": h.chunk.category,
+                          "audience": h.chunk.audience, "text": h.chunk.text, "score": round(h.score, 4),
+                          "keywordRank": h.keyword_rank, "meaningRank": h.meaning_rank} for h in hits]}
 
     @app.post("/v1/reset", status_code=204, dependencies=[Depends(check_secret)])
     def reset(who: Identity):

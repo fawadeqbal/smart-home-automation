@@ -286,3 +286,29 @@ export interface VisitRequest {
   note: string; createdAt: string; updatedAt: string; home: { id: string; name: string } | null; handledBy: string | null;
 }
 export interface VisitList { counts: Record<VisitStatus, number>; requests: VisitRequest[] }
+
+// ---------------------------------------------------------------- Help Center
+export type HelpCategory = 'USAGE' | 'TROUBLESHOOTING' | 'PROCESS' | 'POLICY' | 'FAQ';
+export type HelpAudience = 'EVERYONE' | 'STAFF';
+export interface HelpArticle {
+  id: string;
+  slug: string;
+  title: string;
+  category: HelpCategory;
+  audience: HelpAudience;
+  tags: string[];
+  body: string;
+  published: boolean;
+  updatedAt: string;
+}
+/** What the assistant's search found for a test question. */
+export interface HelpHit {
+  articleId: string;
+  title: string;
+  category: HelpCategory;
+  audience: HelpAudience;
+  text: string;
+  score: number;
+  keywordRank: number | null;
+  meaningRank: number | null;
+}

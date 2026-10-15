@@ -56,3 +56,13 @@ class HomeApi:
 
     def run_scene(self, scene_id: str) -> Dict[str, Any]:
         return self._call("POST", f"/scenes/{scene_id}/run", {})
+
+    # the Help Center (published articles this person may read) and the home's boards (owners, admins)
+    def help_key(self, customer_view: bool = False) -> str:
+        return self._call("GET", "/help/feed" + ("?view=customer" if customer_view else ""))["key"]
+
+    def help_articles(self, customer_view: bool = False) -> List[Dict[str, Any]]:
+        return self._call("GET", "/help/feed?articles=1" + ("&view=customer" if customer_view else ""))["articles"]
+
+    def nodes(self) -> List[Dict[str, Any]]:
+        return self._call("GET", "/nodes")

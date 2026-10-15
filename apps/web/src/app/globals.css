@@ -1280,3 +1280,15 @@ input[type='file'] { height: auto; padding: 8px; }
 .visit-steps button.on { background: var(--sf2); border-color: var(--ln2); color: var(--tx); }
 .visit-steps button > span { width: 8px; height: 8px; border-radius: 999px; flex: none; opacity: .45; }
 .visit-steps button.on > span { opacity: 1; box-shadow: 0 0 0 3px var(--sf3); }
+
+/* ------------------------------------------------------------- help center */
+.help-note { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--ons); color: var(--ont); font-size: 13.5px; }
+.help-note .btn { margin-left: auto; }
+.help-try { padding: 14px; }
+.help-hits { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; counter-reset: hit; }
+.help-hits li { padding: 10px 12px; border: 1px solid var(--ln); border-radius: 10px; background: var(--sf2); display: flex; flex-direction: column; gap: 4px; }
+.help-hits li p { line-height: 1.45; }
+.help-checks { padding: 10px 12px; border-radius: 10px; background: var(--ons); color: var(--ont); font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.help-checks ul { margin: 0; padding-left: 18px; }
+.help-body { white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; }
+.side-panel textarea.mono { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 1.5; }

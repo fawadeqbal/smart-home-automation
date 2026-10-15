@@ -12,3 +12,5 @@ numpy>=1.24
 # zone data for the home's clock (the slim image has none)
 tzdata
 piper-tts>=1.2
+# Help Center search by meaning: a small multilingual embedding model on ONNX Runtime
+fastembed>=0.5

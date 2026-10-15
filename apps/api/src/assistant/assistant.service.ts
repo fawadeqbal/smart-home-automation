@@ -74,7 +74,7 @@ export class AssistantService {
       });
     } catch (err) {
       this.log.warn(`Assistant unreachable at ${this.settings.assistantUrl}: ${err}`);
-      throw new ServiceUnavailableException('The voice assistant is not running. Start apps/assistant.');
+      throw new ServiceUnavailableException('The assistant isn’t available right now. You can still switch things from the app.');
     }
     const data = (await res.json().catch(() => ({}))) as AssistantReply & { detail?: string };
     if (!res.ok) throw new BadGatewayException(data.detail ?? `Assistant error ${res.status}`);

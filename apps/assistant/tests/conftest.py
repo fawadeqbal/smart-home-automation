@@ -86,6 +86,25 @@ class FakeApi:
     def scenes(self):
         return []
 
+    # the Help Center and the boards: set by tests that need them
+    help: List[dict] = []
+    help_version = "org1:everyone:0:0"
+    boards: Optional[List[dict]] = None
+    help_calls = 0
+
+    def help_key(self, customer_view=False):
+        return self.help_version + (":customer" if customer_view else "")
+
+    def help_articles(self, customer_view=False):
+        type(self).help_calls += 1
+        return [a for a in self.help if not customer_view or a.get("audience", "EVERYONE") == "EVERYONE"]
+
+    def nodes(self):
+        from assistant.home_api import HomeApiError
+        if self.boards is None:
+            raise HomeApiError("You do not have permission for this.")
+        return self.boards
+
 
 def device(id: str, name: str, room: str = "Living room", access: str = "CONTROL", controllable: bool = True,
            aliases=(), online: bool = True, state=None, fields=None) -> dict:
