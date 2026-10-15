@@ -9,6 +9,8 @@ import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../state/home_overview.dart';
 import '../../state/session.dart';
+import '../../voice/hands_free.dart';
+import '../../voice/hands_free_ui.dart';
 import 'toast_host.dart';
 
 /// The four tabs under a floating glass bar, with the mic beside it and toasts above it.
@@ -31,10 +33,23 @@ class AppShell extends ConsumerWidget {
       sessionProvider.select((s) => s.value?.home?.manages ?? false),
     );
     final problem = manages && !ref.watch(homeHealthProvider.select((h) => h.ok));
+    // "Hey Switchboard" lives as long as the signed-in app does
+    final listening = ref.watch(handsFreeProvider.select((h) => h.stage == HandsFreeStage.waiting));
     return Scaffold(
       body: Stack(
         children: [
           Positioned.fill(child: shell),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: bottom + 98,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: const HandsFreeOverlay(),
+              ),
+            ),
+          ),
           Positioned(
             left: 16,
             right: 16,
@@ -126,13 +141,31 @@ class AppShell extends ConsumerWidget {
                         child: SizedBox(
                           width: 64,
                           height: 64,
-                          child: Center(
-                            child: SbIcon(
-                              SbIcons.mic,
-                              size: 27,
-                              color: c.tint,
-                              weight: IconWeight.fill,
-                            ),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              SbIcon(
+                                SbIcons.mic,
+                                size: 27,
+                                color: c.tint,
+                                weight: IconWeight.fill,
+                              ),
+                              // listening for "Hey Switchboard"
+                              if (listening)
+                                Positioned(
+                                  top: 14,
+                                  right: 14,
+                                  child: Container(
+                                    width: 9,
+                                    height: 9,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF3DDC97),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: c.sf, width: 1.5),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),

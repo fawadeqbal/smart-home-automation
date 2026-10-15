@@ -49,6 +49,8 @@ lib/
     repositories/ one per area (auth, devices, automation, activity, people, home, assistant) — the only code that knows URLs
   state/         Riverpod providers: session, devices (live + optimistic), automation, activity, favourites, toasts, derived room/health summaries
   features/      one folder per screen area: home, rooms, devices, routines, activity, health, family, me, assistant, auth, shell
+  voice/         "Hey Switchboard": wake word + speech detection on the phone (engine), the hands-free
+                 controller, the Siri-style overlay and switches, Android's background-listening service
   shared/widgets/ design-system pieces: Pressable, SbSwitch, Segmented, SbChip, sheets, notes, empty/error/loading
 ```
 
@@ -64,6 +66,22 @@ lib/
 * **New icons**: one line in `SbIcons` (the Phosphor fonts are bundled; only used glyphs ship in release builds).
 * **New screens**: a folder in `features/`, a route in `core/routing` (inside tabs via `_insideTab()` if it
   should keep the tab bar), and `context.openInTab('…')` to open it.
+
+## "Hey Switchboard" (hands-free)
+
+Me → Hands-free → **“Hey Switchboard”**. The wake word is recognised on the phone and only the request
+said after it goes to `/assistant/voice`; the answer is spoken and shown in a card over any screen.
+
+* `lib/voice/engine.dart`: openWakeWord's streaming pipeline (melspectrogram → speech embedding → the
+  wake-word model) and Silero VAD, in plain Dart behind small model interfaces. It is the same code as the
+  web app's `public/voice/engine.mjs`, and gives the same scores as the Python original on the real ONNX
+  Runtime. `lib/voice/ort_models.dart` runs the models with flutter_onnxruntime.
+* Models are in `assets/voice/` (`wake.json` names the wake-word model). Without the wake-word model the
+  switch stays hidden. Keep them the same as `apps/web/public/voice/`.
+* **Android, in the background:** a second switch keeps listening with the screen off, through a
+  foreground service of type `microphone` (permanent notification with a Stop button, more battery).
+  Swiping the app away stops it; Android doesn't allow microphone services to start at boot.
+* Tap-to-talk on the Ask screen pauses hands-free while it records.
 
 ## What it uses from the API
 
