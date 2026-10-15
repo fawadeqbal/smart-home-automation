@@ -479,7 +479,7 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
       {current === 'pins' && <BoardDiagram node={node} catalog={catalog} />}
       {current === 'network' && <NetworkPanel node={node} />}
       {current === 'firmware' && <FirmwarePanel node={node} />}
-      {current === 'logs' && <LogPanel nodeId={node.id} online={node.online} />}
+      {current === 'logs' && <LogPanel nodeId={node.id} online={node.online} devices={node.devices} />}
 
       {dialog === 'rename' && (
         <FormModal title="Rename board" sub="Name it after where it is — the owner sees this name." submitLabel="Save" onClose={() => setDialog(null)}

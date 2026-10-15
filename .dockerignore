@@ -7,3 +7,7 @@ node_modules
 **/__pycache__
 firmware
 apps/assistant/models
+apps/mobile
+.github
+infra/backups
+.deployed

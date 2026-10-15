@@ -592,6 +592,35 @@ button.tile-body:focus-visible { outline: 2px solid var(--ac); outline-offset: -
 .lvl-warn .log-lvl, .lvl-warn .log-msg { color: #f7c46a; }
 .lvl-error .log-lvl, .lvl-error .log-msg { color: #ff8a8f; }
 .log-empty { color: #6b7280; padding: 8px 0; }
+.log-tools { flex-wrap: wrap; justify-content: flex-end; }
+.logclean { height: 340px; overflow-y: auto; border: 1px solid var(--ln); border-radius: 12px; background: var(--sf); }
+.logclean .log-empty { color: var(--mu); padding: 14px 16px; }
+.lev { border-bottom: 1px solid var(--ln); }
+.lev:last-child { border-bottom: 0; }
+.lev-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 14px; border: 0; background: none; font: inherit; font-size: 13.5px; color: var(--tx); text-align: left; cursor: pointer; }
+.lev-row:hover { background: var(--sf2); }
+.lev-time { flex: none; width: 62px; color: var(--mu); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; }
+.lev-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 8px; background: var(--sf2); color: var(--mu); }
+.lev-icon .spinner.sm { width: 12px; height: 12px; }
+.lev-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lev-text b { font-weight: 550; }
+.lev-meta { flex: none; color: var(--mu); font-size: 12.5px; }
+.lev-chev { flex: none; color: var(--mu); display: inline-flex; transition: transform 0.15s; }
+.lev.open .lev-chev { transform: rotate(180deg); }
+.lev.lev-ok .lev-icon { background: var(--oks); color: var(--okt); }
+.lev.lev-info .lev-icon { background: var(--acs); color: var(--act); }
+.lev.lev-pending .lev-icon { background: var(--acs); color: var(--ac); }
+.lev.lev-warn .lev-icon { background: var(--ons); color: var(--ont); }
+.lev.lev-warn .lev-meta, .lev.lev-warn .lev-text b { color: var(--ont); }
+.lev.lev-error .lev-icon { background: var(--bads); color: var(--badt); }
+.lev.lev-error .lev-meta, .lev.lev-error .lev-text b { color: var(--badt); }
+.lev.lev-muted .lev-text b { font-weight: 450; color: var(--mu); }
+.lev-raw { margin: 0 14px 10px 50px; padding: 8px 12px; border-radius: 10px; background: var(--log); color: #d6d9e0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
+@media (max-width: 640px) {
+  .lev-time { width: auto; }
+  .lev-meta { display: none; }
+  .lev-raw { margin-left: 14px; }
+}
 
 /* ------------------------------------------------------------- loading */
 @keyframes spin { to { transform: rotate(360deg); } }

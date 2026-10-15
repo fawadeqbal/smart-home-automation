@@ -1,0 +1,290 @@
+# CI/CD for Switchboard.
+#
+#   Every push and pull request: build and test everything that changed.
+#   Every push to main that passes: deploy to Server B (https://home.fawadiqbal.dev).
+#
+# One-time setup (GitHub > the repo > Settings > Secrets and variables > Actions): see docs/ci-cd.md.
+#   Secrets:   DEPLOY_SSH_KEY (private key that can log in to the server), DEPLOY_HOST (145.241.156.60)
+#   Optional:  DEPLOY_KNOWN_HOSTS (output of `ssh-keyscan 145.241.156.60`), variables DEPLOY_USER (opc),
+#              DEPLOY_PATH (/opt/home-platform), PUBLIC_URL (https://home.fawadiqbal.dev)
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to the server after the tests pass
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------- what changed
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+      firmware: ${{ steps.filter.outputs.firmware }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            mobile:
+              - 'apps/mobile/**'
+            firmware:
+              - 'firmware/**'
+              - 'packages/contracts/src/device-types.ts'
+
+  # ---------------------------------------------------------------- API + web
+  platform:
+    name: API + web — build, unit and end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: home
+          POSTGRES_USER: home
+          POSTGRES_PASSWORD: ci-db
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U home -d home"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://home:ci-db@localhost:5432/home
+      MQTT_URL: mqtt://localhost:1883
+      MQTT_API_PASSWORD: ci-mqtt-api
+      MQTT_NODE_PASSWORD: ci-mqtt-node
+      JWT_SECRET: ci-only-not-a-real-secret-0123456789abcdef
+      WEB_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the MQTT broker (same config and logins as production)
+        run: |
+          docker run -d --name mqtt -p 1883:1883 \
+            -e MQTT_API_PASSWORD -e MQTT_NODE_PASSWORD \
+            -v "$PWD/infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
+            -v "$PWD/infra/mosquitto/acl:/mosquitto/config/acl:ro" \
+            eclipse-mosquitto:2 sh -c '
+              mosquitto_passwd -c -b /mosquitto/data/passwd api "$MQTT_API_PASSWORD" &&
+              mosquitto_passwd -b /mosquitto/data/passwd node "$MQTT_NODE_PASSWORD" &&
+              chown mosquitto:mosquitto /mosquitto/data/passwd && chmod 0700 /mosquitto/data/passwd &&
+              exec mosquitto -c /mosquitto/config/mosquitto.conf'
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: |
+          pnpm install --frozen-lockfile
+          pip install paho-mqtt   # the simulated board used by the end-to-end tests
+
+      - name: Build (contracts, API, web)
+        run: pnpm build
+
+      - name: Type-check the web app
+        run: pnpm --filter @home/web lint
+
+      - name: Unit tests
+        run: |
+          pnpm --filter @home/contracts test
+          pnpm --filter @home/api test
+
+      - name: Database migrations
+        run: pnpm --filter @home/api exec prisma migrate deploy
+
+      - name: End-to-end tests (real API, database and broker + a simulated board)
+        run: pnpm --filter @home/api test:e2e
+
+      - name: Broker log
+        if: failure()
+        run: docker logs mqtt
+
+  # ---------------------------------------------------------------- voice assistant
+  assistant:
+    name: Voice assistant — tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/assistant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: apps/assistant/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  # ---------------------------------------------------------------- phone app (only when it changed)
+  mobile:
+    name: Phone app — analyze, test, build APK
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Build the Android app (arm64, test-signed)
+        run: flutter build apk --release --target-platform android-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Switchboard-home-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+  # ---------------------------------------------------------------- board firmware (only when it changed)
+  firmware:
+    name: Board firmware — compile for NodeMCU
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: https://arduino.esp8266.com/stable/package_esp8266com_index.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-esp8266-3.1.2-libs-v1
+      - name: Board package and libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp8266:esp8266@3.1.2
+          arduino-cli lib install "ArduinoJson@7.2.1" "PubSubClient@2.8" "WiFiManager@2.0.17" \
+            "DHT sensor library@1.4.7" "Adafruit Unified Sensor@1.1.15"
+      - name: Compile
+        run: arduino-cli compile -b esp8266:esp8266:nodemcuv2 --warnings default --output-dir build firmware/home_node
+      - name: Name the .bin after its version
+        run: |
+          v=$(grep -oP '#define FIRMWARE_VERSION\s+"\K[^"]+' firmware/home_node/config.h)
+          mv build/home_node.ino.bin "build/home_node-$v.bin"
+          echo "Firmware $v: upload it in the web app > a board > Firmware > Upload build" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: home-node-firmware
+          path: build/home_node-*.bin
+          retention-days: 30
+
+  # ---------------------------------------------------------------- deploy
+  deploy:
+    name: Deploy to the server
+    needs: [platform, assistant]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_URL || 'https://home.fawadiqbal.dev' }}
+    # never two deploys at once, and never cancel one half-way
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'opc' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/home-platform' }}
+      PUBLIC_URL: ${{ vars.PUBLIC_URL || 'https://home.fawadiqbal.dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Connect to the server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$DEPLOY_HOST" ]; then
+            echo "::error::Add the DEPLOY_SSH_KEY and DEPLOY_HOST secrets first (docs/ci-cd.md)."
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::DEPLOY_KNOWN_HOSTS is not set: trusting the server's key as offered (set it to pin the key)."
+            ssh-keyscan -T 20 "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          printf 'Host server\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  ServerAliveInterval 30\n' \
+            "$DEPLOY_HOST" "$DEPLOY_USER" > ~/.ssh/config
+          ssh server 'echo "Connected to $(hostname) as $(whoami)"'
+
+      - name: Send the code
+        # Only what the server builds: no phone app, no firmware. .env, the voice models and the
+        # database stay on the server untouched (they are not in git).
+        run: |
+          git archive --format=tar HEAD -- . ':(exclude)apps/mobile' ':(exclude)firmware' | gzip -9 \
+            | ssh server "set -e; S=''; docker info >/dev/null 2>&1 || S='sudo -n'
+                          \$S mkdir -p '$DEPLOY_PATH' && \$S tar -xzf - -C '$DEPLOY_PATH'
+                          echo \"Unpacked into $DEPLOY_PATH\""
+
+      - name: Back up the database, build and restart
+        run: |
+          ssh server "set -e; S=''; docker info >/dev/null 2>&1 || S='sudo -n'
+                      cd '$DEPLOY_PATH' && \$S bash infra/deploy-from-ci.sh '$GITHUB_SHA'"
+
+      - name: Check the site is up
+        run: |
+          for i in $(seq 1 36); do
+            body=$(curl -fsS -m 10 "$PUBLIC_URL/api/health" || true)
+            if echo "$body" | grep -q '"ok":true'; then break; fi
+            echo "waiting for the API ($i)… $body"; sleep 10
+          done
+          echo "Health: $body"
+          echo "$body" | grep -q '"ok":true' || { echo "::error::$PUBLIC_URL/api/health is not ok"; exit 1; }
+          echo "$body" | grep -q '"database":true' || { echo "::error::the API cannot reach its database"; exit 1; }
+          echo "$body" | grep -q '"broker":true' || { echo "::error::the API cannot reach the MQTT broker"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$PUBLIC_URL/")
+          [ "$code" = 200 ] || { echo "::error::the web app answered $code"; exit 1; }
+          echo "Deployed ${GITHUB_SHA::7} to $PUBLIC_URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: What the server shows (on failure)
+        if: failure()
+        run: |
+          ssh server "S=''; docker info >/dev/null 2>&1 || S='sudo -n'
+                      \$S docker ps --filter name=home- --format 'table {{.Names}}\t{{.Status}}'
+                      echo; \$S docker logs --tail 80 home-api 2>&1" || true

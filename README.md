@@ -161,6 +161,13 @@ cd apps\assistant; python -m pytest         # voice service
 
 The end-to-end test runs the real API, database and broker with a fake board and a live-update client: setup, board discovery, adoption, pin validation, acknowledged commands, sensor readings, family rights, the wall button, and a board going offline.
 
+### On GitHub: test every push, deploy `main` automatically
+
+`.github/workflows/ci-cd.yml` runs all of the above on every push and pull request (plus the phone app and
+the firmware when they change), and when `main` is green it deploys to the server: code over SSH, a database
+backup, `infra/deploy-server.sh`, then a health check of https://home.fawadiqbal.dev. One-time setup (an SSH
+key and two GitHub secrets): [docs/ci-cd.md](docs/ci-cd.md).
+
 ---
 
 ## How the parts talk
