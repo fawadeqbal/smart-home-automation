@@ -13,3 +13,5 @@ apps/assistant/models/*
 firmware/home_node/build/
 infra/backups/*.sql.gz
 data/
+# the phone app's data layer (models, repositories) is source code, not runtime data
+!apps/mobile/lib/data/

@@ -29,6 +29,8 @@ class Settings:
     claude_model: str = "claude-haiku-5-5"
     max_tokens: int = 400
     max_turns: int = 6
+    # a conversation nobody has used for this long starts afresh (0 = never)
+    idle_minutes: float = 30
     # speed: answer everyday commands without the AI, and skip the AI's second round after a plain action
     quick_commands: bool = True
     fast_replies: bool = True
@@ -58,6 +60,7 @@ class Settings:
             claude_model=env("CLAUDE_MODEL", "claude-haiku-5-5"),
             max_tokens=int(env("MAX_TOKENS", "400")),
             max_turns=int(env("MAX_TURNS", "6")),
+            idle_minutes=float(env("CONVERSATION_IDLE_MINUTES", "30")),
             quick_commands=env("QUICK_COMMANDS", "true").strip().lower() != "false",
             fast_replies=env("FAST_REPLIES", "true").strip().lower() != "false",
             whisper_model=env("WHISPER_MODEL", "base"),

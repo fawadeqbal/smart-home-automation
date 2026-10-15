@@ -5,7 +5,6 @@
 | When | What runs |
 |---|---|
 | Every push and pull request | **API + web**: build, type-check, unit tests, the full end-to-end test (real API, Postgres, Mosquitto and a simulated board) · **Voice assistant**: pytest |
-| …if `apps/mobile` changed | **Phone app**: `flutter analyze`, `flutter test`, an arm64 APK to download from the run |
 | …if `firmware/` changed | **Board firmware**: compiled for NodeMCU; the `.bin` (named after `FIRMWARE_VERSION`) to download from the run |
 | Push to `main`, all tests green | **Deploy** to Server B → https://home.fawadiqbal.dev |
 
@@ -71,3 +70,5 @@ cd /opt/home-platform
 ls -t infra/backups/                     # newest first
 gunzip -c infra/backups/before-<sha>-<time>.sql.gz | docker exec -i home-postgres psql -U home -d home
 ```
+
+The phone app (`apps/mobile`) is not part of CI; analyze, test and build it on your PC.

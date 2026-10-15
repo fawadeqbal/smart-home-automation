@@ -8,7 +8,12 @@ import { CurrentUser } from '../auth/decorators';
 import { ZodPipe } from '../common/zod';
 import { AssistantService } from './assistant.service';
 
-const chatSchema = z.object({ text: z.string().trim().min(1).max(1000), speak: z.boolean().default(true) });
+/** fresh: the app's chat is empty, so the assistant starts a new conversation (remembers only what the person sees). */
+const chatSchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+  speak: z.boolean().default(true),
+  fresh: z.boolean().default(false),
+});
 
 @Controller('assistant')
 export class AssistantController {
@@ -17,16 +22,16 @@ export class AssistantController {
   @Post('chat')
   @HttpCode(200)
   chat(@CurrentUser() user: AuthUser, @Body(new ZodPipe(chatSchema)) body: z.infer<typeof chatSchema>) {
-    return this.assistant.chat(user, body.text, body.speak);
+    return this.assistant.chat(user, body.text, body.speak, body.fresh);
   }
 
   /** multipart/form-data with an "audio" file (what the browser's MediaRecorder produced). */
   @Post('voice')
   @HttpCode(200)
   @UseInterceptors(FileInterceptor('audio', { limits: { fileSize: 10 * 1024 * 1024 } }))
-  voice(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File) {
+  voice(@CurrentUser() user: AuthUser, @UploadedFile() file?: Express.Multer.File, @Body('fresh') fresh?: string) {
     if (!file?.buffer?.length) throw new BadRequestException('No audio received.');
-    return this.assistant.voice(user, file.buffer, file.mimetype);
+    return this.assistant.voice(user, file.buffer, file.mimetype, fresh === 'true');
   }
 
   @Post('reset')
