@@ -493,6 +493,18 @@ test('SaaS: a second organization is isolated, staff roles do what they should',
   assert.equal((await other.post('/platform/homes', { name: 'One too many' })).status, 403);
   assert.equal((await other.post('/platform/org/plan', { plan: 'PRO' })).body.plan, 'PRO');
   assert.equal((await other.post('/platform/homes', { name: 'Now fine' })).status, 201);
+
+  // assigning a board with an installer hands them the job, even when the home already had an installer
+  // (here the super admin who created it): it shows in their "My jobs" and they can open the home
+  const bossId = (await other.get('/auth/me')).body.id;
+  const shah = (await other.post('/platform/homes', { name: 'Shah house', installerId: bossId })).body.id;
+  assert.equal((await other.post('/platform/inventory', { ids: ['esp-move01'], board: 'NODEMCU_V2' })).status, 201);
+  assert.equal((await other.post('/platform/inventory/esp-move01/assign', { homeId: shah, installerId: raviId })).status, 200);
+  const jobs = (await installer.get('/platform/homes')).body;
+  assert.ok(jobs.some((h) => h.id === shah && h.installerId === raviId), 'the job reaches the installer');
+  installer.home = shah;
+  assert.equal((await installer.get('/auth/me')).body.home.canSetup, true);
+  installer.home = null;
   assert.equal((await installer.post('/platform/org/plan', { plan: 'BUSINESS' })).status, 403);
 });
 

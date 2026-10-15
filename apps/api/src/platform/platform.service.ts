@@ -528,7 +528,14 @@ export class PlatformService {
     const installer = installerId ?? home.installerId;
     if (installer) await this.assertStaff(orgId, installer, [StaffRole.INSTALLER, StaffRole.SUPERADMIN]);
     await this.prisma.node.update({ where: { id }, data: { status: NodeStatus.ASSIGNED, homeId, installerId: installer ?? null, assignedAt: new Date(), name: id } });
-    if (!home.installerId && installer) await this.prisma.home.update({ where: { id: homeId }, data: { installerId: installer } });
+    // The installer picked here does the job, so the home becomes theirs: it shows in their "My jobs" and
+    // they may open it. (Before, only the board remembered them, and a home that already had an installer,
+    // e.g. the super admin who created it, stayed invisible to them.) One installer per home.
+    if (installer && installer !== home.installerId) {
+      await this.prisma.home.update({ where: { id: homeId }, data: { installerId: installer } });
+      await this.prisma.node.updateMany({ where: { homeId, status: NodeStatus.ASSIGNED }, data: { installerId: installer } });
+      if (home.installerId) this.realtime.accessChanged(home.installerId);
+    }
     await this.nodes.publishConfig(id);
     const who = installer ? (await this.prisma.user.findUnique({ where: { id: installer }, select: { name: true } }))?.name : null;
     await this.audit.record(homeId, user.id, 'board.assign', id, { home: home.name, installer: who });

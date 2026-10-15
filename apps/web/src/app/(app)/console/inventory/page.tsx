@@ -156,7 +156,16 @@ export default function InventoryPage() {
                         {data.installers.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                       </select>
                     </label>
-                    <span className="small muted" style={{ lineHeight: 1.45 }}>The installer sees this board in their jobs. It joins the home when they power it on site.</span>
+                    {(() => {
+                      // picking someone other than the home's installer hands them the whole home (one installer per home)
+                      const current = data.homes.find((h) => h.id === assignHome)?.installerId ?? null;
+                      const picked = assignInstaller || current;
+                      const name = (id: string | null) => data.installers.find((i) => i.id === id)?.name ?? 'someone else';
+                      if (assignHome && assignInstaller && assignInstaller !== current) {
+                        return <span className="small" style={{ lineHeight: 1.45 }}><b>{name(assignInstaller)}</b> becomes the installer of {homeName(assignHome)} and sees it in <b>My jobs</b>{current ? <> (instead of {name(current)})</> : null}.</span>;
+                      }
+                      return <span className="small muted" style={{ lineHeight: 1.45 }}>{picked ? <><b>{name(picked)}</b> sees this home in My jobs. </> : null}The board joins the home when it’s powered on site.</span>;
+                    })()}
                     <button className="btn btn-primary btn-block" style={{ height: 38 }} disabled={!assignHome || busy} onClick={() => void assign()}>Assign board</button>
                     <div className="row">
                       <button className="btn btn-sm btn-ghost" onClick={() => setFaulty(board)}>Mark faulty</button>
