@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+__pycache__/
+.venv/
+.pytest_cache/
+apps/assistant/models/*
+!apps/assistant/models/README.md
+firmware/home_node/build/
+infra/backups/*.sql.gz
+data/

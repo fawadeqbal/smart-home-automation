@@ -1,0 +1,349 @@
+#include "MqttBridge.h"
+
+#include <ESP8266httpUpdate.h>
+
+#include <ArduinoJson.h>
+#include <time.h>
+
+#include "../../config.h"
+#include "../core/Log.h"
+#include "CaCert.h"
+
+void MqttBridge::begin(const NodeSettings& settings) {
+  settings_ = &settings;
+  topics_ = new Topics(settings.nodeId());
+  const BrokerSettings& b = settings.broker();
+
+  if (b.tls) {
+    // TLS: trust only servers whose certificate chains to Let's Encrypt's root; needs the real time.
+    trustAnchor_ = new BearSSL::X509List(ISRG_ROOT_X1);
+    secure_.setTrustAnchors(trustAnchor_);
+    secure_.setBufferSizes(4096, 1024);   // smaller than the 16 KB default: fits next to everything else
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
+    mqtt_.setClient(secure_);
+  } else {
+    mqtt_.setClient(plain_);
+  }
+  mqtt_.setServer(b.host.c_str(), b.port);
+  mqtt_.setBufferSize(MQTT_BUFFER_BYTES);
+  mqtt_.setKeepAlive(MQTT_KEEPALIVE_SEC);
+  mqtt_.setSocketTimeout(5);
+  mqtt_.setCallback([this](char* t, uint8_t* p, unsigned int n) { onMessage(t, p, n); });
+  LOG_INFO("Node id %s, server %s:%u%s", settings.nodeId().c_str(), b.host.c_str(), b.port, b.tls ? " (TLS)" : "");
+}
+
+bool MqttBridge::clockReady() {
+  return time(nullptr) > 1700000000;   // after Nov 2023: NTP has answered
+}
+
+void MqttBridge::loop() {
+  if (rebootAt_ && millis() > rebootAt_) ESP.restart();
+  wifiSwitch_.loop();
+  if (wifiSwitch_.busy() || WiFi.status() != WL_CONNECTED) return;
+
+  if (!mqtt_.connected()) {
+    if (millis() < nextAttempt_) return;
+    if (settings_->broker().tls && !clockReady()) {
+      nextAttempt_ = millis() + 500;   // waiting for NTP
+      return;
+    }
+    if (!connect()) {
+      nextAttempt_ = millis() + backoff_;
+      backoff_ = std::min<uint32_t>(backoff_ * 2, MQTT_RETRY_MAX_MS);
+      return;
+    }
+    backoff_ = MQTT_RETRY_MIN_MS;
+  }
+  mqtt_.loop();
+  flushLogs();
+  reportNetwork();
+  if (otaUrl_.length()) runOta();
+
+  if (millis() - lastTelemetry_ >= config_.telemetrySec() * 1000UL) publishTelemetry();
+}
+
+bool MqttBridge::connect() {
+  const BrokerSettings& b = settings_->broker();
+  JsonDocument will;
+  will["online"] = false;
+  String willText;
+  serializeJson(will, willText);
+
+  LOG_INFO("Connecting to the server %s:%u...", b.host.c_str(), b.port);
+  // Client id = node id: the broker's access rules allow each board only its own topics.
+  if (!mqtt_.connect(settings_->nodeId().c_str(), b.user.c_str(), b.password.c_str(),
+                     topics_->status().c_str(), 1, true, willText.c_str())) {
+    LOG_WARN("Server connection failed (state %d). %s", mqtt_.state(),
+             mqtt_.state() == 4 || mqtt_.state() == 5 ? "Check the board login and password." : "Retrying.");
+    return false;
+  }
+  ++connects_;
+  LOG_INFO("Connected to the server");
+
+  JsonDocument status;
+  status["online"] = true;
+  status["fw"] = FIRMWARE_VERSION;
+  status["ip"] = WiFi.localIP().toString();
+  publishJson(topics_->status(), status, true);
+
+  JsonDocument announce;
+  announce["board"] = BOARD_TYPE;
+  announce["fw"] = FIRMWARE_VERSION;
+  announce["mac"] = WiFi.macAddress();
+  announce["ip"] = WiFi.localIP().toString();
+  publishJson(topics_->announce(), announce, true);
+
+  mqtt_.subscribe(topics_->config().c_str(), 1);
+  mqtt_.subscribe(topics_->deviceSetFilter().c_str(), 1);
+  mqtt_.subscribe(topics_->cmd().c_str(), 1);
+
+  // Tell the server where everything stands: after power-on, or what changed while offline.
+  if (!everConnected_) publishAllStates("boot");
+  else if (changedWhileOffline_) publishAllStates("button");
+  everConnected_ = true;
+  changedWhileOffline_ = false;
+  publishTelemetry();
+  return true;
+}
+
+// ---------------------------------------------------------------- incoming
+void MqttBridge::onMessage(char* topic, uint8_t* payload, unsigned int length) {
+  if (length == 0) return;   // a cleared retained message
+  JsonDocument doc;
+  if (deserializeJson(doc, payload, length) || !doc.is<JsonObject>()) {
+    LOG_WARN("Ignoring a message that is not a JSON object on %s", topic);
+    return;
+  }
+  const String t(topic);
+  if (t == topics_->config()) return handleConfig(doc.as<JsonObjectConst>());
+  if (t == topics_->cmd()) return handleCmd(doc.as<JsonObjectConst>());
+  const String key = topics_->keyFromSet(t);
+  if (key.length()) handleSet(key, doc.as<JsonObjectConst>());
+}
+
+void MqttBridge::handleConfig(JsonObjectConst config) {
+  const int rev = config["rev"] | 0;
+  if (config_.isCurrent(config)) {   // e.g. the retained config again after a reconnect
+    JsonDocument reply;
+    reply["rev"] = rev;
+    reply["ok"] = true;
+    publishJson(topics_->configApplied(), reply, false);
+    return;
+  }
+  String error;
+  quiet_ = true;
+  const bool ok = config_.apply(config, error);
+  quiet_ = false;
+
+  JsonDocument reply;
+  reply["rev"] = rev;
+  reply["ok"] = ok;
+  if (!ok) reply["error"] = error;
+  publishJson(topics_->configApplied(), reply, false);
+
+  if (ok) {
+    LOG_INFO("Configuration rev %d applied: %u devices%s", rev, (unsigned)registry_.count(),
+             config_.adopted() ? "" : " (waiting to be adopted in the web app)");
+    publishAllStates("boot");
+  } else {
+    LOG_WARN("Configuration rev %d rejected: %s", rev, error.c_str());
+  }
+}
+
+void MqttBridge::handleSet(const String& key, JsonObjectConst command) {
+  const char* cid = command["cid"] | (const char*)nullptr;
+  LOG_INFO("Command for %s from the server", key.c_str());
+  Device* device = registry_.find(key);
+  if (device == nullptr) {
+    JsonDocument err;
+    if (cid) err["cid"] = cid;
+    err["src"] = "remote";
+    err["error"] = "no such device on this board";
+    publishJson(topics_->deviceState(key), err, false);
+    return;
+  }
+  quiet_ = true;
+  const CommandResult result = device->apply(command);
+  quiet_ = false;
+  if (!result.ok) {
+    JsonDocument err;
+    if (cid) err["cid"] = cid;
+    err["src"] = "remote";
+    err["error"] = result.error;
+    publishJson(topics_->deviceState(key), err, false);
+    return;
+  }
+  publishState(*device, "remote", cid);   // the acknowledgement, even if nothing changed
+}
+
+void MqttBridge::handleCmd(JsonObjectConst cmd) {
+  const String action = cmd["action"] | "";
+  if (action == "reboot") {
+    LOG_INFO("Restart requested by the server");
+    rebootAt_ = millis() + 500;   // let the MQTT acknowledgement go out first
+  } else if (action == "scan") {
+    if (scanning_) return;
+    scanning_ = true;
+    LOG_INFO("Scanning for Wi-Fi networks...");
+    WiFi.scanNetworksAsync([this](int found) {
+      JsonDocument doc;
+      JsonArray list = doc["scan"].to<JsonArray>();
+      for (int i = 0; i < found && i < 30; ++i) {
+        if (WiFi.SSID(i).length() == 0) continue;   // hidden network
+        JsonObject n = list.add<JsonObject>();
+        n["ssid"] = WiFi.SSID(i);
+        n["rssi"] = WiFi.RSSI(i);
+        n["channel"] = WiFi.channel(i);
+        n["secure"] = WiFi.encryptionType(i) != ENC_TYPE_NONE;
+      }
+      WiFi.scanDelete();
+      scanning_ = false;
+      LOG_INFO("Found %d Wi-Fi networks", found);
+      publishJson(topics_->network(), doc, false);
+    });
+  } else if (action == "wifi") {
+    String why;
+    const String ssid = cmd["ssid"] | "";
+    if (!wifiSwitch_.start(ssid, cmd["password"] | "", why)) {
+      JsonDocument doc;
+      doc["result"]["ok"] = false;
+      doc["result"]["ssid"] = ssid;
+      doc["result"]["message"] = why;
+      publishJson(topics_->network(), doc, false);
+    }
+  } else if (action == "ota") {
+    // Firmware update over Wi-Fi: done from loop(), not inside this MQTT callback.
+    otaUrl_ = cmd["url"] | "";
+    otaVersion_ = cmd["version"] | "?";
+    if (!otaUrl_.startsWith("http")) otaUrl_ = "";
+  } else if (action == "wifi-reset") {
+    LOG_WARN("Forgetting Wi-Fi: restarting into the setup hotspot");
+    mqtt_.disconnect();
+    WiFi.disconnect(true);   // erases the saved network, so the next start opens the setup page
+    rebootAt_ = millis() + 500;
+  }
+}
+
+void MqttBridge::reportNetwork() {
+  bool ok;
+  String ssid, message;
+  if (!wifiSwitch_.takeResult(ok, ssid, message)) return;
+  JsonDocument doc;
+  doc["result"]["ok"] = ok;
+  doc["result"]["ssid"] = ssid;
+  doc["result"]["message"] = message;
+  publishJson(topics_->network(), doc, false);
+  publishTelemetry();   // fresh signal / network details right away
+}
+
+// ---------------------------------------------------------------- outgoing
+void MqttBridge::onDeviceChanged(Device& device) {
+  if (quiet_) return;
+  if (!mqtt_.connected()) {
+    changedWhileOffline_ = true;
+    return;
+  }
+  publishState(device, device.controllable() ? "button" : "sensor");
+}
+
+void MqttBridge::publishState(Device& device, const char* src, const char* cid) {
+  JsonDocument doc;
+  JsonObject state = doc.to<JsonObject>();
+  device.writeState(state);
+  if (state.size() == 0) return;   // e.g. a sensor with no reading yet
+  state["src"] = src;
+  if (cid) state["cid"] = cid;
+  publishJson(topics_->deviceState(device.key()), doc, true);
+}
+
+void MqttBridge::publishAllStates(const char* src) {
+  for (size_t i = 0; i < registry_.count(); ++i) publishState(registry_.at(i), src);
+}
+
+void MqttBridge::publishTelemetry() {
+  lastTelemetry_ = millis();
+  JsonDocument doc;
+  doc["rssi"] = WiFi.RSSI();
+  doc["heap"] = ESP.getFreeHeap();
+  doc["heapFrag"] = ESP.getHeapFragmentation();
+  doc["maxBlock"] = ESP.getMaxFreeBlockSize();
+  doc["uptime"] = millis() / 1000;
+#if MEASURE_SUPPLY_VOLTAGE
+  doc["vcc"] = ESP.getVcc();   // millivolts
+#endif
+  doc["cpuMhz"] = ESP.getCpuFreqMHz();
+  doc["flashKb"] = ESP.getFlashChipRealSize() / 1024;
+  doc["sketchKb"] = ESP.getSketchSize() / 1024;
+  doc["freeSketchKb"] = ESP.getFreeSketchSpace() / 1024;
+  doc["reset"] = ESP.getResetReason();
+  doc["ssid"] = WiFi.SSID();
+  doc["channel"] = WiFi.channel();
+  doc["connects"] = connects_;
+  doc["bssid"] = WiFi.BSSIDstr();
+  doc["gateway"] = WiFi.gatewayIP().toString();
+  doc["mac"] = WiFi.macAddress();
+  publishJson(topics_->telemetry(), doc, false);
+}
+
+void MqttBridge::flushLogs() {
+#if REMOTE_LOGS
+  const uint16_t dropped = LogSink::takeDropped();
+  if (dropped) {
+    JsonDocument doc;
+    doc["level"] = "warn";
+    doc["msg"] = String(dropped) + " log lines were lost while offline";
+    doc["uptime"] = millis() / 1000;
+    publishJson(topics_->log(), doc, false);
+  }
+  LogSink::Line line;
+  for (int i = 0; i < 8 && LogSink::pop(line); ++i) {   // a few per loop: never hogs the board
+    JsonDocument doc;
+    doc["level"] = LogSink::levelName(line.level);
+    doc["msg"] = line.text;
+    doc["uptime"] = line.uptimeSec;
+    publishJson(topics_->log(), doc, false);
+  }
+#endif
+}
+
+bool MqttBridge::publishJson(const String& topic, const JsonDocument& doc, bool retained) {
+  String text;
+  serializeJson(doc, text);
+  return mqtt_.publish(topic.c_str(), text.c_str(), retained);
+}
+
+void MqttBridge::runOta() {
+  const String url = otaUrl_;
+  otaUrl_ = "";
+  LOG_INFO("Updating firmware %s -> %s (about 30 s, do not unplug)...", FIRMWARE_VERSION, otaVersion_.c_str());
+  flushLogs();
+  mqtt_.loop();
+  delay(100);
+
+  ESPhttpUpdate.rebootOnUpdate(false);   // report first, then restart
+  ESPhttpUpdate.onProgress([](int done, int total) {
+    static int lastPct = -1;
+    const int pct = total ? done * 100 / total : 0;
+    if (pct / 25 != lastPct / 25) { lastPct = pct; Serial.printf("OTA %d%%\n", pct); }
+  });
+  // The server sends an x-MD5 header; the core checks the image against it before switching.
+  HTTPUpdateResult r;
+  if (url.startsWith("https")) r = ESPhttpUpdate.update(secure_, url, FIRMWARE_VERSION);
+  else r = ESPhttpUpdate.update(plain_, url, FIRMWARE_VERSION);
+
+  JsonDocument doc;
+  doc["ota"]["version"] = otaVersion_;
+  if (r == HTTP_UPDATE_OK) {
+    doc["ota"]["ok"] = true;
+    doc["ota"]["message"] = "installed, restarting";
+    LOG_INFO("Firmware %s installed: restarting", otaVersion_.c_str());
+    rebootAt_ = millis() + 1500;
+  } else {
+    doc["ota"]["ok"] = false;
+    doc["ota"]["message"] = r == HTTP_UPDATE_NO_UPDATES ? String("already up to date") : ESPhttpUpdate.getLastErrorString();
+    LOG_ERROR("Firmware update failed: %s", ESPhttpUpdate.getLastErrorString().c_str());
+  }
+  if (!mqtt_.connected()) connect();
+  publishJson(topics_->network(), doc, false);
+  flushLogs();
+}

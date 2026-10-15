@@ -1,0 +1,14 @@
+packages:
+  - apps/api
+  - apps/web
+  - packages/*
+
+# Packages allowed to run install scripts (Prisma downloads its engine this way)
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - "@nestjs/core"
+  - esbuild
+  - sharp
+  - unrs-resolver

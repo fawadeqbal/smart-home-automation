@@ -1,0 +1,12 @@
+# Who may use which topics.
+
+# The API sees and controls everything.
+user api
+topic readwrite home/v1/#
+
+# Boards log in as "node". They get no topics of their own here: the pattern below
+# limits each board to its own subtree, where %c is its MQTT client id = its node id
+# (e.g. esp-3c71bf12). A board cannot read or switch another board's devices.
+user node
+
+pattern readwrite home/v1/nodes/%c/#

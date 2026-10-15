@@ -1,0 +1,24 @@
+{
+  "name": "home-platform",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "infra:up": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d postgres mosquitto",
+    "infra:down": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down",
+    "db:migrate": "pnpm --filter @home/api prisma migrate dev",
+    "db:deploy": "pnpm --filter @home/api prisma migrate deploy",
+    "db:studio": "pnpm --filter @home/api prisma studio",
+    "infra:all": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d --build"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.3"
+  }
+}

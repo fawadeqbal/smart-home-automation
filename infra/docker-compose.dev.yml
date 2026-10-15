@@ -1,0 +1,36 @@
+# Local / Windows PC override: no Traefik, ports opened on the PC.
+#
+#   Databases only (run the apps with `pnpm dev` / uvicorn for hot reload):
+#     docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d postgres mosquitto
+#   Everything in Docker:
+#     docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d --build
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  mosquitto:
+    ports:
+      # Open on the home network so the ESP8266 boards can reach it.
+      # Allow port 1883 for PRIVATE networks in Windows Firewall. Never forward it on the router.
+      - "1883:1883"
+
+  api:
+    environment:
+      WEB_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: "false"
+    ports:
+      - "4000:4000"
+
+  web:
+    ports:
+      - "3000:3000"
+
+  assistant:
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  adminer:
+    image: adminer
+    ports:
+      - "127.0.0.1:8081:8080"

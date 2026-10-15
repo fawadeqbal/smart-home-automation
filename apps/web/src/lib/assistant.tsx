@@ -1,0 +1,210 @@
+'use client';
+/**
+ * The voice assistant and chat, shared by the whole home app: the conversation stays while you move
+ * between pages. Voice: tap to talk, tap again to send (stops by itself after 15 s). Replies are
+ * shown and spoken.
+ */
+import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { errorText, post } from './api';
+
+export interface Line {
+  id: number;
+  who: 'me' | 'bot';
+  text: string;
+  audio?: string | null;
+  at: number;
+}
+interface Reply {
+  heard?: string;
+  reply: string;
+  audio?: string | null;
+}
+export type Phase = 'idle' | 'recording' | 'thinking';
+
+interface AssistantCtx {
+  open: boolean;
+  setOpen: (v: boolean) => void;
+  lines: Line[];
+  phase: Phase;
+  error: string | null;
+  notice: string | null;
+  micOk: boolean;
+  /** 0..1 loudness while recording (for the waveform). */
+  level: number;
+  speaking: boolean;
+  send: (text: string) => void;
+  startRecording: () => Promise<void>;
+  stopRecording: () => void;
+  cancelRecording: () => void;
+  play: (audio?: string | null) => void;
+  reset: () => void;
+}
+
+const Ctx = createContext<AssistantCtx | null>(null);
+const MAX_RECORDING_MS = 15_000;
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+
+export function AssistantProvider({ children, homeId }: { children: ReactNode; homeId: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState<Line[]>([]);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [micOk, setMicOk] = useState(true);
+  const [level, setLevel] = useState(0);
+  const [speaking, setSpeaking] = useState(false);
+  const player = useRef<HTMLAudioElement | null>(null);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const cancelled = useRef(false);
+  const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const meter = useRef<{ ctx: AudioContext; raf: number } | null>(null);
+  const nextId = useRef(1);
+
+  useEffect(() => {
+    // browsers allow the microphone only on https:// or http://localhost
+    setMicOk(window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined');
+  }, []);
+
+  // a new home is a new conversation
+  useEffect(() => { setLines([]); setError(null); setNotice(null); }, [homeId]);
+
+  const add = useCallback((l: Omit<Line, 'id' | 'at'>) => setLines((list) => [...list, { ...l, id: nextId.current++, at: Date.now() }]), []);
+
+  /** One player, created during a click: browsers only allow sound that a click started. */
+  const unlockSound = useCallback(() => {
+    if (!player.current) {
+      player.current = new Audio();
+      player.current.onplay = () => setSpeaking(true);
+      player.current.onended = () => setSpeaking(false);
+      player.current.onpause = () => setSpeaking(false);
+    }
+    const p = player.current;
+    if (p.paused && !p.src) {
+      p.src = SILENT_WAV;
+      void p.play().catch(() => undefined);
+    }
+  }, []);
+
+  const play = useCallback((audio?: string | null) => {
+    setNotice(null);
+    if (!audio) return;
+    unlockSound();
+    const p = player.current!;
+    p.src = `data:audio/wav;base64,${audio}`;
+    p.play().catch(() => setNotice('The browser blocked the sound. Tap the speaker next to the reply to hear it.'));
+  }, [unlockSound]);
+
+  const request = useCallback(async (fn: () => Promise<Reply>, shown?: string) => {
+    setPhase('thinking');
+    setError(null);
+    if (shown) add({ who: 'me', text: shown });
+    try {
+      const reply = await fn();
+      if (reply.heard && !shown) add({ who: 'me', text: reply.heard });
+      add({ who: 'bot', text: reply.reply, audio: reply.audio });
+      play(reply.audio);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setPhase('idle');
+    }
+  }, [add, play]);
+
+  const send = useCallback((text: string) => {
+    const value = text.trim();
+    if (!value || phase !== 'idle') return;
+    unlockSound();
+    void request(() => post<Reply>('/assistant/chat', { text: value, speak: true }), value);
+  }, [phase, request, unlockSound]);
+
+  const stopMeter = () => {
+    if (!meter.current) return;
+    cancelAnimationFrame(meter.current.raf);
+    void meter.current.ctx.close().catch(() => undefined);
+    meter.current = null;
+    setLevel(0);
+  };
+
+  const stopRecording = useCallback(() => {
+    clearTimeout(stopTimer.current);
+    if (recorder.current?.state === 'recording') recorder.current.stop();
+  }, []);
+
+  const cancelRecording = useCallback(() => {
+    cancelled.current = true;
+    stopRecording();
+  }, [stopRecording]);
+
+  const startRecording = useCallback(async () => {
+    if (phase !== 'idle') return;
+    setError(null);
+    setOpen(true);
+    unlockSound();
+    player.current?.pause();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      // loudness for the waveform
+      try {
+        const ctx = new AudioContext();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        let last = 0;
+        const tick = (t: number) => {
+          analyser.getByteTimeDomainData(data);
+          if (t - last > 60) {
+            let sum = 0;
+            for (const v of data) sum += ((v - 128) / 128) ** 2;
+            setLevel(Math.min(1, Math.sqrt(sum / data.length) * 4));
+            last = t;
+          }
+          meter.current!.raf = requestAnimationFrame(tick);
+        };
+        meter.current = { ctx, raf: requestAnimationFrame(tick) };
+      } catch { /* the waveform is decoration */ }
+      const chunks: Blob[] = [];
+      const rec = new MediaRecorder(stream);
+      cancelled.current = false;
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        stopMeter();
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        if (cancelled.current || blob.size < 1000) {
+          setPhase('idle');
+          return;
+        }
+        const form = new FormData();
+        form.append('audio', blob, 'speech');
+        void request(() => post<Reply>('/assistant/voice', form));
+      };
+      recorder.current = rec;
+      rec.start();
+      setPhase('recording');
+      stopTimer.current = setTimeout(stopRecording, MAX_RECORDING_MS);
+    } catch {
+      setError('Microphone not available. Allow microphone access in the browser, or type instead.');
+    }
+  }, [phase, request, stopRecording, unlockSound]);
+
+  const reset = useCallback(() => {
+    setLines([]);
+    setError(null);
+    setNotice(null);
+    player.current?.pause();
+    void post('/assistant/reset').catch(() => undefined);
+  }, []);
+
+  return (
+    <Ctx.Provider value={{ open, setOpen, lines, phase, error, notice, micOk, level, speaking, send, startRecording, stopRecording, cancelRecording, play, reset }}>
+      {children}
+    </Ctx.Provider>
+  );
+}
+
+export function useAssistant() {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error('useAssistant outside AssistantProvider');
+  return ctx;
+}

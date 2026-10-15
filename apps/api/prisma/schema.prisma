@@ -1,0 +1,427 @@
+// The platform's data. The API is the only program that writes here.
+// After editing:  pnpm db:migrate   (creates a migration and updates the client)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+enum Access {
+  VIEW
+  CONTROL
+  MANAGE
+}
+
+/// A board's life: on the shelf, promised to a home, installed there, or broken.
+enum NodeStatus {
+  STOCK /// owned by an organization, not given to a home yet
+  ASSIGNED /// given to a home and an installer; adopted when it is powered on site
+  ADOPTED /// installed in a home and running its configuration
+  FAULTY /// taken out of service (note says why)
+}
+
+/// What platform staff of an organization may do across its homes.
+enum StaffRole {
+  SUPERADMIN /// everything in the organization: homes, inventory, staff, billing
+  INSTALLER /// sets up the homes assigned to them: boards, pins, rooms
+  SUPPORT /// reads every home of the organization, changes nothing
+}
+
+enum Plan {
+  STARTER
+  PRO
+  BUSINESS
+}
+
+enum OrgStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum CommandStatus {
+  PENDING
+  ACKED
+  FAILED
+  TIMEOUT
+}
+
+// ---------------------------------------------------------------- people and rights
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  name              String
+  passwordHash      String
+  disabled          Boolean            @default(false)
+  /// Platform staff: the organization they work for and what they may do there. Null for home people.
+  orgId             String?
+  org               Organization?      @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  staffRole         StaffRole?
+  /// The homes this person belongs to, with their role in each.
+  memberships       Membership[]
+  /// The home the app opens on next time.
+  lastHomeId        String?
+  installs          Home[]             @relation("HomeInstaller")
+  boardJobs         Node[]             @relation("NodeInstaller")
+  rooms             RoomAccess[]
+  sessions          Session[]
+  schedules         Schedule[]
+  scenes            Scene[]
+  notifications     Notification[]
+  pushSubscriptions PushSubscription[]
+  /// which notices this person wants: { "leak": true, "motionAtNight": false, ... }
+  notifyPrefs       Json               @default("{}")
+  createdAt         DateTime           @default(now())
+}
+
+/// A person's place in one home. One OWNER per home; ADMIN, MEMBER and GUEST as many as needed.
+model Membership {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  homeId    String
+  home      Home     @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  role      Role
+  createdAt DateTime @default(now())
+
+  @@id([userId, homeId])
+  @@index([homeId])
+}
+
+/// A tenant of the platform: an installer company (or a single household that runs its own).
+/// Its staff manage its homes and its board inventory.
+model Organization {
+  id           String          @id @default(cuid())
+  name         String
+  plan         Plan            @default(STARTER)
+  status       OrgStatus       @default(TRIAL)
+  trialEndsAt  DateTime?
+  billingEmail String?
+  billingName  String?
+  taxId        String?
+  country      String?
+  /// Made by the first-run setup of a self-hosted install: boards that connect go into its stock by themselves.
+  selfHosted   Boolean         @default(false)
+  staff        User[]
+  homes        Home[]
+  nodes        Node[]
+  invites      Invite[]
+  firmware     FirmwareImage[]
+  createdAt    DateTime        @default(now())
+}
+
+/// What a MEMBER or GUEST may do in a room. OWNER and ADMIN may do everything.
+model RoomAccess {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  access Access
+
+  @@id([userId, roomId])
+}
+
+/// One per signed-in browser or phone.
+model Session {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshHash String    @unique
+  userAgent   String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+/// An invite link. Either into a home (homeId + role) or onto an organization's staff (orgId + staffRole).
+model Invite {
+  id        String        @id @default(cuid())
+  homeId    String?
+  home      Home?         @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  orgId     String?
+  org       Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  email     String
+  name      String?
+  role      Role?
+  staffRole StaffRole?
+  /// Room rights given on joining: [{ "roomId", "access" }]
+  rooms     Json          @default("[]")
+  tokenHash String        @unique
+  createdBy String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+}
+
+model AuditLog {
+  id      BigInt   @id @default(autoincrement())
+  /// Null for organization-wide changes (inventory, staff, billing).
+  homeId  String?
+  orgId   String?
+  userId  String?
+  action  String
+  target  String
+  details Json     @default("{}")
+  at      DateTime @default(now())
+
+  @@index([homeId, at])
+  @@index([orgId, at])
+}
+
+// ---------------------------------------------------------------- home and hardware
+model Home {
+  id          String       @id @default(cuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  city        String       @default("")
+  timezone    String       @default("Asia/Karachi")
+  /// The installer who sets this home up and looks after it.
+  installerId String?
+  installer   User?        @relation("HomeInstaller", fields: [installerId], references: [id], onDelete: SetNull)
+  archivedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  rooms       Room[]
+  nodes       Node[]
+  memberships Membership[]
+  invites     Invite[]
+  schedules   Schedule[]
+  scenes      Scene[]
+}
+
+model Room {
+  id      String       @id @default(cuid())
+  homeId  String
+  home    Home         @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  name    String
+  order   Int          @default(0)
+  devices Device[]
+  access  RoomAccess[]
+
+  @@unique([homeId, name])
+}
+
+/// One ESP board. Its id is the chip id it reports, e.g. "esp-3c71bf12".
+/// Boards belong to an organization's inventory; once assigned they also belong to a home.
+model Node {
+  healthSamples HealthSample[]
+  id            String         @id
+  orgId         String?
+  org           Organization?  @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  homeId        String?
+  home          Home?          @relation(fields: [homeId], references: [id], onDelete: SetNull)
+  installerId   String?
+  installer     User?          @relation("NodeInstaller", fields: [installerId], references: [id], onDelete: SetNull)
+  assignedAt    DateTime?
+  /// Why it is FAULTY, or anything the staff want to remember about it.
+  note          String?
+  name          String
+  board         String         @default("NODEMCU_V2")
+  status        NodeStatus     @default(STOCK)
+  firmware      String?
+  ip            String?
+  mac           String?
+  online        Boolean        @default(false)
+  rssi          Int?
+  lastSeenAt    DateTime?
+  configRev     Int            @default(0)
+  appliedRev    Int            @default(0)
+  configError   String?
+  devices       Device[]
+  inputs        Input[]
+  createdAt     DateTime       @default(now())
+}
+
+model Device {
+  id        String       @id @default(cuid())
+  nodeId    String
+  node      Node         @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  roomId    String?
+  room      Room?        @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  key       String /// id on the board and in topics: "bulb"
+  name      String /// what people and the assistant say: "Bulb"
+  aliases   String[]
+  type      String /// "switch" | "dht" ... see packages/contracts/src/device-types.ts
+  pin       Int
+  activeLow Boolean      @default(false)
+  settings  Json         @default("{}")
+  enabled   Boolean      @default(true)
+  state     DeviceState?
+  history   StateEvent[]
+  commands  Command[]
+  inputs    Input[]
+  createdAt DateTime     @default(now())
+
+  @@unique([nodeId, key])
+  @@unique([nodeId, pin])
+}
+
+/// Local controls on a board, e.g. a wall push-button that toggles a device.
+model Input {
+  id       String @id @default(cuid())
+  nodeId   String
+  node     Node   @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  type     String
+  pin      Int
+  targetId String
+  target   Device @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  settings Json   @default("{}")
+
+  @@unique([nodeId, pin])
+}
+
+// ---------------------------------------------------------------- runtime
+model DeviceState {
+  deviceId  String   @id
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  state     Json
+  source    String
+  updatedAt DateTime @updatedAt
+}
+
+model StateEvent {
+  id       BigInt   @id @default(autoincrement())
+  deviceId String
+  device   Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  state    Json
+  source   String
+  at       DateTime @default(now())
+
+  @@index([deviceId, at])
+}
+
+model Command {
+  id        String        @id /// the MQTT cid
+  deviceId  String
+  device    Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  payload   Json
+  status    CommandStatus @default(PENDING)
+  userId    String?
+  channel   String /// "web" | "voice" | "automation"
+  error     String?
+  createdAt DateTime      @default(now())
+  ackedAt   DateTime?
+
+  @@index([deviceId, createdAt])
+}
+
+enum ScheduleKind {
+  ONCE /// at runAt (a timer: "turn it off in 30 minutes")
+  DAILY /// at `time` (HH:MM, home time zone) on `days` (0 = Sunday; empty = every day)
+}
+
+/// Switch devices (or run a scene) later or every day. Runs with the rights of the person who made it.
+model Schedule {
+  id          String       @id @default(cuid())
+  homeId      String
+  home        Home         @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  name        String
+  kind        ScheduleKind
+  runAt       DateTime?
+  time        String?
+  days        Int[]
+  /// [{ "deviceId": "...", "on": true }] — or empty when sceneId is set
+  actions     Json         @default("[]")
+  sceneId     String?
+  scene       Scene?       @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  enabled     Boolean      @default(true)
+  nextRunAt   DateTime?
+  lastRunAt   DateTime?
+  lastResult  String?
+  createdAt   DateTime     @default(now())
+
+  @@index([enabled, nextRunAt])
+  @@index([homeId])
+}
+
+/// A named set of actions run together: "Good night" = all lights off.
+model Scene {
+  id          String     @id @default(cuid())
+  homeId      String
+  home        Home       @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  name        String
+  icon        String     @default("sparkles")
+  /// [{ "deviceId": "...", "on": false }]
+  actions     Json       @default("[]")
+  createdById String
+  createdBy   User       @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  schedules   Schedule[]
+  createdAt   DateTime   @default(now())
+
+  @@unique([homeId, name])
+}
+
+enum Severity {
+  INFO
+  WARN
+  ALERT
+}
+
+/// A notice for one person (door opened at night, water leak, board offline...). Shown in the app's bell.
+model Notification {
+  id        String    @id @default(cuid())
+  homeId    String
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String /// leak | doorAtNight | motionAtNight | temperature | boardOffline | boardHealth | scheduleFailed
+  severity  Severity  @default(INFO)
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/// A board's health report, kept 14 days for charts (one per minute per board).
+model HealthSample {
+  id     BigInt   @id @default(autoincrement())
+  nodeId String
+  node   Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  at     DateTime @default(now())
+  rssi   Int?
+  vcc    Int?
+  heap   Int?
+
+  @@index([nodeId, at])
+}
+
+/// A firmware build uploaded in the app, installed on boards over Wi-Fi. The file lives in FIRMWARE_DIR.
+model FirmwareImage {
+  id           String        @id @default(cuid())
+  /// Null: shared by every organization (uploaded before organizations existed).
+  orgId        String?
+  org          Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  version      String
+  notes        String        @default("")
+  size         Int
+  md5          String
+  uploadedById String?
+  createdAt    DateTime      @default(now())
+}
+
+/// A browser/phone that asked for push notifications (Web Push), so alerts arrive even when the app is closed.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+}

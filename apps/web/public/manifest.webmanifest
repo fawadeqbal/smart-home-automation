@@ -1,0 +1,15 @@
+{
+  "name": "Switchboard — your home",
+  "short_name": "Switchboard",
+  "description": "Control your lights and sensors, and talk to your home assistant.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f7f8",
+  "theme_color": "#4f46e5",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
+  "shortcuts": [
+    { "name": "Automations", "url": "/automations" },
+    { "name": "Notifications", "url": "/notifications" }
+  ]
+}
