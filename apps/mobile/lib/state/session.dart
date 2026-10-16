@@ -53,9 +53,17 @@ class SessionController extends AsyncNotifier<Me?> {
 
   String? _savedHome() => ref.read(sharedPrefsProvider).getString(_homeKey);
 
-  Future<void> signIn(String email, String password) async {
+  /// Returns a ticket when a code is needed next (two-step sign-in); null when signed in.
+  Future<String?> signIn(String email, String password) async {
     final repo = ref.read(authRepositoryProvider);
-    await repo.login(email.trim(), password);
+    final ticket = await repo.login(email.trim(), password);
+    if (ticket != null) return ticket;
+    state = AsyncData(await _load(_savedHome()));
+    return null;
+  }
+
+  Future<void> signInWithCode(String ticket, String code) async {
+    await ref.read(authRepositoryProvider).loginCode(ticket, code);
     state = AsyncData(await _load(_savedHome()));
   }
 

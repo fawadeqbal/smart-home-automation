@@ -31,6 +31,8 @@ export interface Settings {
   firmwareDir: string;
   /** uploaded files (installation photos) */
   filesDir: string;
+  /** nightly backups (database + firmware + files) */
+  backupDir: string;
   /** Shown to owners in the add-board wizard (what to type on the board's setup page). */
   mqttNodePassword: string;
   mqttPublicPort: number;
@@ -64,6 +66,7 @@ export function loadSettings(): Settings {
     mqttNodePassword: process.env.MQTT_NODE_PASSWORD ?? '',
     mqttPublicPort: Number(process.env.MQTT_PUBLIC_PORT || 1883),
     firmwareDir: resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware')),
+    backupDir: resolve(process.env.BACKUP_DIR || resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware'), '../backups')),
     filesDir: resolve(process.env.FILES_DIR || resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware'), '../files')),
     publicApiUrl: process.env.PUBLIC_API_URL?.replace(/\/+$/, '') || null,
     brokerLog: process.env.BROKER_LOG || null,

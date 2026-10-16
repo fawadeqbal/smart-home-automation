@@ -7,6 +7,7 @@ import { Avatar, ErrorBox, PageHead, useAction } from '@/components/ui';
 import { del, post } from '@/lib/api';
 import { useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
+import { Sessions, TwoStep } from '@/components/account/Security';
 
 /** The signed-in person's own account: who they are, and their password. */
 export default function AccountPage() {
@@ -18,7 +19,7 @@ export default function AccountPage() {
   ];
   return (
     <div data-screen-label="Account" className="stack" style={{ maxWidth: 720 }}>
-      <PageHead eyebrow={home?.name ?? me.staff?.org.name} title="Your account" sub="Your sign-in details. Only you can change your password." />
+      <PageHead eyebrow={home?.name ?? me.staff?.org.name} title="Your account" sub="Your sign-in details, two-step sign-in and where you’re signed in." />
       <section className="card card-pad row" style={{ gap: 14, alignItems: 'center' }}>
         <Avatar name={me.name} />
         <div className="stack-tight grow" style={{ minWidth: 0 }}>
@@ -29,6 +30,8 @@ export default function AccountPage() {
       </section>
       {home && !home.readOnly && <Memories />}
       <ChangePassword />
+      <TwoStep />
+      <Sessions />
     </div>
   );
 }

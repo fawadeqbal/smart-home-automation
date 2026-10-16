@@ -87,6 +87,13 @@ model User {
   notifyPrefs       Json               @default("{}")
   createdAt         DateTime           @default(now())
   memories      AssistantMemory[]
+  /// two-step sign-in with an authenticator app: the secret (encrypted), one being set up, when it was turned on,
+  /// the last code's time step (a code works once), and hashes of the one-time recovery codes
+  totpSecret     String?
+  totpPending    String?
+  totpEnabledAt  DateTime?
+  totpLastStep   Int       @default(-1)
+  recoveryHashes String[]  @default([])
 }
 
 /// A person's place in one home. One OWNER per home; ADMIN, MEMBER and GUEST as many as needed.
@@ -159,6 +166,8 @@ model Session {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshHash String    @unique
   userAgent   String?
+  ip          String?
+  lastUsedAt  DateTime?
   expiresAt   DateTime
   revokedAt   DateTime?
   createdAt   DateTime  @default(now())

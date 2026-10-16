@@ -673,6 +673,86 @@ test('billing: a contract bills itself each month, one-off invoices, payments re
   assert.equal((await owner.patch(`/platform/billing/contracts/${c.id}`, { status: 'ENDED' })).body.contracts.find((x) => x.id === c.id).status, 'ENDED');
 });
 
+test('two-step sign-in, sessions, and backups', async () => {
+  const { codeAt } = require('../../dist/auth/totp.js');
+  const now = () => codeAt(secret, Math.floor(Date.now() / 30000));
+  const next = () => codeAt(secret, Math.floor(Date.now() / 30000) + 1); // a code works once; the next step's is accepted too
+  let secret;
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+
+  // turn it on: scan, confirm a code, keep the recovery codes
+  const setup = await kid.post('/auth/2fa/setup');
+  assert.equal(setup.status, 200);
+  assert.match(setup.body.uri, /^otpauth:\/\/totp\/Switchboard/);
+  assert.match(setup.body.qr, /^data:image\/png;base64,/);
+  secret = setup.body.secret.replace(/\s/g, '');
+  assert.equal((await kid.post('/auth/2fa/enable', { code: '000000' })).status, 400);
+  const on = await kid.post('/auth/2fa/enable', { code: now() });
+  assert.equal(on.status, 200, JSON.stringify(on.body));
+  assert.equal(on.body.codes.length, 10);
+  assert.equal((await kid.get('/auth/me')).body.twoFactor, true);
+
+  // signing in now takes the password, then a code (each code once)
+  const phone = new Client();
+  const first = await phone.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  assert.equal(first.body.twoFactor, true);
+  assert.equal((await phone.get('/auth/me')).status, 401);
+  assert.equal((await phone.post('/auth/login/code', { ticket: first.body.ticket, code: '123456' })).status, 401);
+  assert.equal((await phone.post('/auth/login/code', { ticket: 'not-a-ticket-at-all', code: next() })).status, 401);
+  const ok = await phone.post('/auth/login/code', { ticket: first.body.ticket, code: next() });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal((await phone.get('/auth/me')).body.email, 'kid@example.com');
+  const again = await new Client().post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  assert.equal((await new Client().post('/auth/login/code', { ticket: again.body.ticket, code: next() })).status, 401); // same code twice
+  // a recovery code works once
+  const laptop = new Client();
+  const t3 = (await laptop.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' })).body.ticket;
+  const rec = await laptop.post('/auth/login/code', { ticket: t3, code: on.body.codes[0].toUpperCase() });
+  assert.equal(rec.status, 200);
+  assert.equal(rec.body.recoveryLeft, 9);
+  const t4 = (await laptop.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' })).body.ticket;
+  assert.equal((await laptop.post('/auth/login/code', { ticket: t4, code: on.body.codes[0] })).status, 401);
+
+  // where you're signed in; sign the others out
+  const list = (await kid.get('/auth/sessions')).body;
+  assert.ok(list.length >= 3);
+  assert.equal(list.filter((x) => x.current).length, 1);
+  assert.equal((await kid.post('/auth/sessions/others')).body.ended >= 2, true);
+  assert.equal((await phone.post('/auth/refresh')).status, 401);
+  assert.equal((await kid.get('/auth/sessions')).body.length, 1);
+
+  // off needs the password; a super admin can turn it off for someone who lost their phone
+  assert.equal((await kid.post('/auth/2fa/disable', { password: 'wrong' })).status, 401);
+  assert.equal((await kid.post('/auth/2fa/reset/x')).status, 403);
+  const kidId = (await kid.get('/auth/me')).body.id;
+  assert.equal((await owner.post(`/auth/2fa/reset/${kidId}`)).status, 204);
+  assert.equal((await kid.get('/auth/me')).body.twoFactor, false);
+  const plain = (await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' })).body;
+  assert.equal(plain.ticket, undefined);
+  assert.equal(plain.email, 'kid@example.com');
+
+  // backups: the whole database, firmware and photos in one file; super admins of a self-hosted install only
+  assert.equal((await kid.get('/platform/backups')).status, 403);
+  const made = await owner.post('/platform/backups');
+  if (made.status === 400 && /pg_dump isn’t installed/.test(made.body.message)) {
+    console.log('# pg_dump is not installed here: backup file checks skipped');
+    return;
+  }
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  assert.equal(made.body.backups.length, 1);
+  const b = made.body.backups[0];
+  assert.match(b.name, /^switchboard-\d{8}-\d{4}-manual\.tar\.gz$/);
+  assert.ok(b.size > 1000);
+  const file = await fetch(`${base}/platform/backups/${b.name}`, { headers: { Cookie: owner.cookieHeader } });
+  assert.equal(file.status, 200);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  assert.equal(bytes[0], 0x1f); // gzip
+  assert.equal(bytes[1], 0x8b);
+  assert.equal((await fetch(`${base}/platform/backups/..%2F..%2Fetc%2Fpasswd`, { headers: { Cookie: owner.cookieHeader } })).status, 404);
+  assert.equal((await owner.del(`/platform/backups/${b.name}`)).body.backups.length, 0);
+});
+
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
   const bad = new FormData();
   bad.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.bin');

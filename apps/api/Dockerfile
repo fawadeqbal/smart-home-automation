@@ -13,7 +13,7 @@ RUN pnpm --filter @home/contracts build && pnpm --filter @home/api build \
  && cd /out && npx prisma generate
 
 FROM node:22-alpine
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl postgresql16-client
 WORKDIR /app
 COPY --from=build /out ./
 ENV NODE_ENV=production API_PORT=4000

@@ -34,9 +34,10 @@ export default function ResetPage() {
     if (password !== again) { setError('The two passwords are not the same.'); return; }
     setBusy(true); setError(null);
     try {
-      const me = await post<Me>(`/auth/reset/${token}`, { password });
+      const me = await post<Me | { twoFactor: true }>(`/auth/reset/${token}`, { password });
       setDone(true);
-      setTimeout(() => router.replace(landingFor(me)), 900);
+      // with two-step sign-in on, they sign in with the new password and their code
+      setTimeout(() => router.replace('twoFactor' in me && me.twoFactor === true ? `/login?changed=1` : landingFor(me as Me)), 900);
     } catch (err) {
       setError(errorText(err));
       setBusy(false);

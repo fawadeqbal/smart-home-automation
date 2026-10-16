@@ -36,7 +36,7 @@ export class UsersService {
       : null;
     const rooms = current ? await this.prisma.roomAccess.findMany({ where: { userId, room: { homeId: current.id } } }) : [];
     return {
-      id: user.id, name: user.name, email: user.email,
+      id: user.id, name: user.name, email: user.email, twoFactor: !!user.totpEnabledAt,
       staff: user.staffRole && user.org
         ? {
             role: user.staffRole,

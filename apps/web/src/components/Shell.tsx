@@ -116,6 +116,7 @@ export function Shell({ children }: { children: ReactNode }) {
         billing,
         { href: '/console/inventory', label: 'Inventory', icon: 'package', count: counts ? String(counts.stock) : null },
         { href: '/console/firmware', label: 'Firmware', icon: 'cpu' },
+        ...(me.staff?.org.selfHosted ? [{ href: '/console/backups', label: 'Backups', icon: 'database' }] : []),
         { href: '/console/team', label: 'Team', icon: 'users' },
         help,
         { href: '/console/roles', label: 'Roles & permissions', icon: 'key' },

@@ -26,7 +26,7 @@ function ago(iso: string | null) {
 
 export default function ConsoleOverview() {
   const router = useRouter();
-  const { staffRole } = useSession();
+  const { staffRole, me } = useSession();
   const { data, error, reload } = useLoad<Overview>('/platform/overview');
   const [dialog, setDialog] = useState<null | 'home' | 'stock' | 'staff'>(null);
   const [inv, setInv] = useState<Inventory | null>(null);
@@ -69,6 +69,14 @@ export default function ConsoleOverview() {
           </>
         }
       />
+
+      {staffRole === 'SUPERADMIN' && !me.twoFactor && (
+        <div className="banner warn mb16">
+          <span className="banner-led" />
+          <div className="banner-text"><b>Protect your super admin account</b><span>Turn on two-step sign-in: a super admin can reach every home and board.</span></div>
+          <Link className="btn" href="/account">Turn it on</Link>
+        </div>
+      )}
 
       {firstRun && (
         <div className="getting-started">

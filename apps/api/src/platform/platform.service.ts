@@ -605,7 +605,7 @@ export class PlatformService {
     return {
       people: people.map((p) => ({
         id: p.id, name: p.name, email: p.email, staffRole: p.staffRole!, roleLabel: STAFF_LABEL[p.staffRole!], disabled: p.disabled,
-        homes: homes.find((h) => h.installerId === p.id)?._count ?? 0, since: p.createdAt, me: p.id === user.id,
+        homes: homes.find((h) => h.installerId === p.id)?._count ?? 0, since: p.createdAt, me: p.id === user.id, twoFactor: !!p.totpEnabledAt,
       })),
       invites: invites.map((i) => ({ id: i.id, email: i.email, name: i.name, staffRole: i.staffRole!, sentAt: i.createdAt, expiresAt: i.expiresAt })),
     };

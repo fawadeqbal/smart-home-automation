@@ -6,7 +6,7 @@ import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
 import { Avatar, Confirm, Dropdown, ErrorBox, PageHead, useAction } from '@/components/ui';
-import { del, patch } from '@/lib/api';
+import { del, patch, post } from '@/lib/api';
 import { useLoad } from '@/lib/hooks';
 import { STAFF_BLURB, STAFF_LABEL } from '@/lib/roles';
 import type { StaffList, StaffRole } from '@/lib/types';
@@ -17,6 +17,7 @@ export default function TeamPage() {
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<StaffList['people'][number] | null>(null);
   const [resetFor, setResetFor] = useState<StaffList['people'][number] | null>(null);
+  const [off2fa, setOff2fa] = useState<StaffList['people'][number] | null>(null);
   const { error: actionError, run } = useAction();
   useCrumbs([{ label: 'Platform', href: '/console' }, { label: 'Team' }]);
   if (!data) return error ? <div className="alert">{error}</div> : <Loader label="Loading your team…" />;
@@ -63,6 +64,9 @@ export default function TeamPage() {
                           {p.staffRole !== 'SUPERADMIN' && !p.disabled && (
                             <button className="menu-item" onClick={() => { close(); setResetFor(p); }}><Icon name="key" size={15} />Password link</button>
                           )}
+                          {p.staffRole !== 'SUPERADMIN' && p.twoFactor && (
+                            <button className="menu-item" onClick={() => { close(); setOff2fa(p); }}><Icon name="shield" size={15} />Turn off two-step sign-in</button>
+                          )}
                           <button className="menu-item danger" onClick={() => { close(); setRemoving(p); }}><Icon name="trash" size={15} />Remove from team</button>
                         </>
                       )}
@@ -89,6 +93,11 @@ export default function TeamPage() {
         </table>
       </div>
       {inviting && <InviteStaffDialog onClose={() => setInviting(false)} onDone={() => void reload()} />}
+      {off2fa && (
+        <Confirm title={`Turn off two-step sign-in for ${off2fa.name}?`} confirmLabel="Turn off"
+                 body="Only when they’ve lost their phone and their recovery codes. They sign in with their password and should turn it on again. They get an email about it."
+                 onConfirm={async () => { await post(`/auth/2fa/reset/${off2fa.id}`); await reload(); }} onClose={() => setOff2fa(null)} />
+      )}
       {resetFor && <PasswordLinkDialog name={resetFor.name} endpoint={`/platform/staff/${resetFor.id}/reset-link`} onClose={() => setResetFor(null)} />}
       {removing && (
         <Confirm title={`Remove ${removing.name} from the team?`} confirmLabel="Remove"

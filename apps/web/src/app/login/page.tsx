@@ -27,6 +27,9 @@ export default function LoginPage() {
   const [opening, setOpening] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [fresh, setFresh] = useState(true);
+  const [ticket, setTicket] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
     get<{ setupNeeded: boolean; signupOpen: boolean }>('/auth/status')
@@ -46,11 +49,16 @@ export default function LoginPage() {
     if (busy) return;
     setBusy(true); setError(null);
     try {
-      const me = await post<Me>('/auth/login', { email, password });
+      const r = ticket
+        ? await post<Me & { recoveryLeft?: number }>('/auth/login/code', { ticket, code })
+        : await post<Me | { twoFactor: true; ticket: string }>('/auth/login', { email, password });
+      if ('ticket' in r && r.ticket) { setTicket(r.ticket); setBusy(false); return; }
+      const me = r as Me & { recoveryLeft?: number };
       setOpening(me.staff && !me.home ? me.staff.org.name : me.home?.name ?? me.staff?.org.name ?? 'Switchboard');
       const next = new URLSearchParams(window.location.search).get('next');
       router.replace(next && next.startsWith('/') && !next.startsWith('//') ? next : landingFor(me));
     } catch (err) {
+      if (ticket && /took too long|Sign in again/.test(errorText(err))) { setTicket(null); setCode(''); }
       setError(errorText(err));
       setBusy(false);
     }
@@ -90,6 +98,29 @@ export default function LoginPage() {
             <ThemeButton />
           </div>
           <div className="au-center">
+            {ticket ? (
+              <form className="au-form" onSubmit={submit} style={{ gap: 18 }}>
+                <div className="au-head">
+                  <h1 className="au-h1 xl">One more <span className="serif">step.</span></h1>
+                  <p className="au-sub">{recovery ? 'Type one of the recovery codes you saved when you turned on two-step sign-in.' : 'Open your authenticator app and type the 6-digit code for Switchboard.'}</p>
+                </div>
+                <IconField label={recovery ? 'Recovery code' : 'Code'} icon="key" name="code" required autoFocus autoComplete="one-time-code"
+                  inputMode={recovery ? 'text' : 'numeric'} placeholder={recovery ? 'abcd-efgh' : '123 456'} maxLength={recovery ? 12 : 7}
+                  value={code} onChange={(e) => { setCode(e.target.value); setError(null); }} />
+                {error && <Note tone="bad" icon="alert-triangle">{error}</Note>}
+                {opening && <Note tone="ok" icon="check">Signed in — opening {opening}…</Note>}
+                <button type="submit" className="au-btn" disabled={busy || code.replace(/\s/g, '').length < 6}>
+                  {busy ? <>Checking…<Spinner /></> : <>Sign in<Icon name="arrow-right" size={17} /></>}
+                </button>
+                <p className="au-foot">
+                  <button type="button" className="au-link" onClick={() => { setRecovery(!recovery); setCode(''); setError(null); }}>
+                    {recovery ? 'Use the app’s code instead' : 'No phone? Use a recovery code'}
+                  </button>
+                  {' · '}<button type="button" className="au-link" onClick={() => { setTicket(null); setCode(''); setError(null); }}>Back</button>
+                </p>
+                {recovery && <Note tone="dash" icon="help">Lost the phone and the codes? Your company’s super admin can turn two-step sign-in off for you.</Note>}
+              </form>
+            ) : (
             <form className="au-form" onSubmit={submit} style={{ gap: 18 }}>
               <div className="au-head">
                 <h1 className="au-h1 xl">Welcome <span className="serif">back.</span></h1>
@@ -111,6 +142,7 @@ export default function LoginPage() {
                 <p className="au-foot">Run an installation company? <Link href="/signup" style={{ fontWeight: 600 }}>Create an organization</Link></p>
               )}
             </form>
+            )}
           </div>
         </main>
       </div>

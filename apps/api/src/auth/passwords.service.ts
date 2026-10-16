@@ -76,7 +76,8 @@ export class PasswordsService {
     ]);
     this.auth.clearFailures(r.user.email);
     await this.audit.record(null, r.userId, 'user.password_reset', r.userId, { by: r.createdBy ? 'link' : 'email' });
-    await this.auth.startSession(r.user, res, userAgent);
+    // with two-step sign-in on, the link changes the password only: they sign in with it and their code
+    if (!r.user.totpEnabledAt) await this.auth.startSession(r.user, res, userAgent);
     this.changedNotice(r.user.email, r.user.name);
     return r.user;
   }

@@ -7,10 +7,12 @@ import 'package:go_router/go_router.dart';
 import '../../core/config/app_settings.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/routing/routes.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../shared/widgets/common.dart';
+import '../../shared/widgets/sheet.dart';
 import '../../state/session.dart';
 import 'auth_widgets.dart';
 
@@ -65,7 +67,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
     try {
-      await ref.read(sessionProvider.notifier).signIn(_email.text, _password.text);
+      final ticket = await ref.read(sessionProvider.notifier).signIn(_email.text, _password.text);
+      if (ticket != null) {
+        if (mounted) setState(() => _busy = false);
+        if (mounted) await showSbSheet<void>(context, builder: (_) => _CodeStep(ticket: ticket));
+        return;
+      }
       TextInput.finishAutofillContext();
     } catch (e) {
       if (mounted) setState(() => _error = ApiException.from(e).message);
@@ -238,6 +245,84 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// Two-step sign-in: the 6-digit code from the authenticator app, or a recovery code.
+class _CodeStep extends ConsumerStatefulWidget {
+  const _CodeStep({required this.ticket});
+  final String ticket;
+
+  @override
+  ConsumerState<_CodeStep> createState() => _CodeStepState();
+}
+
+class _CodeStepState extends ConsumerState<_CodeStep> {
+  final _code = TextEditingController();
+  bool _busy = false;
+  bool _recovery = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _go() async {
+    if (_busy || _code.text.trim().length < 6) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(sessionProvider.notifier).signInWithCode(widget.ticket, _code.text);
+      TextInput.finishAutofillContext();
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) setState(() => _error = ApiException.from(e).message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sb;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('One more step', style: SbText.title.copyWith(color: c.tx)),
+        const SizedBox(height: 4),
+        Text(
+          _recovery
+              ? 'Type one of the recovery codes you saved when you turned on two-step sign-in.'
+              : 'Open your authenticator app and type the 6-digit code for Switchboard.',
+          style: TextStyle(fontSize: 14.5, color: c.mu),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _code,
+          autofocus: true,
+          keyboardType: _recovery ? TextInputType.text : TextInputType.number,
+          autofillHints: const [AutofillHints.oneTimeCode],
+          maxLength: _recovery ? 12 : 7,
+          onSubmitted: (_) => _go(),
+          decoration: InputDecoration(hintText: _recovery ? 'abcd-efgh' : '123 456', errorText: _error),
+        ),
+        const SizedBox(height: 8),
+        BigButton(label: 'Sign in', busy: _busy, onTap: _go),
+        TextButton(
+          onPressed: () => setState(() {
+            _recovery = !_recovery;
+            _code.clear();
+            _error = null;
+          }),
+          child: Text(_recovery ? 'Use the app’s code instead' : 'No phone? Use a recovery code', style: TextStyle(color: c.acText)),
+        ),
+      ],
     );
   }
 }

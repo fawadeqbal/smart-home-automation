@@ -24,6 +24,8 @@ export interface Me {
   id: string;
   name: string;
   email: string;
+  /** two-step sign-in is on */
+  twoFactor?: boolean;
   staff: {
     role: StaffRole;
     org: { id: string; name: string; plan: Plan; planName: string; status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; trialEndsAt: string | null;
@@ -111,7 +113,7 @@ export interface AuditRow {
 }
 
 export interface StaffList {
-  people: { id: string; name: string; email: string; staffRole: StaffRole; roleLabel: string; disabled: boolean; homes: number; since: string; me: boolean }[];
+  people: { id: string; name: string; email: string; staffRole: StaffRole; roleLabel: string; disabled: boolean; homes: number; since: string; me: boolean; twoFactor?: boolean }[];
   invites: { id: string; email: string; name: string | null; staffRole: StaffRole; sentAt: string; expiresAt: string }[];
 }
 

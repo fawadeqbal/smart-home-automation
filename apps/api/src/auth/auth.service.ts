@@ -110,13 +110,15 @@ export class AuthService {
   }
 
   /** Creates a session (refresh token) and sets both cookies. */
-  async startSession(user: User, res: Response, userAgent?: string) {
+  async startSession(user: User, res: Response, userAgent?: string, ip?: string) {
     const refresh = randomToken();
     await this.prisma.session.create({
       data: {
         userId: user.id,
         refreshHash: sha256(refresh),
         userAgent: userAgent?.slice(0, 200),
+        ip: ip?.slice(0, 64) ?? null,
+        lastUsedAt: new Date(),
         expiresAt: new Date(Date.now() + REFRESH_TTL_SEC * 1000),
       },
     });
@@ -124,7 +126,7 @@ export class AuthService {
   }
 
   /** Swaps a valid refresh token for a new pair (rotation: each refresh token works once). */
-  async refresh(refreshToken: string | undefined, res: Response) {
+  async refresh(refreshToken: string | undefined, res: Response, ip?: string) {
     if (!refreshToken) throw new UnauthorizedException('Not signed in.');
     const session = await this.prisma.session.findUnique({
       where: { refreshHash: sha256(refreshToken) },
@@ -137,7 +139,7 @@ export class AuthService {
     const next = randomToken();
     await this.prisma.session.update({
       where: { id: session.id },
-      data: { refreshHash: sha256(next), expiresAt: new Date(Date.now() + REFRESH_TTL_SEC * 1000) },
+      data: { refreshHash: sha256(next), expiresAt: new Date(Date.now() + REFRESH_TTL_SEC * 1000), lastUsedAt: new Date(), ...(ip ? { ip: ip.slice(0, 64) } : {}) },
     });
     this.setCookies(res, session.userId, next);
     return session.user;
@@ -151,6 +153,28 @@ export class AuthService {
       });
     }
     this.clearCookies(res);
+  }
+
+  // ---------------------------------------------------------------- where you're signed in
+  async sessions(userId: string, currentRefresh?: string) {
+    const current = currentRefresh ? sha256(currentRefresh) : '';
+    const rows = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    });
+    return rows.map((r) => ({
+      id: r.id, device: describeAgent(r.userAgent), ip: r.ip, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt ?? r.createdAt, current: r.refreshHash === current,
+    })).sort((a, b) => Number(b.current) - Number(a.current) || b.lastUsedAt.getTime() - a.lastUsedAt.getTime());
+  }
+
+  async revokeSession(userId: string, id: string) {
+    const { count } = await this.prisma.session.updateMany({ where: { id, userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return count > 0;
+  }
+
+  async revokeOthers(userId: string, currentRefresh?: string) {
+    const keep = currentRefresh ? sha256(currentRefresh) : '';
+    const { count } = await this.prisma.session.updateMany({ where: { userId, revokedAt: null, NOT: { refreshHash: keep } }, data: { revokedAt: new Date() } });
+    return count;
   }
 
   // ---------------------------------------------------------------- tokens
@@ -242,4 +266,14 @@ export class AuthService {
     res.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
     res.clearCookie(SESSION_MARKER_COOKIE, { path: '/' });
   }
+}
+
+/** "Chrome on Windows", "Switchboard app on Android", from a User-Agent. */
+export function describeAgent(ua: string | null | undefined): string {
+  if (!ua) return 'Unknown device';
+  const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iOS/i.test(ua) ? 'iPhone' : /Windows/i.test(ua) ? 'Windows' : /Mac OS X|Macintosh/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : null;
+  if (/Dart|okhttp|Switchboard/i.test(ua) && !/Mozilla/i.test(ua)) return `Switchboard app${os ? ` on ${os}` : ''}`;
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /Firefox\//.test(ua) ? 'Firefox'
+    : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /node|undici|curl/i.test(ua) ? 'A script' : 'A browser';
+  return os ? `${browser} on ${os}` : browser;
 }

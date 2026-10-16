@@ -21,8 +21,14 @@ class AuthRepository {
     }
   }
 
-  Future<Me> login(String email, String password) async =>
-      Me.fromJson(asJson(await _api.post<Object?>('/auth/login', {'email': email, 'password': password})));
+  /// Signs in; with two-step sign-in on, returns the ticket for the code step instead (null when signed in).
+  Future<String?> login(String email, String password) async {
+    final body = asJson(await _api.post<Object?>('/auth/login', {'email': email, 'password': password}));
+    return body['twoFactor'] == true ? str(body['ticket']) : null;
+  }
+
+  /// The second step: a code from the authenticator app, or a recovery code.
+  Future<void> loginCode(String ticket, String code) => _api.post<Object?>('/auth/login/code', {'ticket': ticket, 'code': code.trim()});
 
   /// "Forgot password?": the server emails a link if the account exists (it answers the same either way).
   /// Returns whether this server sends email at all.
