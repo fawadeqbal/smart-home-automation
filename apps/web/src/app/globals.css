@@ -1399,6 +1399,20 @@ input[type='file'] { height: auto; padding: 8px; }
   .hc-hero { padding: 20px 16px; }
 }
 .help-preview { border: 1px solid var(--ln2); border-radius: 10px; padding: 14px 16px; background: var(--sf); max-height: 520px; overflow-y: auto; }
-.ai-help-link { display: inline; font-weight: 600; color: var(--ac); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--ac) 35%, transparent); text-underline-offset: 2px; }
-.ai-help-link svg { display: inline-block; vertical-align: -1px; margin-right: 3px; }
+/* links to Help articles (in articles and in the assistant's replies) */
+.md a.md-article { font-weight: 600; text-decoration-color: color-mix(in srgb, var(--act) 35%, transparent); }
+.md a.md-article svg { display: inline-block; vertical-align: -1px; margin-right: 3px; }
+/* the assistant's replies: Markdown, sized for a chat bubble */
+.ai-msg.bot .ai-bubble { white-space: normal; }
+.md-chat { font-size: 14px; line-height: 1.5; }
+.md-chat p { margin: 0.45em 0; }
+.md-chat ul, .md-chat ol { margin: 0.4em 0; padding-left: 1.35em; }
+.md-chat li { margin: 0.2em 0; padding-left: 0.1em; }
+.md-chat h1, .md-chat h2, .md-chat h3, .md-chat h4 { font-size: 1em; margin: 0.8em 0 0.3em; padding: 0; border: 0; }
+.md-chat blockquote { margin: 0.5em 0; padding: 6px 10px; }
+.md-chat pre { padding: 8px 10px; font-size: 12.5px; }
+.md-chat table { font-size: 12.5px; }
+.md-chat th, .md-chat td { padding: 5px 8px; }
+.md-chat .md-table { margin: 0.5em 0; }
 .help-preview .md { font-size: 14px; }
+.ai-msg.bot .md-chat + .ai-replay { display: block; margin: 2px 0 -3px -3px; }

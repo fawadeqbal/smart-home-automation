@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 
 import '../core/config/app_settings.dart';
 import '../features/assistant/assistant_controller.dart';
+import '../features/assistant/reply_text.dart';
 import 'background_service.dart';
 import 'engine.dart';
 import 'ort_models.dart';
@@ -360,8 +361,9 @@ class HandsFreeController extends Notifier<HandsFreeState> {
       state = state.copyWith(stage: HandsFreeStage.waiting, error: 'The assistant isn’t available right now.');
       return;
     }
-    state = state.copyWith(stage: HandsFreeStage.speaking, heard: answer.heard, reply: answer.reply);
-    unawaited(BackgroundListening.update(state.phrase, answer.reply));
+    final said = plainReply(answer.reply);   // the card and the notification show plain text
+    state = state.copyWith(stage: HandsFreeStage.speaking, heard: answer.heard, reply: said);
+    unawaited(BackgroundListening.update(state.phrase, said));
     if (answer.audio != null) {
       _voice ??= AudioPlayer();
       final done = _voice!.onPlayerComplete.first;

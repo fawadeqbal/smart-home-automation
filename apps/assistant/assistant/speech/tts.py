@@ -28,8 +28,19 @@ def is_urdu_script(text: str) -> bool:
 
 
 def clean_for_speech(text: str) -> str:
-    """Remove markdown symbols, links and emojis the voice would read out loud."""
+    """The reply as it should be heard: Markdown signs, links and emojis removed, list items and
+    lines turned into sentences so the voice pauses between them."""
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)            # [title](link) -> title
     text = re.sub(r"https?://\S+", "", text)
+    lines = []
+    for line in text.splitlines():
+        line = re.sub(r"^\s*(#{1,6}\s+|>\s*|[-*+•]\s+|\d+[.)]\s+)", "", line)   # headings, quotes, list markers
+        line = line.strip(" |")
+        if not line or re.fullmatch(r"[\s:|-]+", line):            # blank lines, table rules
+            continue
+        lines.append(line)
+    # a pause between lines: each line but the last ends like a sentence
+    text = " ".join(l if i == len(lines) - 1 or re.search(r"[.!?؟:;,،۔]\W*$", l) else l + "." for i, l in enumerate(lines))
     text = re.sub(r"[*_#`>|~]", "", text)
     text = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", text)
     text = text.replace("°C", " degrees").replace("°", " degrees").replace("%", " percent")

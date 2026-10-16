@@ -1,8 +1,9 @@
 'use client';
-import Link from 'next/link';
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Markdown } from '@/components/help/Markdown';
 import { get } from '@/lib/api';
 import { useAssistant } from '@/lib/assistant';
+import { plainText } from '@/lib/help';
 import { useSession } from '@/lib/session';
 import type { Device } from '@/lib/types';
 import { Icon } from '../Icon';
@@ -57,29 +58,34 @@ function useHelpTitles(enabled: boolean, console: boolean) {
 const QUOTES = `'"‘’“”`;
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** A reply with every Help article title it mentions turned into a link to the article. */
+/**
+ * A reply, formatted: the assistant writes light Markdown (bold, short lists, numbered steps), and
+ * every Help article title it mentions becomes a link to the article.
+ */
 function ReplyText({ text, articles, base, onOpen }: { text: string; articles: HelpLink[]; base: string; onOpen: () => void }) {
-  const parts = useMemo(() => {
-    if (!articles.length) return [text];
-    const byTitle = new Map(articles.map((x) => [x.title.toLowerCase(), x]));
-    const re = new RegExp(`(${articles.map((x) => escapeRe(x.title)).join('|')})`, 'gi');
-    const out: ReactNode[] = [];
-    let last = 0;
-    for (const m of text.matchAll(re)) {
-      const art = byTitle.get(m[0].toLowerCase());
-      if (!art || m.index === undefined || m.index < last) continue;
-      // the quotes around a title ("See 'Add a family member' in Help") become the link itself
-      const quoted = QUOTES.includes(text[m.index - 1] ?? '') && QUOTES.includes(text[m.index + m[0].length] ?? '');
-      const from = quoted ? m.index - 1 : m.index;
-      out.push(text.slice(last, from));
-      out.push(<Link key={m.index} className="ai-help-link" href={`${base}?a=${art.id}`} onClick={onOpen}>
-        <Icon name="file-text" size={12} />{m[0]}</Link>);
-      last = m.index + m[0].length + (quoted ? 1 : 0);
-    }
-    out.push(text.slice(last));
-    return out;
-  }, [text, articles, base, onOpen]);
-  return <>{parts}</>;
+  const source = useMemo(() => linkTitles(text, articles, base), [text, articles, base]);
+  return <Markdown text={source} className="md-chat" onNavigate={onOpen} />;
+}
+
+/** "See 'Add a family member' in Help" -> "See [Add a family member](/help?a=…) in Help". */
+export function linkTitles(text: string, articles: HelpLink[], base: string) {
+  if (!articles.length) return text;
+  const byTitle = new Map(articles.map((x) => [x.title.toLowerCase(), x]));
+  const re = new RegExp(`(${articles.map((x) => escapeRe(x.title)).join('|')})`, 'gi');
+  let out = '';
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const art = byTitle.get(m[0].toLowerCase());
+    if (!art || m.index === undefined || m.index < last) continue;
+    if (text[m.index - 1] === '[') continue;                  // already a link
+    // the quotes (and bold) around a title become the link itself
+    let from = m.index;
+    let to = m.index + m[0].length;
+    while (from > last && (QUOTES.includes(text[from - 1]!) || text[from - 1] === '*') && (QUOTES.includes(text[to] ?? '') || text[to] === '*')) { from--; to++; }
+    out += text.slice(last, from) + `[${m[0].replace(/[[\]]/g, '')}](${base}?a=${art.id})`;
+    last = to;
+  }
+  return out + text.slice(last);
 }
 
 function Waveform({ level }: { level: number }) {
@@ -170,7 +176,7 @@ export function VoiceOverlay() {
       </div>
       <div className="voice-text grow">
         {asked && <p className="voice-asked">“{asked}”</p>}
-        <p className="voice-main">{stage === 'speaking' ? lastBot?.text : STAGE_TEXT[stage]}</p>
+        <p className="voice-main">{stage === 'speaking' ? plainText(lastBot?.text ?? '') : STAGE_TEXT[stage]}</p>
         {a.error && stage !== 'speaking' && <p className="voice-err">{a.error}</p>}
       </div>
       <button className="icon-btn" onClick={a.dismissVoice} aria-label="Stop"><Icon name="x" size={16} /></button>

@@ -15,6 +15,7 @@ import '../../state/devices.dart';
 import '../../voice/hands_free.dart';
 import '../devices/device_kinds.dart';
 import 'assistant_controller.dart';
+import 'reply_text.dart';
 import 'voice_capture.dart';
 
 /// "Ask Switchboard": tap the mic and say it (Urdu, English or both), or type.
@@ -341,18 +342,19 @@ class _Bubble extends StatelessWidget {
             bottomRight: Radius.circular(mine ? 6 : 20),
           ),
         ),
-        child: Text(
-          message.text,
-          style: TextStyle(
-            fontSize: 15,
-            height: 1.4,
-            color: mine
-                ? SbColors.onInk
-                : message.error
-                ? const Color(0xFFFF8A8F)
-                : SbColors.inkText,
-          ),
-        ),
+        child: mine || message.error
+            ? Text(
+                message.text,
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.4,
+                  color: mine ? SbColors.onInk : const Color(0xFFFF8A8F),
+                ),
+              )
+            : ReplyText(
+                message.text,
+                style: const TextStyle(fontSize: 15, height: 1.4, color: SbColors.inkText),
+              ),
       ),
     );
   }
