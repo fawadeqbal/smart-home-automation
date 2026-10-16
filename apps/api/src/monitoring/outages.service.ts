@@ -80,6 +80,8 @@ export class OutagesService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Outages');
   private readonly pending = new Map<string, Pending>();
   private readonly offlineTimers = new Map<string, OfflineTimer>();
+  /** one board's status and reports are handled one at a time, in the order they arrive */
+  private readonly queue = new Map<string, Promise<unknown>>();
   private timer?: NodeJS.Timeout;
 
   constructor(private readonly prisma: PrismaService, private readonly monitoring: MonitoringService, private readonly mqtt: MqttService) {}
@@ -95,7 +97,27 @@ export class OutagesService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ---------------------------------------------------------------- what the boards report (from NodesService)
-  async offline(nodeId: string, lastSeenAt: Date | null) {
+  private serial<T>(nodeId: string, fn: () => Promise<T>): Promise<T> {
+    const next = (this.queue.get(nodeId) ?? Promise.resolve()).catch(() => undefined).then(fn);
+    this.queue.set(nodeId, next);
+    void next.finally(() => { if (this.queue.get(nodeId) === next) this.queue.delete(nodeId); }).catch(() => undefined);
+    return next;
+  }
+
+  offline(nodeId: string, lastSeenAt: Date | null) {
+    return this.serial(nodeId, () => this.handleOffline(nodeId, lastSeenAt));
+  }
+
+  online(nodeId: string) {
+    return this.serial(nodeId, () => this.handleOnline(nodeId));
+  }
+
+  /** A health report: uptime tells whether the board restarted since we last heard from it. */
+  telemetry(nodeId: string, t: { uptime?: number; reset?: string }, at = new Date()) {
+    return this.serial(nodeId, () => this.handleTelemetry(nodeId, t, at));
+  }
+
+  private async handleOffline(nodeId: string, lastSeenAt: Date | null) {
     const since = lastSeenAt ?? new Date();
     await this.prisma.node.update({ where: { id: nodeId }, data: { offlineSince: since, downAlertAt: null } });
     // tell the home only if it stays offline: most cuts are over in minutes and get one notice when they end
@@ -120,7 +142,7 @@ export class OutagesService implements OnModuleInit, OnModuleDestroy {
     }, `off:${nodeId}`, 30 * MIN);
   }
 
-  async online(nodeId: string) {
+  private async handleOnline(nodeId: string) {
     clearTimeout(this.offlineTimers.get(nodeId)?.timer);
     this.offlineTimers.delete(nodeId);
     const node = await this.prisma.node.findUnique({ where: { id: nodeId }, select: { offlineSince: true } });
@@ -137,12 +159,18 @@ export class OutagesService implements OnModuleInit, OnModuleDestroy {
     this.pending.set(nodeId, { offlineSince: node.offlineSince, onlineAt, timer });
   }
 
-  /** A health report: uptime tells whether the board restarted since we last heard from it. */
-  async telemetry(nodeId: string, t: { uptime?: number; reset?: string }, at = new Date()) {
+  private async handleTelemetry(nodeId: string, t: { uptime?: number; reset?: string }, at: Date) {
     if (typeof t.uptime !== 'number') return;
     const bootAt = new Date(at.getTime() - t.uptime * 1000);
-    const node = await this.prisma.node.findUnique({ where: { id: nodeId }, select: { bootedAt: true, status: true } });
+    const node = await this.prisma.node.findUnique({ where: { id: nodeId }, select: { bootedAt: true, status: true, offlineSince: true } });
     if (!node) return;
+    // its first report after coming back can arrive before its "online" status: it is back now
+    if (node.offlineSince && !this.pending.has(nodeId)) {
+      clearTimeout(this.offlineTimers.get(nodeId)?.timer);
+      this.offlineTimers.delete(nodeId);
+      await this.prisma.node.update({ where: { id: nodeId }, data: { offlineSince: null } });
+      this.pending.set(nodeId, { offlineSince: node.offlineSince, onlineAt: at, timer: setTimeout(() => undefined, 0) });
+    }
     // compared with the previous report's estimate (kept fresh every report, so the board's clock drifting
     // a few seconds a day never adds up): uptime that restarted moves the start time forward
     const shift = node.bootedAt ? bootAt.getTime() - node.bootedAt.getTime() : 0;
