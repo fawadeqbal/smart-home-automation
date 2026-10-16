@@ -34,6 +34,16 @@ export function lanAddress(): string | null {
 export class FirmwareService implements OnModuleInit {
   private readonly log = new Logger('Firmware');
   private readonly pending = new Map<string, { version: string; at: number; by: string; installed?: boolean }>();
+  private readonly listeners: ((nodeId: string, ok: boolean, version: string, message: string) => unknown)[] = [];
+
+  /** Staged rollouts hear how each update ended (they depend on this service, so they can't be injected into it). */
+  onResult(fn: (nodeId: string, ok: boolean, version: string, message: string) => unknown) {
+    this.listeners.push(fn);
+  }
+
+  private result(nodeId: string, ok: boolean, version: string, message: string) {
+    for (const fn of this.listeners) void Promise.resolve().then(() => fn(nodeId, ok, version, message)).catch((e) => this.log.warn(`firmware listener: ${e}`));
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -113,15 +123,21 @@ export class FirmwareService implements OnModuleInit {
     const home = node.homeId ? await this.prisma.home.findUnique({ where: { id: node.homeId }, select: { orgId: true } }) : null;
     // the build must belong to the home's organization (or be a shared one), whoever sends it
     if (!image || !home || (image.orgId && image.orgId !== home.orgId) || user.orgId !== home.orgId) throw new NotFoundException('No such firmware.');
+    const base = await this.send(nodeId, image, user.name);
+    await this.audit.record(user.homeId, user.id, 'firmware.install', nodeId, { version: image.version, from: node.firmware });
+    return { version: image.version, url: base };
+  }
+
+  /** Tells one board to download and install a build (checks are the caller's). */
+  async send(nodeId: string, image: { id: string; version: string }, by: string) {
     const base = this.settings.publicApiUrl ?? (lanAddress() ? `http://${lanAddress()}:${this.settings.port}` : null);
     if (!base) throw new BadRequestException('Set PUBLIC_API_URL in .env so boards can reach this server.');
     const exp = Date.now() + LINK_TTL_MS;
     const url = `${base}/api/firmware/${image.id}/download?node=${nodeId}&exp=${exp}&sig=${this.sign(image.id, nodeId, exp)}`;
     await this.mqtt.publish(topics.cmd(nodeId), { action: 'ota', url, version: image.version }, { qos: 1 });
-    this.pending.set(nodeId, { version: image.version, at: Date.now(), by: user.name });
-    this.logs.server(nodeId, 'info', `Firmware ${image.version} sent to the board by ${user.name} (it downloads from ${base})`);
-    await this.audit.record(user.homeId, user.id, 'firmware.install', nodeId, { version: image.version, from: node.firmware });
-    return { version: image.version, url: base };
+    this.pending.set(nodeId, { version: image.version, at: Date.now(), by });
+    this.logs.server(nodeId, 'info', `Firmware ${image.version} sent to the board by ${by} (it downloads from ${base})`);
+    return base;
   }
 
   /** Checks a board's download link; returns the file path and its MD5. */
@@ -147,7 +163,10 @@ export class FirmwareService implements OnModuleInit {
     const p = this.pending.get(nodeId);
     if (!p) return;
     if (ok) p.installed = true;
-    else this.pending.delete(nodeId);
+    else {
+      this.pending.delete(nodeId);
+      this.result(nodeId, false, p.version, message);
+    }
     this.logs.server(nodeId, ok ? 'info' : 'error', ok ? `Firmware ${version ?? p.version}: ${message}` : `Firmware update failed: ${message}`);
     this.realtime.nodesChanged(homeId, nodeId);
   }
@@ -159,12 +178,14 @@ export class FirmwareService implements OnModuleInit {
     if (fw === p.version) {
       this.pending.delete(nodeId);
       this.logs.server(nodeId, 'info', `Firmware ${fw}: now running after restart`);
+      this.result(nodeId, true, fw, 'running');
     } else if (p.installed) {
       // it installed the file and restarted, but the file was built with another FIRMWARE_VERSION
       this.pending.delete(nodeId);
       const message = `installed the file and restarted, but reports firmware ${fw}, not ${p.version} — that file was built with FIRMWARE_VERSION "${fw}" in config.h`;
       this.logs.server(nodeId, 'warn', `Firmware update: ${message}`);
       this.realtime.nodeNetwork(homeId, { nodeId, ota: { ok: false, version: p.version, message } });
+      this.result(nodeId, false, p.version, message);
     }
     this.realtime.nodesChanged(homeId, nodeId);
   }

@@ -480,3 +480,17 @@ export interface PrintableInvoice extends Invoice {
   billTo: { home: string; city: string; owner: { name: string; email: string } | null };
   contract: { plan: string; period: BillingPeriod } | null;
 }
+
+// staged firmware rollouts
+export type RolloutStatus = 'RUNNING' | 'PAUSED' | 'HALTED' | 'DONE' | 'CANCELLED';
+export interface RolloutTarget {
+  id: string; nodeId: string; name: string; home: string | null; homeId: string | null; online: boolean; rssi: number | null; firmware: string | null;
+  wave: number; status: 'PENDING' | 'SENT' | 'DONE' | 'FAILED' | 'SKIPPED'; fromVersion: string | null; sentAt: string | null; doneAt: string | null; note: string | null;
+}
+export interface Rollout {
+  id: string; version: string; status: RolloutStatus; wave: number; waves: number; waveSize: number; waveGapMin: number; maxFailures: number;
+  daytimeOnly: boolean; skipWeak: boolean; nextWaveAt: string | null; haltReason: string | null; createdAt: string; finishedAt: string | null;
+  counts: { total: number; pending: number; sent: number; done: number; failed: number; skipped: number };
+  targets: RolloutTarget[];
+}
+export interface RolloutList { images: { id: string; version: string; notes: string; createdAt: string }[]; canEdit: boolean; rollouts: Rollout[] }

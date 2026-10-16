@@ -59,6 +59,7 @@ async function until(what, fn, timeoutMs = 8000) {
 before(async () => {
   process.env.COMMAND_TIMEOUT_MS = '2000';
   process.env.RULES_TICK_MS = '1000'; // auto-off checks every second in tests
+  process.env.ROLLOUT_TICK_MS = '700'; // staged firmware rollouts step quickly in tests
   process.env.ALLOW_SIGNUP = 'true'; // the SaaS test signs up a second organization
   process.env.PUBLIC_API_URL = 'http://127.0.0.1:4555'; // where the fake board downloads firmware
   process.env.HELP_DIR = path.join(__dirname, 'help-fixture'); // three small starter articles
@@ -718,6 +719,44 @@ test('firmware: upload a build, send it to a board over Wi-Fi, the board verifie
   const forged = await fetch(`${base}/firmware/${fw.id}/download?node=${NODE_ID}&exp=${Date.now() + 60000}&sig=abc`);
   assert.equal(forged.status, 404);
   assert.equal((await member.get('/firmware')).status, 403);
+});
+
+test('staged firmware rollout: one board first, waves after, stops when a board fails', async () => {
+  const stamped = (version, size = 4096) => {
+    const image = new Uint8Array(size).fill(7);
+    image[0] = 0xe9;
+    if (version) image.set(new TextEncoder().encode(`@@HOMENODE-FW:${version}@@`), 100);
+    return new Blob([image]);
+  };
+  const upload = async (blob, version) => {
+    const form = new FormData();
+    form.append('file', blob, 'home_node.ino.bin');
+    if (version !== undefined) form.append('version', version);
+    return (await fetch(`${base}/firmware`, { method: 'POST', body: form, headers: { Cookie: owner.cookieHeader } })).json();
+  };
+  const good = await upload(stamped('2.10.0-test'));
+  assert.equal((await member.post('/platform/rollouts', { firmwareId: good.id })).status, 403);
+  const started = await owner.post('/platform/rollouts', { firmwareId: good.id, daytimeOnly: false, skipWeak: false, waveGapMin: 0 });
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  const r = started.body.rollouts[0];
+  assert.equal(r.version, '2.10.0-test');
+  assert.equal(r.counts.total, 1);
+  assert.equal(r.targets[0].wave, 0);
+  assert.equal((await owner.post('/platform/rollouts', { firmwareId: good.id })).status, 400); // one at a time
+  const done = await until('rollout finished', async () => (await owner.get('/platform/rollouts')).body.rollouts.find((x) => x.id === r.id && x.status === 'DONE'), 15000);
+  assert.equal(done.counts.done, 1);
+  assert.equal(done.targets[0].fromVersion, '2.9.0-test');
+  assert.equal((await owner.get('/nodes')).body.find((n) => n.id === NODE_ID).firmware, '2.10.0-test');
+  assert.match((await owner.post('/platform/rollouts', { firmwareId: good.id })).body.message, /Every board already runs 2\.10\.0-test/);
+
+  // a build that doesn't come up as itself: the rollout stops and says why
+  const broken = await upload(stamped(null), '3.1.0');
+  const r2 = (await owner.post('/platform/rollouts', { firmwareId: broken.id, daytimeOnly: false, skipWeak: false })).body.rollouts[0];
+  const halted = await until('rollout stopped', async () => (await owner.get('/platform/rollouts')).body.rollouts.find((x) => x.id === r2.id && x.status === 'HALTED'), 15000);
+  assert.match(halted.haltReason, /1 board failed .*reports firmware 2\.10\.0-test/);
+  assert.ok((await owner.get('/notifications')).body.items.some((n) => n.kind === 'firmware' && /rollout stopped/.test(n.title)));
+  const cancelled = await owner.post(`/platform/rollouts/${r2.id}/cancel`);
+  assert.equal(cancelled.body.rollouts.find((x) => x.id === r2.id).status, 'CANCELLED');
 });
 
 test('outages: the internet drops (the board stays on), then a power cut (the board starts again)', async () => {

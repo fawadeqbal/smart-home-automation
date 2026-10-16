@@ -137,6 +137,7 @@ model Organization {
   contracts    Contract[]
   invoices     Invoice[]
   invoiceSeq   Int             @default(0)
+  rollouts     Rollout[]
   createdAt    DateTime        @default(now())
 }
 
@@ -829,4 +830,66 @@ model Invoice {
   @@unique([orgId, number])
   @@index([orgId, status])
   @@index([homeId])
+}
+
+enum RolloutStatus {
+  RUNNING
+  PAUSED
+  HALTED
+  DONE
+  CANCELLED
+}
+
+enum TargetStatus {
+  PENDING
+  SENT
+  DONE
+  FAILED
+  SKIPPED
+}
+
+/// A firmware build going out to every board in waves: one board first, then more, stopping on failures.
+model Rollout {
+  id          String          @id @default(cuid())
+  orgId       String
+  org         Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  firmwareId  String
+  version     String
+  status      RolloutStatus   @default(RUNNING)
+  /// boards per wave after the first (the first wave is one board)
+  waveSize    Int             @default(5)
+  /// minutes to watch a finished wave before the next one
+  waveGapMin  Int             @default(30)
+  /// stop the whole rollout after this many failed boards
+  maxFailures Int             @default(1)
+  /// only between 10:00 and 17:00 in the home's time zone
+  daytimeOnly Boolean         @default(true)
+  /// skip boards with a weak Wi-Fi signal (below -80 dBm)
+  skipWeak    Boolean         @default(true)
+  wave        Int             @default(0)
+  nextWaveAt  DateTime?
+  haltReason  String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  finishedAt  DateTime?
+  targets     RolloutTarget[]
+
+  @@index([orgId, status])
+}
+
+model RolloutTarget {
+  id          String       @id @default(cuid())
+  rolloutId   String
+  rollout     Rollout      @relation(fields: [rolloutId], references: [id], onDelete: Cascade)
+  nodeId      String
+  homeId      String?
+  wave        Int
+  status      TargetStatus @default(PENDING)
+  fromVersion String?
+  sentAt      DateTime?
+  doneAt      DateTime?
+  note        String?
+
+  @@unique([rolloutId, nodeId])
+  @@index([nodeId, status])
 }

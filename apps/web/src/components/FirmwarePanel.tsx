@@ -72,7 +72,7 @@ function Progress({ version, stage, since, error, failedAt, onClose, onDeleteBui
 
 /* --------------------------------------------------------------- upload */
 
-function UploadDialog({ onClose, onDone, latest, existing }: { onClose: () => void; onDone: () => void; latest?: string; existing: string[] }) {
+export function UploadDialog({ onClose, onDone, latest, existing }: { onClose: () => void; onDone: () => void; latest?: string; existing: string[] }) {
   const { busy, error, setError, run } = useAction();
   const [file, setFile] = useState<File | null>(null);
   const [version, setVersion] = useState('');

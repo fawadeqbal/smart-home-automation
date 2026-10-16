@@ -16,6 +16,7 @@ import { TicketsController } from './tickets/tickets.controller';
 import { InstallationController } from './installation/installation.controller';
 import { BillingController } from './billing/billing.controller';
 import { BillingService } from './billing/billing.service';
+import { RolloutService } from './firmware/rollout.service';
 import { InstallationService } from './installation/installation.service';
 import { TicketsService } from './tickets/tickets.service';
 import { SummaryService } from './monitoring/summary.service';
@@ -78,7 +79,7 @@ export function createAppModule(settings: Settings) {
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, BillingService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, BillingService, RolloutService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
     ],
   })
   class AppModule {}

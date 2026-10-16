@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -8,10 +8,37 @@ import { ZodPipe } from '../common/zod';
 import { Inject } from '@nestjs/common';
 import { Settings, SETTINGS } from '../config';
 import { FirmwareService, lanAddress } from './firmware.service';
+import { RolloutService } from './rollout.service';
+
+const rollout = z.object({
+  firmwareId: z.string().min(1), waveSize: z.number().int().min(1).max(50).optional(), waveGapMin: z.number().int().min(0).max(1440).optional(),
+  maxFailures: z.number().int().min(1).max(20).optional(), daytimeOnly: z.boolean().optional(), skipWeak: z.boolean().optional(),
+});
 
 @Controller()
 export class FirmwareController {
-  constructor(private readonly firmware: FirmwareService, @Inject(SETTINGS) private readonly settings: Settings) {}
+  constructor(private readonly firmware: FirmwareService, @Inject(SETTINGS) private readonly settings: Settings, private readonly rollouts: RolloutService) {}
+
+  /** Staged rollouts: one board first, then waves; super admins start and steer them, support can watch. */
+  @Staff('SUPERADMIN', 'SUPPORT')
+  @Get('platform/rollouts')
+  rolloutList(@CurrentUser() user: AuthUser) {
+    return this.rollouts.list(user);
+  }
+
+  @Staff('SUPERADMIN')
+  @Post('platform/rollouts')
+  rolloutStart(@CurrentUser() user: AuthUser, @Body(new ZodPipe(rollout)) body: z.infer<typeof rollout>) {
+    return this.rollouts.create(user, body);
+  }
+
+  @Staff('SUPERADMIN')
+  @Post('platform/rollouts/:id/:action')
+  @HttpCode(200)
+  rolloutControl(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('action') action: string) {
+    if (!['pause', 'resume', 'cancel', 'retry'].includes(action)) throw new BadRequestException('Unknown action.');
+    return this.rollouts.control(user, id, action as 'pause' | 'resume' | 'cancel' | 'retry');
+  }
 
   /** What to type on a new board's setup page (add-board wizard). */
   @Staff('SUPERADMIN', 'INSTALLER')

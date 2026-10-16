@@ -1588,3 +1588,9 @@ a.energy-card:hover { border-color: var(--ac); }
 .invoice-sheet { display: flex; flex-direction: column; gap: 20px; }
 .invoice-to { display: flex; flex-direction: column; gap: 2px; }
 @media print { .no-print { display: none !important; } .invoice-sheet { border: 0; box-shadow: none; } }
+
+/* firmware rollouts */
+.rollout { margin-bottom: 12px; }
+.rollout-bar { display: flex; height: 8px; border-radius: 99px; background: var(--sf2); overflow: hidden; }
+.rollout-bar > span { display: block; height: 100%; }
+.rb-done { background: var(--ok); } .rb-sent { background: var(--ac); } .rb-failed { background: var(--bad); } .rb-skipped { background: var(--on); }
