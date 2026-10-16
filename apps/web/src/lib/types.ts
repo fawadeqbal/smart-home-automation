@@ -405,3 +405,35 @@ export interface Energy {
   unknown: number;
   powerCuts: number;
 }
+
+// service tickets
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED';
+export type TicketPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+export interface TicketMessage { id: string; body: string; at: string; by: string | null; staff: boolean; event: boolean; internal?: boolean; mine?: boolean }
+export interface Ticket {
+  id: string;
+  number: number;
+  title: string;
+  category: string;
+  status: TicketStatus;
+  statusText: string;
+  priority: TicketPriority;
+  homeId: string;
+  home: string;
+  city: string;
+  nodeId: string | null;
+  openedById: string;
+  openedBy: string | null;
+  assigneeId: string | null;
+  assignee: string | null;
+  dueAt: string | null;
+  overdue: boolean;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  messages: TicketMessage[];
+  last?: { by: string | null; text: string; internal: boolean; at: string } | null;
+  staff?: { id: string; name: string; staffRole: string }[];
+  node?: { id: string; name: string; online: boolean } | null;
+}
+export interface TicketQueue { tickets: Ticket[]; open: number; overdue: number }

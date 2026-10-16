@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:switchboard_home/data/models/automation.dart';
 import 'package:switchboard_home/data/models/device.dart';
 import 'package:switchboard_home/data/models/energy.dart';
+import 'package:switchboard_home/data/models/ticket.dart';
 
 void main() {
   test('a sunset schedule reads as words', () {
@@ -50,5 +51,17 @@ void main() {
     expect(s.loaded, isTrue);
     expect(s.lines, hasLength(2));
     expect(const HomeSummary().loaded, isFalse);
+  });
+
+  test('a help request and its conversation', () {
+    final t = Ticket.fromJson({
+      'id': 't1', 'number': 12, 'title': 'Kitchen light', 'status': 'WAITING', 'statusText': 'Waiting for you',
+      'messages': [{'body': 'It flickers', 'by': 'Sara'}, {'body': 'Status: Waiting for you', 'event': true}, {'body': 'Which bulb?', 'by': 'Ali', 'staff': true}],
+    });
+    expect(t.number, 12);
+    expect(t.waitingForYou, isTrue);
+    expect(t.done, isFalse);
+    expect(t.messages.where((m) => m.staff), hasLength(1));
+    expect(t.messages[1].event, isTrue);
   });
 }

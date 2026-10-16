@@ -2,16 +2,22 @@
 title: Support escalation path for staff (customer to installer to super admin)
 category: process
 audience: staff
-tags: [escalation, support request, help requested, installer, super admin, support role, read-only, customer complaint, triage]
+tags: [ticket, tickets, queue, assign, priority, overdue, internal note, escalation, support request, help requested, installer, super admin, support role, read-only, customer complaint, triage]
 published: true
 ---
 ## How problems reach us
 
 1. **Automatically.** When a board in a home goes offline or comes back, or reports low voltage or very weak Wi-Fi, the home's owners and admins **and its installer** get a notification.
-2. **From the customer.** Owners and admins use **Me → Message your expert** (phone app) or **Diagnostics → Send to support** (web). This creates a **Help requested · <home>** notification for the home's **installer**, every **support** user and every **super admin**. It links to the home's Diagnostics (and the board, if they picked one). The message is also saved in the home's **Activity**.
-3. **From the family.** Members and guests can't send requests. They go through the owner.
+2. **From the customer: a ticket.** Anyone in the home can open a **help request** (**Help requests → Ask for help**, **Me → Message your expert**, **Diagnostics → Send to support**, or by asking the assistant). Each one is a numbered ticket (#12) in **Tickets** in the console. The home's **installer**, every **support** user and every **super admin** get a notification. A ticket is assigned to the home's installer by default.
+3. **From a phone call.** Open a ticket for the home yourself, so the answer and history stay in one place.
 
-The app has no reply channel. Answer by phone or WhatsApp.
+## Working a ticket
+
+- **Tickets** shows the open queue: overdue first, then by priority. **Mine** shows the ones assigned to you.
+- **Priority** is guessed from the words: water, sparks or smoke make it **Urgent**; "not working" or "offline" make it **High**. Change it if it's wrong. A ticket should be answered within **4 hours** (urgent), **1 day** (high), **3 days** (normal) or **7 days** (low). After that it shows **Overdue**.
+- **Reply** to answer the home. They get a notification, and an email if email is set up. Tick **Team-only note** for something only your team should see.
+- **Status:** answering moves it to **Being worked on**. Set **Waiting for the home** when you need their answer, and **Solved** when it's fixed. The home can also mark it solved, or open it again.
+- **With:** super admins and support can assign anyone in the team. Installers can **Take it**.
 
 ## Who does what
 
@@ -33,4 +39,4 @@ The app has no reply channel. Answer by phone or WhatsApp.
 
 - Check **Activity** first. It shows recent changes by the family and by staff.
 - Before marking a board faulty, note its devices and pins (see "Mark a board faulty and replace it").
-- Keep your notes on the call in the visit request or your team's usual channel. Support notifications are kept for 30 days.
+- Write what you did as a team-only note in the ticket, so the next person knows. Tickets are kept; notifications are kept for 30 days.

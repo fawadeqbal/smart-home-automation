@@ -133,6 +133,12 @@ class HomeApi:
     def location(self) -> Dict[str, Any]:
         return self._call("GET", "/home/location")
 
+    def tickets(self) -> List[Dict[str, Any]]:
+        return self._call("GET", "/support/tickets")
+
+    def open_ticket(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("POST", "/support/tickets", body)
+
     def memories(self) -> List[Dict[str, Any]]:
         """What this person asked the assistant to remember in this home (theirs alone)."""
         return self._call("GET", "/assistant/memory")

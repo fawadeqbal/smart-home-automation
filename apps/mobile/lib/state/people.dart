@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/models/energy.dart';
 import '../data/models/outages.dart';
 import '../data/models/people.dart';
+import '../data/models/ticket.dart';
 import '../data/repositories/home_repository.dart';
 import '../data/repositories/people_repository.dart';
 import 'session.dart';
@@ -69,6 +70,12 @@ final homeSummaryProvider = FutureProvider<HomeSummary>((ref) async {
   } catch (_) {
     return const HomeSummary();
   }
+});
+
+/// This person's help requests (all the home's for owners and admins).
+final ticketsProvider = FutureProvider<List<Ticket>>((ref) async {
+  if (ref.watch(currentHomeIdProvider) == null) return const [];
+  return ref.read(homeRepositoryProvider).tickets();
 });
 
 final homeWelcomeProvider = FutureProvider<HomeWelcome>((ref) async {

@@ -815,12 +815,60 @@ class SummaryTool(Tool):
                 + ". (The Summary page has a 'Send on WhatsApp' button.)")
 
 
+# ------------------------------------------------------------------ help requests (service tickets)
+class OpenHelpRequestTool(Tool):
+    name = "ask_installer_for_help"
+    description = ("Open a help request to the installer's team (a service ticket) when the person asks for a technician, "
+                   "a visit, a repair, new work, or says to tell the installer/support about a problem. Anyone in the home may. "
+                   "First say what you'll send and ask 'Shall I send it?'; call with confirmed true only after they say yes.")
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {
+            "problem": {"type": "string", "description": "What's wrong or needed, in the person's words, in English, with the room and device"},
+            "kind": {"type": "string", "enum": ["fault", "installation", "billing", "question", "other"]},
+            "confirmed": {"type": "boolean"}}, "required": ["problem"]}
+
+    def run(self, args: dict) -> str:
+        problem = str(args.get("problem", "")).strip()
+        if len(problem) < 3:
+            return "Error: ask what the problem is."
+        if not args.get("confirmed"):
+            return f"Not sent yet. Read back what you'll send — \"{problem}\" — and ask them to say yes."
+        t = self._api.open_ticket({"body": problem, "category": args.get("kind") or "fault"})
+        return (f"Sent as help request #{t['number']} ({t.get('priority', 'NORMAL').lower()} priority). The installer's team answers in "
+                "Help requests and they'll get a notification.")
+
+
+class HelpRequestsTool(Tool):
+    name = "my_help_requests"
+    description = "The home's help requests to the installer's team: number, title, where each stands, and the latest answer."
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    def run(self, args: dict) -> str:
+        rows = self._api.tickets()
+        if not rows:
+            return "There are no help requests."
+        out = []
+        for t in rows[:8]:
+            said = [m for m in t.get("messages", []) if not m.get("event")]
+            last = said[-1] if said else None
+            out.append(f"#{t['number']} {t['title']}: {t.get('statusText', t.get('status'))}"
+                       + (f"; latest from {last.get('by') or 'someone'}{' (support)' if last.get('staff') else ''}: {last['body'][:160]}" if last else ""))
+        return "; ".join(out)
+
+
 def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public_url: str = "", tz=None) -> List[Tool]:
     return [HomeOverviewTool(api, me, tz), PowerHistoryTool(api, tz), AddRoomTool(api), RenameRoomTool(api), DeleteRoomTool(api, devices),
             UpdateDeviceTool(api, devices), ListPeopleTool(api), InvitePersonTool(api, public_url),
             UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api),
             CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices), EnergyUsageTool(api),
-            RememberTool(api), ForgetTool(api), SummaryTool(api)]
+            RememberTool(api), ForgetTool(api), SummaryTool(api), OpenHelpRequestTool(api), HelpRequestsTool(api)]
 
 
 # ------------------------------------------------------------------ the console (staff, read only)

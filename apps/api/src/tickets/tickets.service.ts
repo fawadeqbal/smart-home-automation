@@ -263,7 +263,7 @@ export class TicketsService {
   private staffView(r: Row, names: Map<string, { name: string; staff: boolean }>) {
     return {
       ...this.base(r), openedBy: names.get(r.openedById)?.name ?? null, assignee: r.assigneeId ? names.get(r.assigneeId)?.name ?? null : null,
-      messages: r.messages.map((m) => ({ id: m.id, body: m.body, internal: m.internal, event: m.event, at: m.createdAt, by: m.authorId ? names.get(m.authorId)?.name ?? null : null, staff: m.authorId ? names.get(m.authorId)?.staff ?? false : false })),
+      messages: r.messages.map((m) => ({ id: m.id, body: m.body, internal: m.internal, event: m.event, at: m.createdAt, by: m.authorId ? names.get(m.authorId)?.name ?? null : null, staff: !!m.authorId && m.authorId !== r.openedById && (names.get(m.authorId)?.staff ?? false) })),
     };
   }
 
@@ -271,7 +271,7 @@ export class TicketsService {
     const n = names ?? new Map<string, { name: string; staff: boolean }>();
     return {
       ...this.base(r), assignee: null, openedBy: n.get(r.openedById)?.name ?? null,
-      messages: r.messages.filter((m) => !m.internal).map((m) => ({ id: m.id, body: m.body, event: m.event, at: m.createdAt, mine: m.authorId === r.openedById, by: m.authorId ? n.get(m.authorId)?.name ?? null : null, staff: m.authorId ? n.get(m.authorId)?.staff ?? false : false })),
+      messages: r.messages.filter((m) => !m.internal).map((m) => ({ id: m.id, body: m.body, event: m.event, at: m.createdAt, mine: m.authorId === r.openedById, by: m.authorId ? n.get(m.authorId)?.name ?? null : null, staff: !!m.authorId && m.authorId !== r.openedById && (n.get(m.authorId)?.staff ?? false) })),
     };
   }
 }

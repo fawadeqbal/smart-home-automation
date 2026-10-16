@@ -5,6 +5,7 @@ import '../models/energy.dart';
 import '../models/json.dart';
 import '../models/outages.dart';
 import '../models/people.dart';
+import '../models/ticket.dart';
 
 /// The open home as a whole: who looks after it, and asking them for help (`/home/*`).
 class HomeRepository {
@@ -25,7 +26,16 @@ class HomeRepository {
       HomeOutages.fromJson(asJson(await _api.get<Object?>('/outages?days=$days')));
 
   /// A message to the installer and the company's support (owners and admins).
-  Future<void> askForHelp(String message) => _api.post<Object?>('/home/support', {'message': message});
+  /// Opens a help request (anyone in the home may); the installer's team answers in it.
+  Future<Ticket> askForHelp(String message) async =>
+      Ticket.fromJson(asJson(await _api.post<Object?>('/support/tickets', {'body': message})));
+
+  Future<List<Ticket>> tickets() async => asJsonList(await _api.get<Object?>('/support/tickets')).map(Ticket.fromJson).toList();
+
+  Future<Ticket> ticket(String id) async => Ticket.fromJson(asJson(await _api.get<Object?>('/support/tickets/$id')));
+
+  Future<Ticket> replyToTicket(String id, String body, {bool? solved}) async =>
+      Ticket.fromJson(asJson(await _api.post<Object?>('/support/tickets/$id/reply', {'body': body, 'solved': ?solved})));
 }
 
 final homeRepositoryProvider = Provider<HomeRepository>(

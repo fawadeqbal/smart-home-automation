@@ -168,6 +168,12 @@ class MeScreen extends ConsumerWidget {
                 fg: c.onText,
                 onTap: () => showAskForHelp(context, welcome.installer!),
               ),
+            if (!home.readOnly)
+              row(
+                SbIcons.envelope,
+                'Help requests',
+                onTap: () => showHelpRequests(context),
+              ),
             if (me.homes.length > 1)
               row(
                 SbIcons.house,

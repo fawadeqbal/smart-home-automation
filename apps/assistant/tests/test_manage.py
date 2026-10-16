@@ -401,3 +401,29 @@ def test_remember_forget_and_summary():
     assert ForgetTool(api).run({"which": "everything", "confirmed": True}) == "Forgot all 1 things."
     out = SummaryTool(api).run({})
     assert out.startswith("Iqbal home, this week (8 Oct – 14 Oct): Power: 3 cuts")
+
+
+def test_help_requests_need_a_yes():
+    from assistant.manage import HelpRequestsTool, OpenHelpRequestTool
+
+    class TicketApi(OwnerApi):
+        def __init__(self):
+            super().__init__()
+            self.opened = []
+
+        def open_ticket(self, body):
+            self.opened.append(body)
+            return {"number": 7, "priority": "HIGH"}
+
+        def tickets(self):
+            return [{"number": 7, "title": "Fan not working", "statusText": "Waiting for you",
+                     "messages": [{"body": "Bedroom fan is dead", "by": "Sara"}, {"body": "Status: Waiting", "event": True},
+                                  {"body": "Is the wall switch on?", "by": "Ali", "staff": True}]}]
+
+    api = TicketApi()
+    assert OpenHelpRequestTool(api).run({"problem": "Bedroom fan is dead"}).startswith("Not sent yet")
+    assert api.opened == []
+    out = OpenHelpRequestTool(api).run({"problem": "Bedroom fan is dead", "confirmed": True})
+    assert out.startswith("Sent as help request #7 (high priority)")
+    assert api.opened == [{"body": "Bedroom fan is dead", "category": "fault"}]
+    assert HelpRequestsTool(api).run({}) == "#7 Fan not working: Waiting for you; latest from Ali (support): Is the wall switch on?"

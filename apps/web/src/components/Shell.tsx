@@ -33,6 +33,7 @@ interface NavItem { href: string; label: string; icon: string; count?: string | 
 
 function useConsoleCounts(enabled: boolean, installer: boolean) {
   const [counts, setCounts] = useState<{ attention: number; homes: number; stock: number; visits: number } | null>(null);
+  const [tickets, setTickets] = useState(0);
   const load = useCallback(() => {
     if (!enabled) return;
     if (installer) {
@@ -41,11 +42,15 @@ function useConsoleCounts(enabled: boolean, installer: boolean) {
       void get<Overview>('/platform/overview').then((o) => setCounts({ attention: o.attentionCount, homes: o.kpis.homes, stock: o.kpis.inStock, visits: o.visitsWaiting ?? 0 })).catch(() => undefined);
     }
   }, [enabled, installer]);
-  useEffect(() => { load(); }, [load]);
+  const loadTickets = useCallback(() => {
+    if (enabled) void get<{ open: number }>('/platform/tickets?status=open').then((t) => setTickets(t.open)).catch(() => undefined);
+  }, [enabled]);
+  useEffect(() => { load(); loadTickets(); }, [load, loadTickets]);
+  useLive('notification', loadTickets);
   useLive('inventory.changed', load);
   useLive('homes.changed', load);
   useLive('visits.changed', load);
-  return counts;
+  return counts ? { ...counts, tickets } : null;
 }
 
 function useTheme() {
@@ -94,15 +99,17 @@ export function Shell({ children }: { children: ReactNode }) {
       };
       const help: NavItem = { href: '/console/help', label: 'Help Center', icon: 'help' };
       const outages: NavItem = { href: '/console/outages', label: 'Power & outages', icon: 'zap' };
-      if (staffRole === 'INSTALLER') return [homesItem, outages, help];
+      const tickets: NavItem = { href: '/console/tickets', label: 'Tickets', icon: 'message', count: counts?.tickets ? String(counts.tickets) : null };
+      if (staffRole === 'INSTALLER') return [homesItem, tickets, outages, help];
       const base: NavItem[] = [
         { href: '/console', label: 'Overview', icon: 'layout-grid', exact: true, count: counts?.attention ? String(counts.attention) : null, countBad: true },
         homesItem,
       ];
       const visits: NavItem = { href: '/console/requests', label: 'Visit requests', icon: 'phone', count: counts?.visits ? String(counts.visits) : null };
-      if (staffRole === 'SUPPORT') return [...base, outages, visits, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, help, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
+      if (staffRole === 'SUPPORT') return [...base, tickets, outages, visits, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, help, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
       return [
         ...base,
+        tickets,
         outages,
         visits,
         { href: '/console/inventory', label: 'Inventory', icon: 'package', count: counts ? String(counts.stock) : null },
@@ -119,6 +126,7 @@ export function Shell({ children }: { children: ReactNode }) {
     const items: NavItem[] = [{ href: '/', label: 'Home', icon: 'house', exact: true }];
     if (!home.readOnly) items.push({ href: '/automations', label: 'Automations', icon: 'clock' });
     items.push({ href: '/energy', label: 'Electricity', icon: 'zap' });
+    if (!home.readOnly) items.push({ href: '/support', label: 'Help requests', icon: 'message' });
     if (isAdmin) {
       items.push(
         { href: '/rooms', label: 'Rooms', icon: 'door-open' },
@@ -187,7 +195,7 @@ export function Shell({ children }: { children: ReactNode }) {
     </Dropdown>
   );
 
-  const PAGE: Record<string, string> = { '/automations': 'Automations', '/energy': 'Electricity', '/summary': 'Summary', '/notifications': 'Notifications', '/help': 'Help' };
+  const PAGE: Record<string, string> = { '/automations': 'Automations', '/energy': 'Electricity', '/summary': 'Summary', '/support': 'Help requests', '/notifications': 'Notifications', '/help': 'Help' };
   const fallback = PAGE[path] ?? (path.startsWith('/devices/') ? 'Device' : null);
   const shownCrumbs: Crumb[] = crumbs.length ? crumbs
     : platform ? [{ label: 'Platform' }]

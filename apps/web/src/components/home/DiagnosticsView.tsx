@@ -56,7 +56,7 @@ export function DiagnosticsView({ canSetup, editHref, openHref, installerName, a
   const catalog = useLoad<Catalog>('/catalog');
   const [open, setOpen] = useState<string | null>(params.get('board'));
   const [support, setSupport] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState<{ id: string; number: number } | null>(null);
   useLive('nodes.changed', () => void nodes.reload());
   useLive('node.status', () => void nodes.reload());
   useLive('node.health', (e: { nodeId: string; health: BoardNode['health']; lastSeenAt: string }) =>
@@ -79,7 +79,9 @@ export function DiagnosticsView({ canSetup, editHref, openHref, installerName, a
           <span className="grow small" style={{ minWidth: 220, lineHeight: 1.45 }}>
             <b>Read-only.</b> <span className="muted">Wiring and pins are managed by {installerName ? `your installer, ${installerName}` : 'your installer'}. If something looks wrong, send this page to support.</span>
           </span>
-          {allowSupport && <button className="btn" onClick={() => setSupport(open ?? '')}><Icon name="send" size={14} />{sent ? 'Sent ✓' : 'Send to support'}</button>}
+          {allowSupport && (sent
+            ? <a className="btn" href={`/support/${sent.id}`}><Icon name="check" size={14} />Request #{sent.number}</a>
+            : <button className="btn" onClick={() => setSupport(open ?? '')}><Icon name="send" size={14} />Send to support</button>)}
         </div>
       )}
       {installed.length === 0 && <Empty>No boards installed in this home yet.</Empty>}
@@ -155,9 +157,9 @@ export function DiagnosticsView({ canSetup, editHref, openHref, installerName, a
         );
       })}
       {support !== null && (
-        <FormModal title="Send to support" sub="Your installer and the support team get a notice with a link to this board." submitLabel="Send"
+        <FormModal title="Send to support" sub="This opens a help request: your installer and the support team get it with a link to this board, and their answers come back here." submitLabel="Send"
           onClose={() => setSupport(null)}
-          onSubmit={async (f) => { await post('/home/support', { message: f.get('message'), nodeId: f.get('nodeId') || undefined }); setSent(true); }}>
+          onSubmit={async (f) => { const r = await post<{ ticket: { id: string; number: number } }>('/home/support', { message: f.get('message'), nodeId: f.get('nodeId') || undefined }); setSent(r.ticket); }}>
           <label className="field">Which board?
             <select name="nodeId" defaultValue={support}>
               <option value="">The whole home</option>
