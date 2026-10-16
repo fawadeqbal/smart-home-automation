@@ -47,6 +47,7 @@ slow slowly fast delay late respond responding response camera cameras cctv lost
 security privacy private data
 rename renamed delete deleted remove removed create move moved people person user users role roles access
 permission permissions manage summary overview count rooms
+cut cuts outage outages blackout shedding wapda kesc lesco iesco pesco mepco gepco fesco hesco
 """.split())
 
 # money and promises: never answered without a published article that covers them

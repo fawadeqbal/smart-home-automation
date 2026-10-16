@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Staff } from '../auth/decorators';
 import { PasswordsService } from '../auth/passwords.service';
+import { OutagesService } from '../monitoring/outages.service';
 import { ZodPipe } from '../common/zod';
 import { ConnectionsService } from '../hardware/connections.service';
 import { PlatformService } from './platform.service';
@@ -52,7 +53,14 @@ export function staffScope(user: AuthUser): Prisma.NodeWhereInput {
 @Controller('platform')
 export class PlatformController {
   constructor(private readonly platform: PlatformService, private readonly connections: ConnectionsService,
-              private readonly passwords: PasswordsService) {}
+              private readonly passwords: PasswordsService, private readonly outagesService: OutagesService) {}
+
+  /** Outages in the homes the caller looks after: per home, areas where several homes went down together, boards down now. */
+  @Staff(...ALL)
+  @Get('outages')
+  outages(@CurrentUser() user: AuthUser, @Query('days') days?: string) {
+    return this.outagesService.forStaff(this.platform.homeWhere(user), Math.min(90, Math.max(1, Number(days) || 7)));
+  }
 
   // ---------------------------------------------------------------- board connections (all homes in scope)
   /** Every board the caller looks after: online or not, where it connects from, how often it dropped. */

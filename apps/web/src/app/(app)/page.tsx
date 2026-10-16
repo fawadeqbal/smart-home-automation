@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AskBar } from '@/components/assistant/Assistant';
 import { DeviceCard } from '@/components/DeviceCard';
 import { Icon } from '@/components/Icon';
+import { PowerCard } from '@/components/home/OutagesPanel';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
 import { Empty, ErrorBox, Kpi, useAction } from '@/components/ui';
@@ -89,6 +90,8 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
         <Kpi label="Devices" value={devices.length} chip={{ icon: 'cpu', tone: 'ac' }} small />
         <Kpi label="Inside" value={temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : '–'} unit="°C" chip={{ icon: 'thermometer', tone: 'ok' }} small />
       </div>
+
+      <PowerCard link={isAdmin} />
 
       {runnable.length > 0 && (
         <div className="scenes" role="group" aria-label="Scenes">

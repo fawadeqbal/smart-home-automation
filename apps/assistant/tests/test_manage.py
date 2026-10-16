@@ -229,3 +229,32 @@ def test_a_room_that_only_differs_in_capitals_is_not_added_twice():
     from assistant.manage import AddRoomTool
     assert AddRoomTool(api).run({"name": "hall"}) == "There is already a room called Hall; nothing added."
     assert api.changes == []
+
+
+OUTAGES = {"days": 7, "timezone": "Asia/Karachi", "summary": {
+    "powerCuts": 2, "powerSeconds": 4200, "networkOuts": 1, "networkSeconds": 600, "restarts": 1, "crashes": 0,
+    "lastPower": {"startedAt": "2026-10-16T10:10:00.000Z", "endedAt": "2026-10-16T11:05:00.000Z", "seconds": 3300}},
+    "outages": [{"id": "o1", "kind": "POWER", "label": "Power cut", "board": "Living room board", "seconds": 3300,
+                 "startedAt": "2026-10-16T10:10:00.000Z", "endedAt": "2026-10-16T11:05:00.000Z", "reset": "Power On"}]}
+
+
+def test_power_cuts_in_words():
+    from zoneinfo import ZoneInfo
+    from assistant.manage import PowerHistoryTool
+
+    class Api(OwnerApi):
+        def outages(self, days=7):
+            self.asked = days
+            return {**OUTAGES, "days": days}
+    api = Api()
+    out = PowerHistoryTool(api, ZoneInfo("Asia/Karachi")).run({"days": 30})
+    assert api.asked == 30
+    assert out.startswith("Last 30 days: 2 power cuts (1 h 10 min without power), 1 times the Wi-Fi or internet was down (10 min)")
+    assert "- Power cut: Fri 16 Oct 3:10 PM to Fri 16 Oct 4:05 PM (55 min), Living room board" in out
+    facts = home_facts(api, home(), me="u1", tz=ZoneInfo("Asia/Karachi"))
+    assert "Power this week: 2 power cuts, 1 h 10 min without power; the last one Fri 16 Oct 3:10 PM for 55 min." in facts
+
+
+def test_power_questions_reach_the_ai():
+    for q in ["when did the power go", "load shedding kab hui", "was there an outage last night"]:
+        assert ScopeGuard().decide(q, followup=False).route == AGENT

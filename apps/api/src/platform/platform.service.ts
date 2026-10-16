@@ -287,7 +287,7 @@ export class PlatformService {
   }
 
   // ================================================================ homes
-  private homeWhere(user: AuthUser): Prisma.HomeWhereInput {
+  homeWhere(user: AuthUser): Prisma.HomeWhereInput {
     const orgId = this.org(user);
     return user.staffRole === StaffRole.INSTALLER ? { orgId, installerId: user.id } : { orgId };
   }

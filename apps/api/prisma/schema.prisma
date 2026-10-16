@@ -243,6 +243,13 @@ model Room {
 /// Boards belong to an organization's inventory; once assigned they also belong to a home.
 model Node {
   healthSamples HealthSample[]
+  outages       Outage[]
+  /// when the board last started (now minus the uptime it reports): a new value means it restarted
+  bootedAt      DateTime?
+  /// set while it is offline: the last time it was heard from
+  offlineSince  DateTime?
+  /// when the team was told it has been offline for long (once per outage)
+  downAlertAt   DateTime?
   id            String         @id
   orgId         String?
   org           Organization?  @relation(fields: [orgId], references: [id], onDelete: SetNull)
@@ -279,6 +286,37 @@ model Node {
 }
 
 /// One connection of a board to the broker: from where, how long, and how it ended.
+/// Why a board was cut off, worked out when it comes back: it restarted with "Power On" (a power cut),
+/// it stayed powered (the Wi-Fi or internet was down), or it restarted for another reason.
+enum OutageKind {
+  POWER
+  NETWORK
+  RESTART
+  RESET
+  CRASH
+  UNKNOWN
+}
+
+model Outage {
+  id        String     @id @default(cuid())
+  nodeId    String
+  node      Node       @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  homeId    String?
+  kind      OutageKind
+  startedAt DateTime
+  endedAt   DateTime
+  seconds   Int
+  /// the board's own words for why it restarted ("Power On", "Hardware Watchdog"...)
+  reset     String?
+  /// where the board connects from (city, provider), to see cuts across an area
+  place     String?
+  isp       String?
+  createdAt DateTime   @default(now())
+
+  @@index([homeId, startedAt])
+  @@index([startedAt])
+}
+
 model NodeConnection {
   id          String    @id @default(cuid())
   nodeId      String

@@ -419,14 +419,54 @@ test('firmware: upload a build, send it to a board over Wi-Fi, the board verifie
   assert.equal((await member.get('/firmware')).status, 403);
 });
 
+test('outages: the internet drops (the board stays on), then a power cut (the board starts again)', async () => {
+  owner.home = state.homeId;
+  const online = () => owner.get('/devices').then((r) => r.body.every((d) => d.online));
+  // the Wi-Fi or internet goes: the broker loses the board; it comes back without restarting
+  fake.stdin.write('drop\n');
+  await until('offline', async () => !(await online()), 12000);
+  assert.ok((await prisma.node.findUnique({ where: { id: NODE_ID } })).offlineSince);
+  await new Promise((r) => setTimeout(r, 1500));
+  fake.stdin.write('rejoin\n');
+  await until('online again', online, 12000);
+  const net = await until('internet outage recorded', async () => (await owner.get('/outages')).body.outages.find((o) => o.kind === 'NETWORK'));
+  assert.equal(net.label, 'Wi‑Fi or internet down');
+  assert.ok(net.seconds >= 1);
+  assert.equal((await prisma.node.findUnique({ where: { id: NODE_ID } })).offlineSince, null);
+
+  // a power cut: the board is gone, then starts from scratch ("Power On", uptime back to 0)
+  await new Promise((r) => setTimeout(r, 16000));   // it has been running a while (a restart moves its start time forward)
+  fake.kill('SIGKILL');
+  await until('offline', async () => !(await online()), 12000);
+  fake = spawn('python3', [path.join(ROOT, 'tools/fake-node/fake_node.py'), '--id', NODE_ID, '--keepalive', '2',
+    '--password', process.env.MQTT_NODE_PASSWORD ?? ''], { env: { ...process.env }, stdio: ['pipe', 'pipe', 'inherit'] });
+  await until('online again', online, 15000);
+  const cut = await until('power cut recorded', async () => (await owner.get('/outages')).body.outages.find((o) => o.kind === 'POWER'));
+  assert.equal(cut.label, 'Power cut');
+  assert.equal(cut.reset, 'Power On');
+  const body = (await owner.get('/outages')).body;
+  assert.equal(body.summary.powerCuts, 1);
+  assert.equal(body.summary.networkOuts, 1);
+  if (cut.seconds >= 20) {
+    const n = await until('power cut notice', async () => (await owner.get('/notifications')).body.items.find((x) => x.kind === 'powerCut'));
+    assert.match(n.body, /^No power from /);
+  }
+  // a member sees the home's outages too; the console sees them per home
+  assert.equal((await member.get('/outages')).status, 200);
+  const staff = (await owner.get('/platform/outages')).body;
+  assert.equal(staff.homes[0].power, 1);
+  assert.deepEqual(staff.down, []);
+});
+
 test('a board that disappears goes offline and commands say so', async () => {
   fake.kill('SIGKILL');
   await until('offline via Last Will', async () => (await owner.get('/devices')).body.every((d) => !d.online), 12000);
   const res = await owner.post(`/devices/${state.bulb}/commands`, { on: false });
   assert.equal(res.status, 503);
   assert.match(res.body.message, /offline/);
-  const n = await until('offline notice', async () => (await owner.get('/notifications')).body.items.find((x) => x.kind === 'boardOffline'));
-  assert.match(n.title, /disconnected/);
+  // no notice straight away: most cuts are over in minutes and get one notice when they end
+  assert.ok((await prisma.node.findUnique({ where: { id: NODE_ID } })).offlineSince);
+  assert.equal((await owner.get('/platform/outages')).body.down.length, 1);
 });
 
 test('the platform console: overview, homes, workspace, audit', async () => {

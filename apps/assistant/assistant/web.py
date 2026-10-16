@@ -153,7 +153,7 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         reply = conversation.ask(who.user_id, who.user_name, text, tools, quick,
                                  home_id=who.home_id, home_name=who.home_name, fresh=fresh,
                                  tz=tz, home_state=lambda: describe_home(devices, scenes) + "\n\n# The whole home\n\n"
-                                 + home_facts(api, devices, who.user_id),
+                                 + home_facts(api, devices, who.user_id, tz),
                                  retriever=retriever_for(tools.get("search_help")))
         return speak_reply(text, reply, speak)
 

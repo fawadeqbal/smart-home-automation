@@ -8,6 +8,7 @@ import { AuthUser } from '../auth/auth.types';
 import { AuditService } from '../common/audit.service';
 import { FirmwareService } from '../firmware/firmware.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
+import { OutagesService } from '../monitoring/outages.service';
 import { MqttService } from '../mqtt/mqtt.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -32,6 +33,7 @@ export class NodesService implements OnModuleInit {
     private readonly realtime: RealtimeService,
     private readonly audit: AuditService,
     private readonly monitoring: MonitoringService,
+    private readonly outages: OutagesService,
     @Inject(forwardRef(() => FirmwareService)) private readonly firmware: FirmwareService,
     private readonly logs: LogsService,
   ) {}
@@ -105,7 +107,7 @@ export class NodesService implements OnModuleInit {
       this.log.log(`Board ${nodeId} is ${online ? 'online' : 'OFFLINE'}`);
       this.logs.server(nodeId, online ? 'info' : 'warn', online ? 'Online' : 'Offline: the broker lost the connection to the board');
       if (node.homeId && node.status === NodeStatus.ADOPTED) {
-        void this.monitoring.boardStatus({ ...node, homeId: node.homeId }, online).catch((e) => this.log.warn(`notice failed: ${e}`));
+        void (online ? this.outages.online(nodeId) : this.outages.offline(nodeId, node.lastSeenAt)).catch((e) => this.log.warn(`outage tracking failed: ${e}`));
         void this.audit.record(node.homeId, null, online ? 'board.online' : 'board.offline', nodeId, { name: node.name });
       }
     }
@@ -193,6 +195,8 @@ export class NodesService implements OnModuleInit {
     const at = new Date();
     const health = { ...parsed.data, at: at.toISOString() };
     this.health.set(nodeId, health);
+    // before the sample below is saved: the last sample before a restart is when the board was last alive
+    await this.outages.telemetry(nodeId, parsed.data, at).catch((e) => this.log.warn(`outage tracking failed: ${e}`));
     await this.prisma.node.updateMany({
       where: { id: nodeId },
       data: { rssi: parsed.data.rssi ?? undefined, lastSeenAt: at },

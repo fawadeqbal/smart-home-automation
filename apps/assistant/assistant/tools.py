@@ -477,7 +477,7 @@ def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]], tz: Optio
         ScheduleDeviceTool(api, devices, tz, clock), ListSchedulesTool(api, tz), CancelScheduleTool(api, tz),
         RunSceneTool(api, scenes), DiagnoseHomeTool(api, devices, tz), BoardConnectionsTool(api, tz),
         *([SearchHelpTool(api, knowledge)] if knowledge is not None else []),
-        *management_tools(api, devices, me, public_url),
+        *management_tools(api, devices, me, public_url, tz),
     ])
 
 
@@ -488,9 +488,9 @@ def build_console_tools(api: Optional[HomeApi], tz: Optional[tzinfo] = None,
     if api is None:
         return ToolRegistry()
     from .connections import BoardConnectionsTool, FleetStatusTool
-    from .manage import HomeDetailsTool
+    from .manage import FleetOutagesTool, HomeDetailsTool
     return ToolRegistry([
-        FleetStatusTool(api, tz), BoardConnectionsTool(api, tz, console=True), HomeDetailsTool(api),
+        FleetStatusTool(api, tz), BoardConnectionsTool(api, tz, console=True), HomeDetailsTool(api), FleetOutagesTool(api, tz),
         *([SearchHelpTool(api, knowledge, customer_view=False)] if knowledge is not None else []),
     ])
 

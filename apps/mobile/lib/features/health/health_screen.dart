@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
+import '../../data/models/outages.dart';
 import '../../shared/widgets/common.dart';
 import '../../state/devices.dart';
 import '../../state/home_overview.dart';
@@ -219,6 +220,8 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
                 ),
             ],
           ),
+        const SizedBox(height: 16),
+        const _PowerAndInternet(),
         if (welcome?.installer != null && welcome!.installer != ref.watch(meProvider).name) ...[
           const SizedBox(height: 16),
           ExpertCard(name: welcome.installer!, company: welcome.orgName),
@@ -304,4 +307,66 @@ class _Dot extends StatelessWidget {
       shape: BoxShape.circle,
     ),
   );
+}
+
+
+/// This week's power cuts and Wi-Fi / internet outages (from what the boards report when they come back).
+class _PowerAndInternet extends ConsumerWidget {
+  const _PowerAndInternet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final data = ref.watch(homeOutagesProvider).value;
+    if (data == null) return const SizedBox.shrink();
+    final shown = data.outages.where((o) => o.counts).take(8).toList();
+    String when(DateTime d) {
+      final now = DateTime.now();
+      final day = DateTime(d.year, d.month, d.day);
+      final today = DateTime(now.year, now.month, now.day);
+      final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+      final time = '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour < 12 ? 'am' : 'pm'}';
+      if (day == today) return time;
+      if (day == today.subtract(const Duration(days: 1))) return 'Yesterday $time';
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      return '${days[d.weekday - 1]} $time';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text('POWER AND INTERNET THIS WEEK', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c.mu)),
+        ),
+        GroupCard(
+          radius: 22,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              child: Text(
+                data.powerCuts == 0 && data.networkOuts == 0
+                    ? 'No power cuts or internet outages this week.'
+                    : '${data.powerCuts} power cut${data.powerCuts == 1 ? '' : 's'} (${outageDuration(data.powerSeconds)} without power)'
+                        '${data.networkOuts > 0 ? ' · internet down ${data.networkOuts}×' : ''}',
+                style: TextStyle(fontSize: 14.5, color: c.tx, fontWeight: FontWeight.w500),
+              ),
+            ),
+            for (final o in shown)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                child: Row(
+                  children: [
+                    SbIcon(o.isPower ? SbIcons.zap : SbIcons.wifiSlash, size: 18, color: o.isPower ? c.badText : c.onText),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(o.label, style: TextStyle(fontSize: 14.5, color: c.tx))),
+                    Text('${when(o.startedAt)} · ${outageDuration(o.seconds)}', style: TextStyle(fontSize: 13, color: c.mu)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }

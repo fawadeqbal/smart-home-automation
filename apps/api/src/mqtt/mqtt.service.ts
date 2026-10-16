@@ -21,6 +21,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly handlers = new Map<MqttKind, MqttHandler[]>();
   private readonly queues = new Map<string, Promise<void>>();
   private client?: MqttClient;
+  /** when the connection to the broker came back (after a broker restart, a deploy): the last few */
+  readonly reconnects: number[] = [];
+  private everConnected = false;
 
   constructor(@Inject(SETTINGS) private readonly settings: Settings) {}
 
@@ -42,6 +45,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
     this.client.on('connect', () => {
       this.log.log(`Connected to ${this.settings.mqttUrl}`);
+      if (this.everConnected) this.reconnects.push(Date.now());
+      if (this.reconnects.length > 20) this.reconnects.shift();
+      this.everConnected = true;
       this.client!.subscribe(topics.allFromNodes, { qos: 1 }, (err) => {
         if (err) this.log.error(`Subscribe failed: ${err.message}`);
       });

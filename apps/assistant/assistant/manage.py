@@ -69,11 +69,11 @@ def _safe(fn) -> Any:
 
 
 # ------------------------------------------------------------------ the whole home, in words
-def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "") -> str:
+def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> str:
     """Rooms (with empty ones), boards, people and invites, timers: what the AI is told on top of the
     devices. Parts this person may not see (people and boards are for owners and admins) are left out
     and their role says why."""
-    names = ("rooms", "nodes", "users", "invites", "schedules")
+    names = ("rooms", "nodes", "users", "invites", "schedules", "outages")
     calls = [getattr(api, n, None) for n in names]
     got = dict(zip(names, _POOL.map(lambda f: _safe(f) if callable(f) else None, calls)))
     lines: List[str] = []
@@ -125,6 +125,14 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "") -> str:
             lines.append("Invited, not joined yet: " + "; ".join(
                 f"{i.get('name') or i.get('email')} ({str(i.get('role', '')).lower()})" for i in invites))
 
+    outages = got["outages"]
+    if isinstance(outages, dict):
+        s = outages.get("summary") or {}
+        last = s.get("lastPower")
+        lines.append(f"\nPower this week: {s.get('powerCuts', 0)} power cuts, {_dur(s.get('powerSeconds', 0))} without power"
+                     + (f"; the last one {_local(last['startedAt'], tz)} for {_dur(last['seconds'])}" if last else "")
+                     + f". Internet or Wi-Fi down {s.get('networkOuts', 0)} times (power_history has the details).")
+
     schedules = got["schedules"]
     if isinstance(schedules, list):
         active = [s for s in schedules if s.get("enabled", True)]
@@ -138,11 +146,11 @@ class HomeOverviewTool(Tool):
                    "offline, people and pending invites (owners and admins), timers. Use it for 'how many rooms', "
                    "'give me a summary', 'who has access', or after changing something.")
 
-    def __init__(self, api: HomeApi, me: str = "") -> None:
-        self._api, self._me = api, me
+    def __init__(self, api: HomeApi, me: str = "", tz=None) -> None:
+        self._api, self._me, self._tz = api, me, tz
 
     def run(self, args: dict) -> str:
-        return home_facts(self._api, self._api.devices(), self._me)
+        return home_facts(self._api, self._api.devices(), self._me, self._tz)
 
 
 # ------------------------------------------------------------------ rooms
@@ -466,8 +474,8 @@ class DeleteSceneTool(Tool):
         return f"Deleted the scene {scene['name']}."
 
 
-def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public_url: str = "") -> List[Tool]:
-    return [HomeOverviewTool(api, me), AddRoomTool(api), RenameRoomTool(api), DeleteRoomTool(api, devices),
+def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public_url: str = "", tz=None) -> List[Tool]:
+    return [HomeOverviewTool(api, me, tz), PowerHistoryTool(api, tz), AddRoomTool(api), RenameRoomTool(api), DeleteRoomTool(api, devices),
             UpdateDeviceTool(api, devices), ListPeopleTool(api), InvitePersonTool(api, public_url),
             UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api)]
 
@@ -509,4 +517,89 @@ class HomeDetailsTool(Tool):
         lines += [f"- {b.get('name') or b.get('id')}: {b.get('condText') or ('online' if b.get('online') else 'offline')}, "
                   f"{b.get('devices', 0)} devices, last seen {b.get('lastSeen') or 'never'}, firmware {b.get('firmware') or '?'}"
                   + (" (update available)" if b.get("firmwareOld") else "") for b in boards]
+        return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ power cuts and outages
+def _dur(seconds: float) -> str:
+    m = round(seconds / 60)
+    if m < 1:
+        return f"{max(1, round(seconds))} seconds"
+    if m < 60:
+        return f"{m} min"
+    return f"{m // 60} h" + (f" {m % 60} min" if m % 60 else "")
+
+
+def _local(iso: str, tz) -> str:
+    at = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    if tz is not None:
+        at = at.astimezone(tz)
+    return at.strftime("%a %d %b %I:%M %p").replace(" 0", " ")
+
+
+def outages_text(data: Dict[str, Any], tz=None, limit: int = 12) -> str:
+    """A home's power cuts and internet outages, in words."""
+    s = data.get("summary") or {}
+    days = data.get("days", 7)
+    lines = [f"Last {days} days: {s.get('powerCuts', 0)} power cuts ({_dur(s.get('powerSeconds', 0))} without power), "
+             f"{s.get('networkOuts', 0)} times the Wi-Fi or internet was down ({_dur(s.get('networkSeconds', 0))}), "
+             f"{s.get('restarts', 0)} board restarts, {s.get('crashes', 0)} restarts after a fault."]
+    for o in (data.get("outages") or [])[:limit]:
+        lines.append(f"- {o['label']}: {_local(o['startedAt'], tz)} to {_local(o['endedAt'], tz)} ({_dur(o['seconds'])}), {o['board']}"
+                     + (f", the board said “{o['reset']}”" if o.get("kind") == "CRASH" and o.get("reset") else ""))
+    if len(lines) == 1:
+        lines.append("No power cuts or outages in that time.")
+    return "\n".join(lines)
+
+
+class PowerHistoryTool(Tool):
+    name = "power_history"
+    description = ("Power cuts and Wi-Fi/internet outages in this home, with times and how long: 'when did the power go', "
+                   "'how many power cuts this week', 'was the internet down last night'. Worked out from the boards: a board "
+                   "that restarted with 'Power On' lost power; one that stayed on lost the internet.")
+
+    def __init__(self, api: HomeApi, tz=None) -> None:
+        self._api, self._tz = api, tz
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"days": {"type": "integer", "description": "How far back (default 7, up to 90)"}}}
+
+    def run(self, args: dict) -> str:
+        days = max(1, min(90, int(args.get("days") or 7)))
+        return outages_text(self._api.outages(days), self._tz)
+
+
+class FleetOutagesTool(Tool):
+    name = "outages_overview"
+    description = ("Across the homes this person looks after: boards offline right now and since when, area power cuts "
+                   "(two or more homes in one place at once: probably load-shedding), and power cuts and internet outages "
+                   "per home. Read only.")
+
+    def __init__(self, api: HomeApi, tz=None) -> None:
+        self._api, self._tz = api, tz
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"days": {"type": "integer", "description": "How far back (default 7)"}}}
+
+    def run(self, args: dict) -> str:
+        days = max(1, min(30, int(args.get("days") or 7)))
+        d = self._api.platform_outages(days)
+        lines = [f"Last {days} days."]
+        down = d.get("down") or []
+        lines.append(f"Offline now: {len(down)}." + "".join(
+            f"\n- {b['home']}: {b['board']} since {_local(b['since'], self._tz) if b.get('since') else 'unknown'}"
+            + (f" ({b['place'].split(',')[0]})" if b.get("place") else "") for b in down[:15]))
+        areas = d.get("areas") or []
+        if areas:
+            lines.append("Area power cuts:" + "".join(
+                f"\n- {a['place'].split(',')[0]}: {_local(a['startedAt'], self._tz)} for {_dur(a['seconds'])}, homes: {', '.join(a['homes'])}" for a in areas[:10]))
+        homes = d.get("homes") or []
+        if homes:
+            lines.append("Per home (most time without power or internet first):" + "".join(
+                f"\n- {h['home']}: {h['power']} power cuts ({_dur(h['powerSeconds'])}), internet down {h['network']} times ({_dur(h['networkSeconds'])})"
+                + (f", {h['crashes']} board faults" if h["crashes"] else "") for h in homes[:15]))
+        else:
+            lines.append("No power cuts or outages recorded.")
         return "\n".join(lines)

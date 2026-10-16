@@ -4,13 +4,20 @@ import { AuthUser } from '../auth/auth.types';
 import { CurrentUser, NoHome, Roles } from '../auth/decorators';
 import { ZodPipe } from '../common/zod';
 import { MonitoringService } from './monitoring.service';
+import { OutagesService } from './outages.service';
 import { PushService } from './push.service';
 
 const subscription = z.object({ endpoint: z.string().url().max(1000), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) });
 
 @Controller()
 export class MonitoringController {
-  constructor(private readonly monitoring: MonitoringService, private readonly push: PushService) {}
+  constructor(private readonly monitoring: MonitoringService, private readonly push: PushService, private readonly outages: OutagesService) {}
+
+  /** Power cuts, internet outages and board restarts in this home (everyone in the home may see them). */
+  @Get('outages')
+  homeOutages(@CurrentUser() user: AuthUser, @Query('days') days?: string) {
+    return this.outages.forHome(user, Math.min(365, Math.max(1, Number(days) || 30)));
+  }
 
   @NoHome()
   @Get('push/key')

@@ -15,6 +15,8 @@ export const NOTICE_KINDS = {
   scheduleFailed: { label: 'One of my timers or schedules failed', default: true, adminsOnly: false },
   boardOffline: { label: 'A board disconnected or came back', default: true, adminsOnly: true },
   boardHealth: { label: 'A board has low voltage or weak Wi‑Fi', default: true, adminsOnly: true },
+  powerCut: { label: 'A power cut at home (when the power is back)', default: true, adminsOnly: false },
+  boardDown: { label: 'A board has been offline for an hour, or an area power cut (staff)', default: true, adminsOnly: true },
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
@@ -75,13 +77,8 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async boardStatus(node: { id: string; name: string; homeId: string; status: string }, online: boolean) {
-    if (node.status !== 'ADOPTED') return;
-    await this.toAdmins(node.homeId, online
-      ? { kind: 'boardOffline', severity: 'INFO', title: `${node.name} is back online`, body: 'Its devices can be switched again.', link: `/diagnostics?home=${node.homeId}&board=${node.id}` }
-      : { kind: 'boardOffline', severity: 'WARN', title: `${node.name} disconnected`, body: 'Its devices can’t be switched from the app until it reconnects. Wall buttons still work.', link: `/diagnostics?home=${node.homeId}&board=${node.id}` },
-    `board:${node.id}:${online}`, 60000);
-  }
+  // (a board going offline and coming back is told by OutagesService: once it knows whether it was a
+  // power cut, the internet, or the board, and only if it lasted long enough to matter)
 
   async boardHealth(node: { id: string; name: string; homeId: string }, h: { rssi?: number; vcc?: number; heap?: number }) {
     await this.prisma.healthSample.create({ data: { nodeId: node.id, rssi: h.rssi ?? null, vcc: h.vcc ?? null, heap: h.heap ?? null } });
@@ -103,6 +100,24 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
   /** A notice for specific people (e.g. staff answering a support request). */
   async notify(homeId: string, userIds: string[], notice: Notice) {
     await this.send(homeId, userIds, notice);
+  }
+
+  /** The same, at most once per `cooldownKey` in `cooldownMs`. */
+  async notifyOnce(homeId: string, userIds: string[], notice: Notice, cooldownKey: string, cooldownMs: number) {
+    if (this.coolingDown(cooldownKey, cooldownMs)) return;
+    await this.send(homeId, userIds, notice);
+  }
+
+  /** Everyone in the home (a power cut concerns them all). */
+  async toHome(homeId: string, notice: Notice, cooldownKey: string, cooldownMs: number) {
+    if (this.coolingDown(cooldownKey, cooldownMs)) return;
+    const members = await this.prisma.membership.findMany({ where: { homeId, user: { disabled: false } }, select: { userId: true } });
+    await this.send(homeId, members.map((m) => m.userId), notice);
+  }
+
+  /** The home's owners and admins, and its installer. */
+  async toHomeAdmins(homeId: string, notice: Notice, cooldownKey: string, cooldownMs: number) {
+    await this.toAdmins(homeId, notice, cooldownKey, cooldownMs);
   }
 
   // ---------------------------------------------------------------- reading (for the app)

@@ -37,6 +37,7 @@ import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
 import { PasswordsService } from './auth/passwords.service';
 import { MailService } from './mail/mail.service';
+import { OutagesService } from './monitoring/outages.service';
 import { VisitsController } from './visits/visits.controller';
 import { VisitsService } from './visits/visits.service';
 
@@ -64,7 +65,7 @@ export function createAppModule(settings: Settings) {
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, PasswordsService, MailService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
     ],
   })
   class AppModule {}

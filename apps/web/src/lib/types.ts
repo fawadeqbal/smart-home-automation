@@ -324,3 +324,21 @@ export interface HelpHit {
   keywordRank: number | null;
   meaningRank: number | null;
 }
+
+/** Power cuts, Wi-Fi or internet outages and board restarts (worked out when a board comes back). */
+export type OutageKind = 'POWER' | 'NETWORK' | 'RESTART' | 'RESET' | 'CRASH' | 'UNKNOWN';
+export interface Outage {
+  id: string; kind: OutageKind; label: string; board: string; startedAt: string; endedAt: string; seconds: number; reset: string | null;
+}
+export interface OutageSummary {
+  powerCuts: number; powerSeconds: number; networkOuts: number; networkSeconds: number; restarts: number; crashes: number;
+  lastPower: { startedAt: string; endedAt: string; seconds: number } | null;
+}
+export interface HomeOutages { days: number; timezone: string; summary: OutageSummary; outages: Outage[] }
+export interface StaffOutages {
+  days: number;
+  homes: { homeId: string; home: string; power: number; powerSeconds: number; network: number; networkSeconds: number; crashes: number }[];
+  areas: { place: string; startedAt: string; endedAt: string; seconds: number; homes: string[] }[];
+  down: { boardId: string; board: string; homeId: string; home: string; place: string | null; since: string | null }[];
+  outages: (Outage & { home: string; homeId: string })[];
+}

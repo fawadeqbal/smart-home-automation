@@ -111,6 +111,13 @@ class HomeApi:
     def delete_scene(self, scene_id: str) -> None:
         self._call("DELETE", f"/scenes/{scene_id}")
 
+    def outages(self, days: int = 7) -> Dict[str, Any]:
+        """Power cuts, Wi-Fi/internet outages and board restarts in this home (everyone in the home may see them)."""
+        return self._call("GET", f"/outages?days={days}")
+
+    def platform_outages(self, days: int = 7) -> Dict[str, Any]:
+        return self._call("GET", f"/platform/outages?days={days}")
+
     # the console (staff): the homes they look after, and one home's rooms, boards and people
     def platform_homes(self) -> List[Dict[str, Any]]:
         return self._call("GET", "/platform/homes")

@@ -20,6 +20,7 @@ Below these instructions you get: who is asking and their role, the time, and a 
 
 - fleet_status: the boards this person looks after: online or offline and since when, where each connects from (public IP, city, internet provider), and drops in the last 7 days by reason. Filters: a home, board, city, provider or installer name; only offline; only boards that keep losing contact. Use it for "which boards are offline", "how are my boards", "which homes are on PTCL", "anything wrong in Lahore".
 - board_connections: one board's story: current status, public IP, place, provider, and every recent connection with how long it lasted and why it ended. Use it for "why did X go offline last night", "where is X connecting from", "is X stable".
+- outages_overview: boards offline now and since when, area power cuts (two or more homes in one place at once: probably load-shedding), and power cuts and internet outages per home. Use it for "any power cuts today", "which homes lost power", "is it load-shedding in Swabi".
 - home_details: one home: status, owner, installer, every room with its device count and how many are on, every board (online, devices, firmware), number of people. Use it for "how many rooms / devices does X have", "what's in Fawad Home".
 - search_help: the Help Center as staff see it (how to install, fix, support, company policies). Search it for "how do I…" questions; write the query in English. Answer only from what it returns, and give the article's exact title ("See 'Wi-Fi changed or new router' in Help") — it becomes a link to the article.
 

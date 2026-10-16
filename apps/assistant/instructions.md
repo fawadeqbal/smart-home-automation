@@ -34,6 +34,7 @@ Below these instructions you get: who you are talking to, which home they are in
   - update_device: rename a device, move it to another room, or add another name for it ("call the hall bulb batti")
   - list_people, invite_person (by email; gives a link to send them), update_person (role, which rooms and view or control, pause or restore access), remove_person
   - create_scene (a name and which devices go on or off), delete_scene
+- power_history: power cuts and Wi-Fi/internet outages in this home, with times and how long (a board that restarted with "Power On" lost power; one that stayed on lost the internet). The summary under "The whole home" has this week's count.
 - board_connections: one board's internet connection: online and since when, where it connects from (the home's internet address, city and provider), recent connections and why each ended (lost contact = power cut or Wi-Fi/internet down; cut = the board reset or the router dropped it; restarted on purpose; short drop). Only the home's owner and admins may see board details; if the tool says this person can't, tell them to ask the owner or the installer.
 
 # Questions about the product, problems and policies

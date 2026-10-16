@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/models/outages.dart';
 import '../data/models/people.dart';
 import '../data/repositories/home_repository.dart';
 import '../data/repositories/people_repository.dart';
@@ -39,6 +40,16 @@ class PrefsController extends AsyncNotifier<List<NotificationPref>> {
 final prefsProvider = AsyncNotifierProvider<PrefsController, List<NotificationPref>>(
   PrefsController.new,
 );
+
+/// This week's power cuts and internet outages (empty when they can't be loaded).
+final homeOutagesProvider = FutureProvider<HomeOutages>((ref) async {
+  if (ref.watch(currentHomeIdProvider) == null) return const HomeOutages();
+  try {
+    return await ref.read(homeRepositoryProvider).outages(days: 7);
+  } catch (_) {
+    return const HomeOutages();
+  }
+});
 
 final homeWelcomeProvider = FutureProvider<HomeWelcome>((ref) async {
   if (ref.watch(currentHomeIdProvider) == null) return const HomeWelcome();

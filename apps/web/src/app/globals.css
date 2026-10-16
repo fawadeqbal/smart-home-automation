@@ -1486,3 +1486,17 @@ input[type='file'] { height: auto; padding: 8px; }
 .me-link:hover b { color: var(--act); }
 .btn-wa { background: #1fa855; border-color: #1fa855; color: #fff; }
 .btn-wa:hover { background: #178c46; border-color: #178c46; color: #fff; }
+/* power cuts and internet outages */
+.outage-list { padding: 4px 0; overflow: hidden; }
+.outage-day { padding: 10px 16px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--mu); }
+.outage-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; }
+.outage-row + .outage-row { border-top: 1px solid var(--ln); }
+.outage-ic { flex: none; width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: var(--sf2); color: var(--mu); }
+.outage-ic.t-bad { background: var(--bads); color: var(--badt); }
+.outage-ic.t-warn { background: var(--ons); color: var(--ont); }
+.outage-ic.t-info { background: var(--acs); color: var(--act); }
+.power-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: var(--tx); }
+a.power-card:hover { border-color: var(--ac); }
+.kpis.k4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 760px) { .kpis.k4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi-chip.tone-mute { background: var(--sf2); color: var(--mu); }

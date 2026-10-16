@@ -16,6 +16,7 @@ While it runs, type in this window:
     temp 31.5       next sensor reading uses this temperature
     state           print every device
     drop            lose the connection abruptly (the broker announces it offline)
+    rejoin          connect again after a drop, without restarting (Wi-Fi or internet back)
     quit
 """
 from __future__ import annotations
@@ -62,18 +63,24 @@ class FakeNode:
         self.saved_switches: dict[str, bool] = {}
         self.rev = -1
         self.started = time.time()
+        self.connects = 0
         self.next_temperature: float | None = None
         self.telemetry_sec = 60
         self.lock = threading.RLock()
         self.stop = threading.Event()
 
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=node_id)
-        self.client.username_pw_set(user, password)
-        self.client.will_set(self.t("status"), json.dumps({"online": False}), qos=1, retain=True)
-        self.client.on_connect = self.on_connect
-        self.client.on_message = self.on_message
-        self.client.reconnect_delay_set(1, 30)
+        self.user, self.password = user, password
+        self.client = self.make_client()
         self.host, self.port = host, port
+
+    def make_client(self) -> mqtt.Client:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.node_id)
+        client.username_pw_set(self.user, self.password)
+        client.will_set(self.t("status"), json.dumps({"online": False}), qos=1, retain=True)
+        client.on_connect = self.on_connect
+        client.on_message = self.on_message
+        client.reconnect_delay_set(1, 30)
+        return client
 
     # ------------------------------------------------------------ helpers
     def t(self, *parts: str) -> str:
@@ -108,9 +115,11 @@ class FakeNode:
             self.say(f"broker refused the connection: {reason}")
             return
         self.say(f"connected to {self.host}:{self.port}")
+        self.connects += 1
         self.publish(self.t("status"), {"online": True, "fw": self.firmware, "ip": "127.0.0.1"}, retain=True)
         self.publish(self.t("announce"), {"board": self.board, "fw": self.firmware, "mac": "02:00:00:00:00:01", "ip": "127.0.0.1"}, retain=True)
         client.subscribe([(self.t("config"), 1), (self.t("devices", "+", "set"), 1), (self.t("cmd"), 1)])
+        self.report()   # fresh health right away, like the firmware
 
     def on_message(self, client, userdata, msg):
         try:
@@ -256,19 +265,20 @@ class FakeNode:
                     self.read_sensor(key)
             self.stop.wait(1)
 
+    def report(self) -> None:
+        """Health, like the real board: uptime since this process started, why it started, connections since."""
+        self.publish(self.t("telemetry"), {
+            "rssi": random.randint(-70, -50), "heap": random.randint(26000, 32000), "heapFrag": random.randint(3, 12),
+            "maxBlock": 22000, "uptime": int(time.time() - self.started), "vcc": random.randint(3250, 3330), "cpuMhz": 80,
+            "flashKb": 4096, "sketchKb": 484, "freeSketchKb": 1560, "reset": "Power On", "ssid": "HomeWiFi",
+            "channel": 6, "connects": self.connects, "bssid": "A4:2B:B0:1C:7E:22", "gateway": "192.168.1.1", "mac": "02:00:00:00:00:01",
+        })
+
     def telemetry_loop(self) -> None:
-        start = time.time()
-        def report() -> None:
-            self.publish(self.t("telemetry"), {
-                "rssi": random.randint(-70, -50), "heap": random.randint(26000, 32000), "heapFrag": random.randint(3, 12),
-                "maxBlock": 22000, "uptime": int(time.time() - start), "vcc": random.randint(3250, 3330), "cpuMhz": 80,
-                "flashKb": 4096, "sketchKb": 484, "freeSketchKb": 1560, "reset": "Power On", "ssid": "HomeWiFi",
-                "channel": 6, "connects": 1, "bssid": "A4:2B:B0:1C:7E:22", "gateway": "192.168.1.1", "mac": "02:00:00:00:00:01",
-            })
         time.sleep(2)
-        report()
+        self.report()   # once more shortly after start (by then the server usually has it adopted)
         while not self.stop.wait(self.telemetry_sec):
-            report()
+            self.report()
 
     def fake_ota(self, url: str, version: str) -> None:
         """Downloads the image like the real board, checks the x-MD5 header, then 'restarts' on the new version."""
@@ -298,6 +308,14 @@ class FakeNode:
         self.client.loop_stop()
         self.client.socket().close() if self.client.socket() else None
         self.say("connection dropped; the broker will announce this board offline")
+
+    def rejoin(self) -> None:
+        """Connect again after `drop`, without restarting (uptime goes on): like the Wi-Fi coming back."""
+        # a fresh connection (with its Last Will) like the firmware makes, while uptime goes on
+        self.client = self.make_client()
+        self.client.connect_async(self.host, self.port, keepalive=self.keepalive)
+        self.client.loop_start()
+        self.say("connection back after a drop")
 
     def close(self) -> None:
         self.stop.set()
@@ -360,7 +378,8 @@ def main() -> None:
                     print(f"  {k}: {d['type']} on {PINS[d['pin']]} -> {d['state']}")
             elif cmd == "drop":
                 node.drop()
-                break
+            elif cmd == "rejoin":
+                node.rejoin()
             else:
                 print("  commands: press D5 | temp 30 | trip <contact key> | state | drop | quit")
     except KeyboardInterrupt:

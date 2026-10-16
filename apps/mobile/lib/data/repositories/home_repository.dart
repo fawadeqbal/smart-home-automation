@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/api_client.dart';
 import '../models/json.dart';
+import '../models/outages.dart';
 import '../models/people.dart';
 
 /// The open home as a whole: who looks after it, and asking them for help (`/home/*`).
@@ -10,6 +11,10 @@ class HomeRepository {
   final ApiClient _api;
 
   Future<HomeWelcome> welcome() async => HomeWelcome.fromJson(asJson(await _api.get<Object?>('/home/welcome')));
+
+  /// Power cuts and internet outages in this home (everyone in the home may see them).
+  Future<HomeOutages> outages({int days = 7}) async =>
+      HomeOutages.fromJson(asJson(await _api.get<Object?>('/outages?days=$days')));
 
   /// A message to the installer and the company's support (owners and admins).
   Future<void> askForHelp(String message) => _api.post<Object?>('/home/support', {'message': message});
