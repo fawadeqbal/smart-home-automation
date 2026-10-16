@@ -25,7 +25,7 @@ export function Markdown({ text, className = '', onNavigate }: {
           a: ({ href, children }) => {
             if (href === '#check') return <mark className="md-check" title="To confirm before publishing">{children}</mark>;
             if (href?.startsWith('/')) {
-              const article = /^\/(console\/)?help\?a=/.test(href);
+              const article = /^\/(console\/)?help(\/[a-z0-9]{20,}|\?a=)/i.test(href);   // an article's own page
               return (
                 <Link href={href} onClick={onNavigate} className={article ? 'md-article' : undefined}>
                   {article && <Icon name="file-text" size={12} />}{children}

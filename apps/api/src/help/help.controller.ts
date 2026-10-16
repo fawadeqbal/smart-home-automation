@@ -30,6 +30,13 @@ export class HelpController {
     return this.help.list(user);
   }
 
+  /** One article, for its own page in the console (with who last changed it). */
+  @Staff('SUPERADMIN', 'INSTALLER', 'SUPPORT')
+  @Get('platform/help/:id')
+  one(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.help.one(user, id);
+  }
+
   @Staff('SUPERADMIN')
   @Post('platform/help')
   create(@CurrentUser() user: AuthUser, @Body(new ZodPipe(article)) body: z.infer<typeof article>) {

@@ -305,6 +305,14 @@ export interface HelpArticle {
   published: boolean;
   updatedAt: string;
 }
+/** One article on its own page in the console. */
+export interface HelpArticleFull extends HelpArticle {
+  createdAt: string;
+  /** who last changed it; null for a starter article nobody has edited */
+  updatedBy: string | null;
+  /** came with the app and nobody has changed it (new versions of the app keep it up to date) */
+  starter: boolean;
+}
 /** What the assistant's search found for a test question. */
 export interface HelpHit {
   articleId: string;

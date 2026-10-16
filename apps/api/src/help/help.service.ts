@@ -59,6 +59,19 @@ export class HelpService implements OnApplicationBootstrap {
     });
   }
 
+  async one(user: AuthUser, id: string) {
+    await this.mine(user, id);
+    const a = await this.prisma.helpArticle.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, slug: true, title: true, category: true, audience: true, tags: true, body: true, published: true,
+        createdAt: true, updatedAt: true, updatedById: true },
+    });
+    const by = a.updatedById ? await this.prisma.user.findUnique({ where: { id: a.updatedById }, select: { name: true } }) : null;
+    const { updatedById, ...rest } = a;
+    // a starter article nobody has changed: written with the app, kept up to date by new versions
+    return { ...rest, updatedBy: by?.name ?? null, starter: !updatedById && !a.slug.startsWith('custom/') };
+  }
+
   async create(user: AuthUser, input: ArticleInput) {
     const orgId = this.staffOrg(user);
     const slug = `custom/${slugify(input.title)}-${Date.now().toString(36)}`;

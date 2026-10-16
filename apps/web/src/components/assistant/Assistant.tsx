@@ -1,4 +1,5 @@
 'use client';
+import { usePathname } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Markdown } from '@/components/help/Markdown';
 import { get } from '@/lib/api';
@@ -67,7 +68,7 @@ function ReplyText({ text, articles, base, onOpen }: { text: string; articles: H
   return <Markdown text={source} className="md-chat" onNavigate={onOpen} />;
 }
 
-/** "See 'Add a family member' in Help" -> "See [Add a family member](/help?a=…) in Help". */
+/** "See 'Add a family member' in Help" -> "See [Add a family member](/help/<id>) in Help". */
 export function linkTitles(text: string, articles: HelpLink[], base: string) {
   if (!articles.length) return text;
   const byTitle = new Map(articles.map((x) => [x.title.toLowerCase(), x]));
@@ -82,7 +83,7 @@ export function linkTitles(text: string, articles: HelpLink[], base: string) {
     let from = m.index;
     let to = m.index + m[0].length;
     while (from > last && (QUOTES.includes(text[from - 1]!) || text[from - 1] === '*') && (QUOTES.includes(text[to] ?? '') || text[to] === '*')) { from--; to++; }
-    out += text.slice(last, from) + `[${m[0].replace(/[[\]]/g, '')}](${base}?a=${art.id})`;
+    out += text.slice(last, from) + `[${m[0].replace(/[[\]]/g, '')}](${base}/${art.id})`;
     last = to;
   }
   return out + text.slice(last);
@@ -121,7 +122,9 @@ function RecordingTimer() {
 /** The round button that opens the assistant, on every page of the home app. */
 export function AssistantLauncher() {
   const { open, setOpen, phase, handsFree } = useAssistant();
+  const path = usePathname();
   if (open || handsFree.stage !== 'idle') return null;     // the voice overlay is showing
+  if (/^\/console\/help\/(new|[^/]+\/edit)$/.test(path)) return null;   // it would cover the editor's Save button
   const ears = handsFree.enabled && handsFree.status === 'ready';
   return (
     <button className={`ai-fab ${phase !== 'idle' ? 'busy' : ''}`} onClick={() => setOpen(true)} aria-label="Open the assistant"

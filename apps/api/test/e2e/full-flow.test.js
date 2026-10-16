@@ -686,6 +686,12 @@ test('Help Center: starter articles, policies as drafts, staff-only articles, ed
 
   // only super admins edit; members can't even read the console list
   assert.equal((await member.get('/platform/help')).status, 403);
+  assert.equal((await member.get(`/platform/help/${warranty.id}`)).status, 403);
+  const page = (await owner.get(`/platform/help/${warranty.id}`)).body;
+  assert.equal(page.title, warranty.title);
+  assert.equal(page.starter, true);
+  assert.equal(page.updatedBy, null);
+  assert.equal((await owner.get('/platform/help/nope')).status, 404);
   assert.equal((await member.patch(`/platform/help/${warranty.id}`, { published: true })).status, 403);
   assert.equal((await owner.patch(`/platform/help/${warranty.id}`, { published: true, body: 'Boards: 12 months.' })).status, 200);
   const after = await member.get('/help/feed?articles=1');
@@ -693,6 +699,9 @@ test('Help Center: starter articles, policies as drafts, staff-only articles, ed
   assert.ok(after.body.articles.some((a) => a.title === 'Warranty' && a.body === 'Boards: 12 months.'));
 
   const made = await owner.post('/platform/help', { title: 'Service hours', category: 'POLICY', body: 'Mon to Sat.', published: true });
+  const madePage = (await owner.get(`/platform/help/${made.body.id}`)).body;
+  assert.equal(madePage.starter, false);
+  assert.equal(madePage.updatedBy, 'Fawad');
   assert.equal(made.status, 201);
   assert.equal((await owner.post('/platform/help', { title: 'x', category: 'POLICY', body: '' })).status, 400);
   assert.equal((await owner.del(`/platform/help/${made.body.id}`)).status, 204);
@@ -710,4 +719,5 @@ test('Help Center: starter articles, policies as drafts, staff-only articles, ed
   assert.ok(theirs.every((a) => !list.some((b) => b.id === a.id)));
   const mine = (await owner.get('/platform/help')).body[0];
   assert.equal((await other.patch(`/platform/help/${mine.id}`, { title: 'Hacked' })).status, 404);
+  assert.equal((await other.get(`/platform/help/${mine.id}`)).status, 404);   // nor read it
 });
