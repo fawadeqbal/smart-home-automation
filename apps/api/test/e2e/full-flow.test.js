@@ -620,6 +620,58 @@ test('installation report: checklist (some items check themselves), photos behin
   assert.equal((await owner.get('/home/installation')).body.photos.length, 1);
 });
 
+test('billing: a contract bills itself each month, one-off invoices, payments recorded, reminders when late', async () => {
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10); // Pakistan's date
+  const made = await owner.post('/platform/billing/contracts', { homeId: state.homeId, plan: 'Care plan', amount: 2500, period: 'MONTHLY', visitsIncluded: 1, startsOn: today });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal(made.body.kpis.perMonth, 2500);
+  assert.equal(made.body.kpis.active, 1);
+  // its first bill is made at once
+  const first = made.body.invoices.find((i) => i.homeId === state.homeId);
+  assert.equal(first.amount, 2500);
+  assert.match(first.description, /^Care plan, /);
+  assert.equal(first.status, 'DUE');
+  assert.equal((await owner.post('/platform/billing/contracts', { homeId: state.homeId, plan: 'Again', amount: 100, period: 'MONTHLY', startsOn: today })).status, 400);
+
+  // the home sees its plan and bills; members don't
+  const mine = (await owner.get('/billing')).body;
+  assert.equal(mine.contract.plan, 'Care plan');
+  assert.equal(mine.due, 2500);
+  assert.ok((await owner.get('/notifications')).body.items.some((n) => n.kind === 'billing' && n.title === 'New bill: Rs 2,500'));
+  assert.equal((await kid.get('/billing')).status, 403);
+  assert.equal((await kid.get(`/billing/invoices/${first.id}`)).status, 404);
+  const printable = (await owner.get(`/billing/invoices/${first.id}`)).body;
+  assert.equal(printable.billTo.home, 'Test home');
+  assert.equal(printable.contract.plan, 'Care plan');
+
+  // a one-off bill for a visit; payments need a method
+  const visit = await owner.post('/platform/billing/invoices', { homeId: state.homeId, description: 'Service visit: replace relay', amount: 1500 });
+  const v = visit.body.invoices.find((i) => i.description.startsWith('Service visit'));
+  assert.equal(v.number, first.number + 1);
+  assert.equal((await owner.patch(`/platform/billing/invoices/${v.id}`, { status: 'PAID' })).status, 400);
+  const paid = await owner.patch(`/platform/billing/invoices/${v.id}`, { status: 'PAID', method: 'jazzcash', reference: 'TX123' });
+  assert.equal(paid.body.invoices.find((i) => i.id === v.id).status, 'PAID');
+  assert.equal(paid.body.kpis.paidThisMonth, 1500);
+  assert.ok((await owner.get('/notifications')).body.items.some((n) => n.title === `Payment received: invoice ${v.number}`));
+
+  // next month's bill comes by itself; a late bill gets a reminder
+  const { BillingService } = require('../../dist/billing/billing.service.js');
+  const later = new Date(Date.now() + 33 * 86400_000);
+  await app.get(BillingService).tick(later);
+  const after = (await owner.get('/platform/billing')).body;
+  assert.equal(after.invoices.filter((i) => i.description.startsWith('Care plan')).length, 2);
+  assert.ok((await owner.get('/notifications')).body.items.some((n) => n.kind === 'billing' && /^Bill overdue: Rs 2,500/.test(n.title)));
+
+  // pausing stops the bills; ending closes it
+  const c = after.contracts.find((x) => x.homeId === state.homeId);
+  assert.equal((await owner.patch(`/platform/billing/contracts/${c.id}`, { status: 'PAUSED' })).body.kpis.active, 0);
+  await app.get(BillingService).tick(new Date(Date.now() + 70 * 86400_000));
+  assert.equal((await owner.get('/platform/billing')).body.invoices.filter((i) => i.description.startsWith('Care plan')).length, 2);
+  assert.equal((await owner.patch(`/platform/billing/contracts/${c.id}`, { status: 'ENDED' })).body.contracts.find((x) => x.id === c.id).status, 'ENDED');
+});
+
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
   const bad = new FormData();
   bad.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.bin');

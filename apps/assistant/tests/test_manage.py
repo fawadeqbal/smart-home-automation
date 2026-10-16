@@ -427,3 +427,19 @@ def test_help_requests_need_a_yes():
     assert out.startswith("Sent as help request #7 (high priority)")
     assert api.opened == [{"body": "Bedroom fan is dead", "category": "fault"}]
     assert HelpRequestsTool(api).run({}) == "#7 Fan not working: Waiting for you; latest from Ali (support): Is the wall switch on?"
+
+
+def test_plan_and_bills_in_words():
+    from assistant.manage import BillsTool
+
+    class BillApi(OwnerApi):
+        def billing(self):
+            return {"company": "Bright Homes", "due": 2500,
+                    "contract": {"plan": "Care plan", "amount": 2500, "periodText": "a month", "visitsIncluded": 1, "status": "ACTIVE", "nextInvoiceOn": "2026-11-17"},
+                    "invoices": [{"number": 4, "description": "Care plan, 17 Oct – 16 Nov 2026", "amount": 2500, "status": "DUE", "dueOn": "2026-10-27", "late": False},
+                                 {"number": 3, "description": "Service visit", "amount": 1500, "status": "PAID", "paidOn": "2026-10-10"}]}
+
+    out = BillsTool(BillApi()).run({})
+    assert out.startswith("Plan with Bright Homes: Care plan, Rs 2,500 a month, 1 visit included each period, next bill on 2026-11-17.")
+    assert "To pay: Rs 2,500 — invoice 4 Care plan, 17 Oct – 16 Nov 2026 Rs 2,500, due 2026-10-27." in out
+    assert "Last paid: invoice 3 Rs 1,500 on 2026-10-10." in out

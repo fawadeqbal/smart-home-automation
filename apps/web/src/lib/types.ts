@@ -459,3 +459,24 @@ export interface InstallReport {
   canReopen?: boolean;
   canSign?: boolean;
 }
+
+// billing
+export type BillingPeriod = 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export interface Contract {
+  id: string; homeId: string; home: string; city: string; plan: string; amount: number; period: BillingPeriod; periodText: string; perMonth: number;
+  visitsIncluded: number; startsOn: string; endsOn: string | null; nextInvoiceOn: string; status: 'ACTIVE' | 'PAUSED' | 'ENDED'; notes: string;
+}
+export interface Invoice {
+  id: string; number: number; homeId: string; home: string; city: string; contractId: string | null; description: string; amount: number;
+  issuedOn: string; dueOn: string; status: 'DUE' | 'PAID' | 'VOID'; late: boolean; paidOn: string | null; method: string | null; reference: string | null;
+}
+export interface BillingOverview {
+  kpis: { perMonth: number; active: number; due: number; dueCount: number; late: number; lateCount: number; paidThisMonth: number };
+  contracts: Contract[]; invoices: Invoice[]; canEdit: boolean;
+}
+export interface HomeBilling { company: string; contract: Contract | null; invoices: Invoice[]; due: number }
+export interface PrintableInvoice extends Invoice {
+  company: { name: string; billingEmail: string | null; taxId: string | null; logo: string | null };
+  billTo: { home: string; city: string; owner: { name: string; email: string } | null };
+  contract: { plan: string; period: BillingPeriod } | null;
+}

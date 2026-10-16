@@ -863,12 +863,38 @@ class HelpRequestsTool(Tool):
         return "; ".join(out)
 
 
+class BillsTool(Tool):
+    name = "plan_and_bills"
+    description = "Owners and admins: the home's maintenance plan (price, visits included, next bill) and its bills (due, overdue, paid)."
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    def run(self, args: dict) -> str:
+        b = self._api.billing()
+        c = b.get("contract")
+        out = (f"Plan with {b.get('company')}: {c['plan']}, Rs {c['amount']:,} {c['periodText']}"
+               + (f", {c['visitsIncluded']} visit{'' if c['visitsIncluded'] == 1 else 's'} included each period" if c.get("visitsIncluded") else "")
+               + (f", next bill on {c['nextInvoiceOn']}" if c.get("status") == "ACTIVE" else f" ({c['status'].lower()})") + "."
+               if c else "No maintenance plan.")
+        due = [i for i in b.get("invoices", []) if i.get("status") == "DUE"]
+        if due:
+            out += f" To pay: Rs {b.get('due', 0):,} — " + "; ".join(
+                f"invoice {i['number']} {i['description']} Rs {i['amount']:,}, due {i['dueOn']}" + (" (OVERDUE)" if i.get("late") else "") for i in due[:5]) + "."
+        else:
+            out += " Nothing to pay."
+        paid = [i for i in b.get("invoices", []) if i.get("status") == "PAID"][:2]
+        if paid:
+            out += " Last paid: " + "; ".join(f"invoice {i['number']} Rs {i['amount']:,} on {i['paidOn']}" for i in paid) + "."
+        return out + " Payments are made to the company as they arranged; the team records them in the app."
+
+
 def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public_url: str = "", tz=None) -> List[Tool]:
     return [HomeOverviewTool(api, me, tz), PowerHistoryTool(api, tz), AddRoomTool(api), RenameRoomTool(api), DeleteRoomTool(api, devices),
             UpdateDeviceTool(api, devices), ListPeopleTool(api), InvitePersonTool(api, public_url),
             UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api),
             CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices), EnergyUsageTool(api),
-            RememberTool(api), ForgetTool(api), SummaryTool(api), OpenHelpRequestTool(api), HelpRequestsTool(api)]
+            RememberTool(api), ForgetTool(api), SummaryTool(api), OpenHelpRequestTool(api), HelpRequestsTool(api), BillsTool(api)]
 
 
 # ------------------------------------------------------------------ the console (staff, read only)

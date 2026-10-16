@@ -134,6 +134,9 @@ model Organization {
   tickets      Ticket[]
   /// the last ticket number used (tickets are numbered per company: #1, #2…)
   ticketSeq    Int             @default(0)
+  contracts    Contract[]
+  invoices     Invoice[]
+  invoiceSeq   Int             @default(0)
   createdAt    DateTime        @default(now())
 }
 
@@ -248,6 +251,8 @@ model Home {
   memories      AssistantMemory[]
   tickets       Ticket[]
   installation  InstallationReport?
+  contracts     Contract[]
+  invoices      Invoice[]
 }
 
 model Room {
@@ -752,4 +757,76 @@ model InstallPhoto {
   createdAt DateTime           @default(now())
 
   @@index([reportId])
+}
+
+enum BillingPeriod {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum ContractStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+enum InvoiceStatus {
+  DUE
+  PAID
+  VOID
+}
+
+/// A home's maintenance contract: a plan, what it costs each period, and visits included. Invoices itself.
+model Contract {
+  id             String         @id @default(cuid())
+  orgId          String
+  org            Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  homeId         String
+  home           Home           @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  plan           String
+  /// rupees per period
+  amount         Int
+  period         BillingPeriod  @default(MONTHLY)
+  visitsIncluded Int            @default(0)
+  startsOn       DateTime
+  endsOn         DateTime?
+  /// the day the next invoice is made
+  nextInvoiceOn  DateTime
+  status         ContractStatus @default(ACTIVE)
+  notes          String         @default("")
+  createdById    String?
+  createdAt      DateTime       @default(now())
+  invoices       Invoice[]
+
+  @@index([orgId, status])
+  @@index([homeId])
+}
+
+/// A bill to a home: from a contract each period, or one-off (a visit, new work).
+model Invoice {
+  id          String        @id @default(cuid())
+  orgId       String
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  homeId      String
+  home        Home          @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  contractId  String?
+  contract    Contract?     @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  number      Int
+  description String
+  amount      Int
+  issuedOn    DateTime      @default(now())
+  dueOn       DateTime
+  status      InvoiceStatus @default(DUE)
+  paidOn      DateTime?
+  /// cash, bank, jazzcash, easypaisa, other
+  method      String?
+  reference   String?
+  remindedAt  DateTime?
+  createdById String?
+  createdAt   DateTime      @default(now())
+
+  @@unique([orgId, number])
+  @@index([orgId, status])
+  @@index([homeId])
 }

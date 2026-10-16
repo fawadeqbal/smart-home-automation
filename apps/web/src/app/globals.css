@@ -1583,3 +1583,8 @@ a.energy-card:hover { border-color: var(--ac); }
   .sidebar, .topbar, .tabs, .btn, .fab, .ask-fab, nav { display: none !important; }
   .install-report .card { break-inside: avoid; border: 1px solid #ccc; }
 }
+
+/* invoices */
+.invoice-sheet { display: flex; flex-direction: column; gap: 20px; }
+.invoice-to { display: flex; flex-direction: column; gap: 2px; }
+@media print { .no-print { display: none !important; } .invoice-sheet { border: 0; box-shadow: none; } }

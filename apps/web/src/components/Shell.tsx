@@ -105,13 +105,15 @@ export function Shell({ children }: { children: ReactNode }) {
         { href: '/console', label: 'Overview', icon: 'layout-grid', exact: true, count: counts?.attention ? String(counts.attention) : null, countBad: true },
         homesItem,
       ];
+      const billing: NavItem = { href: '/console/billing', label: 'Contracts & invoices', icon: 'wallet' };
       const visits: NavItem = { href: '/console/requests', label: 'Visit requests', icon: 'phone', count: counts?.visits ? String(counts.visits) : null };
-      if (staffRole === 'SUPPORT') return [...base, tickets, outages, visits, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, help, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
+      if (staffRole === 'SUPPORT') return [...base, tickets, outages, visits, billing, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, help, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
       return [
         ...base,
         tickets,
         outages,
         visits,
+        billing,
         { href: '/console/inventory', label: 'Inventory', icon: 'package', count: counts ? String(counts.stock) : null },
         { href: '/console/team', label: 'Team', icon: 'users' },
         help,
@@ -127,6 +129,7 @@ export function Shell({ children }: { children: ReactNode }) {
     if (!home.readOnly) items.push({ href: '/automations', label: 'Automations', icon: 'clock' });
     items.push({ href: '/energy', label: 'Electricity', icon: 'zap' });
     if (!home.readOnly) items.push({ href: '/support', label: 'Help requests', icon: 'message' });
+    if (isAdmin && !home.readOnly) items.push({ href: '/billing', label: 'Plan & bills', icon: 'wallet' });
     if (isAdmin) {
       items.push(
         { href: '/rooms', label: 'Rooms', icon: 'door-open' },
@@ -195,7 +198,7 @@ export function Shell({ children }: { children: ReactNode }) {
     </Dropdown>
   );
 
-  const PAGE: Record<string, string> = { '/automations': 'Automations', '/energy': 'Electricity', '/summary': 'Summary', '/support': 'Help requests', '/installation': 'Installation', '/notifications': 'Notifications', '/help': 'Help' };
+  const PAGE: Record<string, string> = { '/automations': 'Automations', '/energy': 'Electricity', '/summary': 'Summary', '/support': 'Help requests', '/installation': 'Installation', '/billing': 'Plan & bills', '/notifications': 'Notifications', '/help': 'Help' };
   const fallback = PAGE[path] ?? (path.startsWith('/devices/') ? 'Device' : null);
   const shownCrumbs: Crumb[] = crumbs.length ? crumbs
     : platform ? [{ label: 'Platform' }]

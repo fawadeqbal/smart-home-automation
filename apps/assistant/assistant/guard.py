@@ -43,6 +43,7 @@ energy activity android iphone heater cooler pump motor garmi sardi readings off
 homes customer customers installer jobs fleet isp ptcl dropped drops stable
 wife husband kids kid children child son daughter brother sister mother father mom dad parents maid driver
 servant naukar biwi bachay bachon bacha beta beti ammi abbu bhai behan tenant tenants
+invoice invoices plan contract maintenance payment paid due overdue
 remember forget yaad summary report week weekly whatsapp ticket tickets request requests repair technician mistri electrician
 units unit kwh bill bills usage consumption watts wapda lesco iesco kesco pesco mepco fesco
 rule rules away vacation lock locked childlock sunset sunrise maghrib gate porch geyser iron safety

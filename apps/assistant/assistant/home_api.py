@@ -133,6 +133,9 @@ class HomeApi:
     def location(self) -> Dict[str, Any]:
         return self._call("GET", "/home/location")
 
+    def billing(self) -> Dict[str, Any]:
+        return self._call("GET", "/billing")
+
     def tickets(self) -> List[Dict[str, Any]]:
         return self._call("GET", "/support/tickets")
 
