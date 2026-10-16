@@ -1,81 +1,208 @@
 'use client';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react';
+import { Markdown } from '@/components/help/Markdown';
+import { Icon } from '@/components/Icon';
+import { Loader } from '@/components/Loader';
+import { ErrorBox } from '@/components/ui';
+import { get } from '@/lib/api';
+import { useAssistant } from '@/lib/assistant';
+import { HELP_SECTIONS, helpSection, plainText, searchHelp, snippet } from '@/lib/help';
 import { useSession } from '@/lib/session';
+import type { HelpCategory } from '@/lib/types';
 
-const VOICE = [
-  'Turn on the bedroom light',
-  'Switch off everything in the kitchen',
-  'Is the front door open?',
-  'What is the temperature in the living room?',
-  'Batti band karo (Urdu works too)',
-];
+interface Article { id: string; title: string; category: HelpCategory; tags: string[]; body: string; updatedAt: string }
 
+/**
+ * The Help Center for the people in a home: sections, search, and each article as a readable page.
+ * The articles are the company's published ones (what the assistant answers from); anything they don't
+ * cover goes to the assistant in one tap.
+ */
 export default function HelpPage() {
-  const { isAdmin } = useSession();
+  return <Suspense fallback={<Loader label="Loading help…" />}><HelpCenter /></Suspense>;
+}
+
+function HelpCenter() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const path = usePathname();
+  const [articles, setArticles] = useState<Article[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const q = params.get('q') ?? '';
+  const sectionId = params.get('s') as HelpCategory | null;
+  const articleId = params.get('a');
+  const [typed, setTyped] = useState(q);
+  useEffect(() => setTyped(q), [q]);
+
+  useEffect(() => {
+    get<{ articles: Article[] }>('/help/feed?articles=1&view=customer')
+      .then((r) => setArticles([...r.articles].sort((x, y) => x.title.localeCompare(y.title))))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  const go = (next: Record<string, string | null>) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(next)) if (v) p.set(k, v);
+    router.push(p.size ? `${path}?${p}` : path, { scroll: true });
+  };
+  const search = (e: FormEvent) => {
+    e.preventDefault();
+    go({ q: typed.trim() || null });
+  };
+
+  if (!articles) return error ? <ErrorBox error={error} /> : <Loader label="Loading help…" />;
+  const article = articleId ? articles.find((a) => a.id === articleId) : null;
+
   return (
-    <div className="help-page">
-      <div className="page-head">
-        <div>
-          <h1>Help</h1>
-          <p className="muted">Everything you can do here, in plain words.</p>
-        </div>
-      </div>
-
-      <section className="card card-pad stack">
-        <h2>Using your home</h2>
-        <dl className="faq">
-          <dt>How do I switch a light on or off?</dt>
-          <dd>On <Link href="/">Home</Link>, tap its tile. It turns amber when it is on. The change takes about a second; a spinner shows while it happens.</dd>
-          <dt>Can I just talk to it?</dt>
-          <dd>Yes. Tap the purple microphone on Home, speak, and tap again to send. You can also type. Try:
-            <ul>{VOICE.map((v) => <li key={v}>“{v}”</li>)}</ul>
-            The assistant only controls the rooms you have access to.</dd>
-          <dt>A tile is grey and says “Offline”.</dt>
-          <dd>The little controller board behind that switch has lost Wi‑Fi or power. The wall switch still works. It comes back by itself when the board reconnects{isAdmin ? <> — see <Link href="/diagnostics">Diagnostics</Link> for details</> : ''}.</dd>
-          <dt>What does “View history” show?</dt>
-          <dd>When a light was switched and by whom (app, voice or wall switch), or a sensor’s readings over time.</dd>
-          <dt>Why can’t I see some rooms?</dt>
-          <dd>The home owner decides who can see and control each room. Ask them in <b>Family</b>.</dd>
-        </dl>
-      </section>
-
-      {isAdmin && (
+    <div className="hc" data-screen-label="Help">
+      {article ? (
+        <ArticleView article={article} articles={articles} go={go} />
+      ) : (
         <>
-          <section className="card card-pad stack">
-            <h2>Boards (set up by your installer)</h2>
-            <dl className="faq">
-              <dt>What is a board?</dt>
-              <dd>A small Wi‑Fi controller (NodeMCU / ESP8266) hidden behind a switchboard. Lights, relays, sensors and wall buttons are wired to its pins, and it talks to this app over Wi‑Fi.</dd>
-              <dt>Adding a new board</dt>
-              <dd>
-                <ol>
-                  <li>Your installer company adds the board to its inventory and assigns it to your home.</li>
-                  <li>On site, the installer powers it and connects it to your Wi‑Fi (the <b>HomeNode‑xxxxxx</b> setup page).</li>
-                  <li>It shows as <b>ready to install</b> in their console; they name it after its room and wire your lights to it.</li>
-                </ol>
-              </dd>
-              <dt>Adding a light, sensor or wall button</dt>
-              <dd>The installer opens the board → <b>Devices</b> → <b>Add device</b>, picks what it is and which pin it is wired to. You see every pin under <Link href="/diagnostics">Diagnostics</Link>.</dd>
-              <dt>Which pin do I use?</dt>
-              <dd>Board → <b>Pins & wiring</b> (installers). Green rings are free, blue are in use, yellow are power (3V, G = ground, VIN/VU = 5 V), grey are reserved. Good first choices: <b>D1</b> for a relay, <b>D2</b> for a temperature sensor, <b>D5</b> for a wall button.</dd>
-              <dt>What do the board’s colours mean?</dt>
-              <dd><span className="text-ok">Green</span> = healthy. <span className="text-warn">Amber</span> = working but needs attention (weak Wi‑Fi, low voltage, low memory, still saving settings). <span className="text-bad">Red</span> = disconnected or it refused the settings.</dd>
-              <dt>The board’s little blue light</dt>
-              <dd>Fast blinking = can’t find Wi‑Fi. Slow blinking = Wi‑Fi OK but can’t reach this app (check the server address and the PC’s firewall). Off = connected. Hold <b>FLASH</b> right after pressing <b>RST</b> to open its Wi‑Fi setup again.</dd>
-              <dt>Safety</dt>
-              <dd>Mains electricity (220 V) can kill. Test with an LED first and switch off the breaker before wiring a real bulb, or ask an electrician.</dd>
-            </dl>
-          </section>
-          <section className="card card-pad stack">
-            <h2>Rooms and people</h2>
-            <dl className="faq">
-              <dt>Rooms</dt>
-              <dd>Group devices by room. Access is given per room, so a guest can control the guest room only.</dd>
-              <dt>Inviting someone</dt>
-              <dd>In <Link href="/people">People</Link>, create an invite link and send it. They choose their own password. Then pick, room by room, whether they can <b>see</b> or <b>control</b>.</dd>
-            </dl>
-          </section>
+          <header className="hc-hero">
+            <h1>How can we help?</h1>
+            <form className="hc-search" onSubmit={search} role="search">
+              <Icon name="search" size={18} />
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search: offline board, add family, warranty, batti…"
+                aria-label="Search the Help Center" />
+              {typed && <button type="button" className="icon-btn" aria-label="Clear" onClick={() => { setTyped(''); go({}); }}><Icon name="x" size={15} /></button>}
+              <button className="btn btn-primary">Search</button>
+            </form>
+            <AskLine question={q} />
+          </header>
+          {q ? (
+            <Results articles={articles} q={q} go={go} />
+          ) : sectionId ? (
+            <SectionView id={sectionId} articles={articles} go={go} />
+          ) : (
+            <Sections articles={articles} go={go} />
+          )}
         </>
+      )}
+    </div>
+  );
+}
+
+type Go = (next: Record<string, string | null>) => void;
+
+/** "Ask the assistant" — only where the person may use it (not read-only support looking in). */
+function AskLine({ question, title }: { question?: string; title?: string }) {
+  const { home } = useSession();
+  const a = useAssistant();
+  if (!home || home.readOnly) return null;
+  const ask = () => {
+    a.setOpen(true);
+    if (question) a.send(question);
+  };
+  return (
+    <button type="button" className="hc-ask" onClick={ask}>
+      <span className="hc-ask-orb"><Icon name="sparkles" size={15} /></span>
+      <span className="grow">
+        <b>{question ? `Ask the assistant: “${question}”` : title ? 'Still stuck? Ask the assistant' : 'Or just ask the assistant'}</b>
+        <span className="small muted">{title ? `It knows this article and your home — say what you see.` : 'By voice or typing, in English or Urdu. It answers from these articles and your home.'}</span>
+      </span>
+      <Icon name="arrow-right" size={16} />
+    </button>
+  );
+}
+
+function Sections({ articles, go }: { articles: Article[]; go: Go }) {
+  if (!articles.length) {
+    return <div className="card card-pad muted">The Help Center is being written. Ask the assistant, or message your installer from <b>Me</b>.</div>;
+  }
+  return (
+    <div className="hc-sections">
+      {HELP_SECTIONS.map((s) => {
+        const list = articles.filter((a) => a.category === s.id);
+        if (!list.length) return null;
+        return (
+          <section key={s.id} className="hc-section card">
+            <button type="button" className="hc-section-head" onClick={() => go({ s: s.id })}>
+              <span className={`hc-icon t-${s.tone}`}><Icon name={s.icon} size={18} /></span>
+              <span className="grow stack-tight">
+                <b>{s.label}</b>
+                <span className="small muted">{s.blurb}</span>
+              </span>
+              <span className="pill">{list.length}</span>
+            </button>
+            <ul className="hc-links">
+              {list.slice(0, 4).map((a) => (
+                <li key={a.id}><button type="button" onClick={() => go({ a: a.id })}>{a.title}</button></li>
+              ))}
+              {list.length > 4 && <li><button type="button" className="hc-more" onClick={() => go({ s: s.id })}>All {list.length} articles →</button></li>}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function SectionView({ id, articles, go }: { id: HelpCategory; articles: Article[]; go: Go }) {
+  const s = helpSection(id);
+  const list = articles.filter((a) => a.category === id);
+  return (
+    <section className="stack">
+      <nav className="hc-crumbs"><button type="button" onClick={() => go({})}>Help</button><Icon name="chevron-right" size={13} /><span>{s.label}</span></nav>
+      <h2 className="hc-h2">{s.label}</h2>
+      <ArticleList items={list.map((a) => ({ article: a, snippet: snippet(plainText(a.body)) }))} go={go} />
+    </section>
+  );
+}
+
+function Results({ articles, q, go }: { articles: Article[]; q: string; go: Go }) {
+  const hits = useMemo(() => searchHelp(articles, q), [articles, q]);
+  return (
+    <section className="stack">
+      <h2 className="hc-h2">{hits.length ? `${hits.length} article${hits.length === 1 ? '' : 's'} for “${q}”` : `Nothing found for “${q}”`}</h2>
+      {hits.length ? <ArticleList items={hits} go={go} /> : (
+        <p className="muted">Try other words — or ask the assistant above: it understands whole questions, also in Urdu.</p>
+      )}
+    </section>
+  );
+}
+
+function ArticleList({ items, go }: { items: { article: Article; snippet: string }[]; go: Go }) {
+  return (
+    <ul className="hc-list card">
+      {items.map(({ article: a, snippet: text }) => (
+        <li key={a.id}>
+          <button type="button" onClick={() => go({ a: a.id })}>
+            <span className="grow stack-tight">
+              <b>{a.title}</b>
+              <span className="small muted">{text}</span>
+            </span>
+            <span className={`badge ${helpSection(a.category).tone}`}>{helpSection(a.category).label}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ArticleView({ article, articles, go }: { article: Article; articles: Article[]; go: Go }) {
+  const s = helpSection(article.category);
+  const related = articles.filter((a) => a.category === article.category && a.id !== article.id).slice(0, 6);
+  useEffect(() => { document.title = `${article.title} · Help`; }, [article.title]);
+  return (
+    <div className="hc-article-wrap">
+      <article className="hc-article">
+        <nav className="hc-crumbs">
+          <button type="button" onClick={() => go({})}>Help</button><Icon name="chevron-right" size={13} />
+          <button type="button" onClick={() => go({ s: s.id })}>{s.label}</button>
+        </nav>
+        <h1>{article.title}</h1>
+        <p className="small muted hc-updated">Updated {new Date(article.updatedAt).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <Markdown text={article.body} className="md-lg" />
+        <AskLine title={article.title} />
+      </article>
+      {related.length > 0 && (
+        <aside className="hc-related">
+          <b className="small">More in {s.label}</b>
+          <ul>{related.map((a) => <li key={a.id}><button type="button" onClick={() => go({ a: a.id })}>{a.title}</button></li>)}</ul>
+          <Link href="/help" className="small">All help →</Link>
+        </aside>
       )}
     </div>
   );

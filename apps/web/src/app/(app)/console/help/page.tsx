@@ -1,5 +1,7 @@
 'use client';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react';
+import { Markdown } from '@/components/help/Markdown';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
@@ -7,34 +9,35 @@ import { Badge, Confirm, Empty, ErrorBox, PageHead, Seg, useAction } from '@/com
 import { del, patch, post } from '@/lib/api';
 import { timeAgo, useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
+import { checksIn, HELP_SECTIONS, helpSection } from '@/lib/help';
 import type { HelpArticle, HelpAudience, HelpCategory, HelpHit, Tone } from '@/lib/types';
 
-const CATEGORIES: { id: HelpCategory; label: string; tone: Tone; hint: string }[] = [
-  { id: 'USAGE', label: 'Using it', tone: 'info', hint: 'How to do things in the app and with the assistant' },
-  { id: 'TROUBLESHOOTING', label: 'Problems', tone: 'warn', hint: 'What to do when something doesn’t work' },
-  { id: 'PROCESS', label: 'How we work', tone: 'mute', hint: 'Visits, installation, support' },
-  { id: 'POLICY', label: 'Policies', tone: 'bad', hint: 'Warranty, charges, refunds, privacy: promises to customers' },
-  { id: 'FAQ', label: 'FAQ', tone: 'ok', hint: 'Short answers to common questions' },
-];
-const cat = (id: HelpCategory) => CATEGORIES.find((c) => c.id === id)!;
+const CATEGORIES: { id: HelpCategory; label: string; tone: Tone; hint: string }[] = HELP_SECTIONS;
+const cat = (id: HelpCategory) => helpSection(id);
 type Filter = HelpCategory | 'all' | 'drafts';
-
-/** "[[check: warranty length]]": a figure or promise written for the owner to confirm before publishing. */
-const CHECKS = /\[\[check:([^\]]*)\]\]/g;
-const checksIn = (body: string) => [...body.matchAll(CHECKS)].map((m) => m[1]!.trim());
 
 /**
  * The Help Center: everything the assistant may tell customers (and staff) about using the product,
  * fixing problems, how the company works and its policies. Only published articles are used.
  */
 export default function HelpCenterPage() {
+  return <Suspense fallback={<Loader label="Loading the Help Center…" />}><HelpCenter /></Suspense>;
+}
+
+function HelpCenter() {
   useCrumbs([{ label: 'Platform', href: '/console' }, { label: 'Help Center' }]);
+  const linked = useSearchParams().get('a');   // e.g. from an article the assistant mentioned
   const { staffRole } = useSession();
   const editor = staffRole === 'SUPERADMIN';
   const { data, error, reload } = useLoad<HelpArticle[]>('/platform/help');
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(linked);
+  useEffect(() => { if (linked) { setSel(linked); setFilter('all'); setQ(''); } }, [linked]);
+  const ready = !!data;
+  useEffect(() => {   // a linked article on a phone sits under the list: bring it into view
+    if (linked && ready && window.matchMedia('(max-width: 900px)').matches) requestAnimationFrame(() => document.querySelector('.side-panel')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+  }, [linked, ready]);
   const [creating, setCreating] = useState(false);
 
   const rows = useMemo(() => {
@@ -181,11 +184,19 @@ function Editor({ article, editor, onSaved, onClose }: {
     if (r) onSaved(r.id);
   }
 
+  const [mode, setMode] = useState<'write' | 'preview'>(article ? 'preview' : 'write');
+
   if (!editor && article) {
     return (
       <aside className="side-panel">
-        <div className="sp-head"><b style={{ fontSize: 15 }}>{article.title}</b></div>
-        <div className="sp-body"><div className="help-body">{article.body}</div></div>
+        <div className="sp-head">
+          <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+            <b style={{ fontSize: 16 }} className="grow">{article.title}</b>
+            <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" size={16} /></button>
+          </div>
+          <span className="small muted">{cat(article.category).label} · {article.audience === 'STAFF' ? 'Staff only' : 'Everyone'} · updated {timeAgo(article.updatedAt)}</span>
+        </div>
+        <div className="sp-body"><Markdown text={article.body} /></div>
       </aside>
     );
   }
@@ -221,9 +232,16 @@ function Editor({ article, editor, onSaved, onClose }: {
         <label className="field">Keywords <span className="hint">other words people use, also Roman Urdu: batti, pankha, wifi nahi</span>
           <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="invite, wife, family, ghar walay" />
         </label>
-        <label className="field">Article <span className="hint">Markdown · short steps · the screen and button names people see</span>
-          <textarea className="mono" rows={16} value={body} onChange={(e) => setBody(e.target.value)} maxLength={20000} />
-        </label>
+        <div className="field">
+          <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+            <span className="grow">Article</span>
+            <Seg options={[{ id: 'write', label: 'Write', icon: 'pencil' }, { id: 'preview', label: 'Preview', icon: 'eye' }]} value={mode} onChange={setMode} />
+          </div>
+          <span className="hint">Markdown: short steps, **bold** for the button names people see, ## for headings</span>
+          {mode === 'write'
+            ? <textarea className="mono" rows={18} value={body} onChange={(e) => setBody(e.target.value)} maxLength={20000} aria-label="Article (Markdown)" />
+            : <div className="help-preview">{body.trim() ? <Markdown text={body} /> : <span className="muted small">Nothing written yet.</span>}</div>}
+        </div>
         {checks.length > 0 && (
           <div className="help-checks">
             <b>Check before publishing</b>

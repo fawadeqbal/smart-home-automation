@@ -1,5 +1,6 @@
 'use client';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { get } from '@/lib/api';
 import { useAssistant } from '@/lib/assistant';
 import { useSession } from '@/lib/session';
@@ -35,6 +36,50 @@ function useSuggestions(enabled: boolean, console = false) {
     list.push('What’s on right now?');
     return list.slice(0, 4);
   }, [devices]);
+}
+
+interface HelpLink { id: string; title: string }
+
+/** The Help Center articles this person can read, so the ones a reply mentions become links. */
+function useHelpTitles(enabled: boolean, console: boolean) {
+  const [list, setList] = useState<HelpLink[] | null>(null);
+  const loaded = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!enabled || loaded.current === console) return;
+    loaded.current = console;
+    void get<{ articles: HelpLink[] }>(console ? '/help/feed?articles=1' : '/help/feed?articles=1&view=customer')
+      .then((r) => setList(r.articles.filter((x) => x.title.trim().length >= 6).sort((x, y) => y.title.length - x.title.length)))
+      .catch(() => setList([]));
+  }, [enabled, console]);
+  return list ?? [];
+}
+
+const QUOTES = `'"‘’“”`;
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A reply with every Help article title it mentions turned into a link to the article. */
+function ReplyText({ text, articles, base, onOpen }: { text: string; articles: HelpLink[]; base: string; onOpen: () => void }) {
+  const parts = useMemo(() => {
+    if (!articles.length) return [text];
+    const byTitle = new Map(articles.map((x) => [x.title.toLowerCase(), x]));
+    const re = new RegExp(`(${articles.map((x) => escapeRe(x.title)).join('|')})`, 'gi');
+    const out: ReactNode[] = [];
+    let last = 0;
+    for (const m of text.matchAll(re)) {
+      const art = byTitle.get(m[0].toLowerCase());
+      if (!art || m.index === undefined || m.index < last) continue;
+      // the quotes around a title ("See 'Add a family member' in Help") become the link itself
+      const quoted = QUOTES.includes(text[m.index - 1] ?? '') && QUOTES.includes(text[m.index + m[0].length] ?? '');
+      const from = quoted ? m.index - 1 : m.index;
+      out.push(text.slice(last, from));
+      out.push(<Link key={m.index} className="ai-help-link" href={`${base}?a=${art.id}`} onClick={onOpen}>
+        <Icon name="file-text" size={12} />{m[0]}</Link>);
+      last = m.index + m[0].length + (quoted ? 1 : 0);
+    }
+    out.push(text.slice(last));
+    return out;
+  }, [text, articles, base, onOpen]);
+  return <>{parts}</>;
 }
 
 function Waveform({ level }: { level: number }) {
@@ -143,6 +188,10 @@ export function AssistantDrawer() {
   const { staffRole } = useSession();
   const homeSuggestions = useSuggestions(a.open && a.lines.length === 0, a.console);
   const suggestions = a.console ? (CONSOLE_SUGGESTIONS[staffRole ?? ''] ?? CONSOLE_SUGGESTIONS.SUPPORT) : homeSuggestions;
+  const helpTitles = useHelpTitles(a.open && a.lines.some((l) => l.who === 'bot'), a.console);
+  const helpBase = a.console ? '/console/help' : '/help';
+  // on a phone the assistant covers the page: step aside so the article can be read
+  const openArticle = () => { if (window.matchMedia('(max-width: 760px)').matches) a.setOpen(false); };
 
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' }); }, [a.lines, a.phase]);
   useEffect(() => {
@@ -210,7 +259,7 @@ export function AssistantDrawer() {
             <div key={l.id} className={`ai-msg ${l.who}`}>
               {l.who === 'bot' && <span className="ai-orb sm"><Icon name="sparkles" size={12} /></span>}
               <div className="ai-bubble">
-                {l.text}
+                {l.who === 'bot' ? <ReplyText text={l.text} articles={helpTitles} base={helpBase} onOpen={openArticle} /> : l.text}
                 {l.who === 'bot' && l.audio && (
                   <button className="ai-replay" onClick={() => a.play(l.audio)} aria-label="Play this reply" title="Play this reply"><Icon name="volume-2" size={14} /></button>
                 )}
