@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Input" ADD COLUMN     "actions" JSONB NOT NULL DEFAULT '{}',
+ADD COLUMN     "lastEventAt" TIMESTAMP(3),
+ADD COLUMN     "name" TEXT NOT NULL DEFAULT '',
+ALTER COLUMN "targetId" DROP NOT NULL;

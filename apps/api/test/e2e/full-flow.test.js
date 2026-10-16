@@ -753,6 +753,66 @@ test('two-step sign-in, sessions, and backups', async () => {
   assert.equal((await owner.del(`/platform/backups/${b.name}`)).body.backups.length, 0);
 });
 
+test('wall switches and buttons: a flip toggles at once; double-press and long press run scenes and switch rooms off', async () => {
+  const applied = () => until('board applied the new config', async () => {
+    const n = (await owner.get('/nodes')).body.find((x) => x.id === NODE_ID);
+    return n.appliedRev === n.configRev && !n.configError;
+  });
+  const bulbOn = async () => (await owner.get(`/devices/${state.bulb}`)).body.state.on;
+
+  // boards on firmware before 2.4 don't know wall switches: refused, with what to do
+  await prisma.node.update({ where: { id: NODE_ID }, data: { firmware: '2.3.0' } });
+  const old = await owner.post(`/nodes/${NODE_ID}/inputs`, { type: 'wall_switch', pin: 0, targetId: state.bulb });
+  assert.equal(old.status, 400);
+  assert.match(old.body.message, /need 2\.4\.0 or newer/);
+  await prisma.node.update({ where: { id: NODE_ID }, data: { firmware: '2.4.0-fake' } });
+
+  // an ordinary wall switch (stays up or down): every flip toggles the bulb, whatever the app did last
+  const wall = await owner.post(`/nodes/${NODE_ID}/inputs`, { type: 'wall_switch', pin: 0, targetId: state.bulb, name: 'Hall wall switch' });
+  assert.equal(wall.status, 201, JSON.stringify(wall.body));
+  await applied();
+  const before = await bulbOn();
+  fake.stdin.write('flip D3\n');
+  await until('flip toggled the bulb', async () => (await bulbOn()) === !before);
+  fake.stdin.write('flip D3\n');
+  await until('flipped back', async () => (await bulbOn()) === before);
+  await until('flip seen by the server', async () => (await owner.get('/nodes')).body.find((n) => n.id === NODE_ID).inputs.find((i) => i.pin === 0)?.lastEventAt);
+
+  // a button with no switch of its own: it needs something to do
+  assert.equal((await owner.post(`/nodes/${NODE_ID}/inputs`, { type: 'toggle_button', pin: 2 })).status, 400);
+  const scene = (await owner.post('/scenes', { name: 'Lights out', actions: [{ deviceId: state.bulb, on: false }] })).body;
+  const button = await owner.post(`/nodes/${NODE_ID}/inputs`, {
+    type: 'toggle_button', pin: 2, name: 'Bedside button', settings: { gestures: true },
+    actions: { double: { type: 'scene', sceneId: scene.id }, long: { type: 'allOff', roomId: state.livingRoom } },
+  });
+  assert.equal(button.status, 201, JSON.stringify(button.body));
+  await applied();
+  const node = (await owner.get('/nodes')).body.find((n) => n.id === NODE_ID);
+  const b = node.inputs.find((i) => i.pin === 2);
+  assert.equal(b.targetName, null);
+  assert.equal(b.actions.double.type, 'scene');
+
+  await owner.post(`/devices/${state.bulb}/commands`, { on: true });
+  fake.stdin.write('double D4\n');
+  await until('double-press ran the scene', async () => (await bulbOn()) === false);
+  await owner.post(`/devices/${state.bulb}/commands`, { on: true });
+  fake.stdin.write('hold D4\n');
+  await until('long press switched the room off', async () => (await bulbOn()) === false);
+  assert.equal((await prisma.command.findFirst({ where: { deviceId: state.bulb }, orderBy: { createdAt: 'desc' } })).channel, 'automation');
+
+  // change what it does; members can't
+  const changed = await owner.patch(`/inputs/${b.id}`, { name: 'Bed button', actions: { double: { type: 'device', deviceId: state.bulb } } });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  assert.equal(changed.body.name, 'Bed button');
+  assert.deepEqual(Object.keys(changed.body.actions), ['double']);
+  fake.stdin.write('double D4\n');
+  await until('double-press toggled the bulb', async () => (await bulbOn()) === true);
+  assert.equal((await member.patch(`/inputs/${b.id}`, { name: 'x' })).status, 403);
+  await owner.del(`/inputs/${b.id}`);
+  await owner.del(`/inputs/${wall.body.id}`);
+  await applied();
+});
+
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
   const bad = new FormData();
   bad.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.bin');

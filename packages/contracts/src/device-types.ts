@@ -95,11 +95,28 @@ export interface InputTypeDefinition {
 export const INPUT_TYPES: Record<string, InputTypeDefinition> = {
   toggle_button: {
     type: 'toggle_button',
-    label: 'Push-button that toggles a switch (wire to GND)',
+    label: 'Push-button (bell-type, springs back), wired to GND',
     pinUse: 'input',
-    settings: z.object({ debounceMs: z.number().int().min(5).max(500).default(40) }).strict(),
+    settings: z.object({
+      debounceMs: z.number().int().min(5).max(500).default(40),
+      /** tell a double-press and a long press apart (a single press then waits ~0.35 s) */
+      gestures: z.boolean().default(false),
+    }).strict(),
+  },
+  wall_switch: {
+    type: 'wall_switch',
+    label: 'Ordinary wall switch (stays up or down), wired to GND: every flip toggles',
+    pinUse: 'input',
+    settings: z.object({ debounceMs: z.number().int().min(5).max(500).default(60) }).strict(),
   },
 };
+
+/** What a button gesture (or a wall switch flip) can do beyond its own switch, through the server. */
+export type InputAction =
+  | { type: 'device'; deviceId: string; on?: boolean }
+  | { type: 'scene'; sceneId: string }
+  | { type: 'allOff'; roomId?: string | null };
+export const GESTURES = ['single', 'double', 'long', 'flip'] as const;
 
 /** Commands a switch accepts. */
 export const switchCommand = z.union([

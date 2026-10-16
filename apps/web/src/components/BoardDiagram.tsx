@@ -66,7 +66,7 @@ export function BoardDiagram({ node, catalog }: { node: BoardNode; catalog: Cata
       return { kind: 'used', label, gpio, what: device.name, tone: sensor ? 'sensor' : 'switch', on: device.state?.on === true };
     }
     const input = node.inputs.find((i) => i.pin === gpio);
-    if (input) return { kind: 'used', label, gpio, what: `Button → ${input.targetName}`, tone: 'button' };
+    if (input) return { kind: 'used', label, gpio, what: `${input.type === 'wall_switch' ? 'Wall switch' : 'Button'}${input.targetName ? ` → ${input.targetName}` : input.name ? ` · ${input.name}` : ''}`, tone: 'button' };
     if (gpio === 17 && node.health?.vcc !== undefined) return { kind: 'reserved', label, why: 'Measuring the board’s supply voltage' };
     const pin = allowed.find((p) => p.gpio === gpio);
     if (pin) return { kind: 'free', label, gpio, note: pin.note, uses: pin.uses };

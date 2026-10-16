@@ -4,6 +4,7 @@
 
 #include "../config/BoardPins.h"
 #include "../inputs/ToggleButton.h"
+#include "../inputs/WallSwitch.h"
 #include "AnalogSensor.h"
 #include "BinarySensor.h"
 #include "DhtSensor.h"
@@ -73,15 +74,21 @@ std::unique_ptr<Input> createInput(JsonObjectConst entry, Device* (*findTarget)(
                                    String& error) {
   const String type = entry["type"] | "";
   const int pin = entry["pin"] | -1;
-  if (type == "toggle_button") {
+  if (type == "toggle_button" || type == "wall_switch") {
     if (!checkPin(pin, BoardPins::INPUT_USE, error)) return nullptr;
-    Device* target = findTarget(entry["target"] | "", ctx);
-    if (target == nullptr || !target->controllable()) {
-      error = "button on GPIO " + String(pin) + " must target a switch on this board";
+    // its own switch on this board (optional: a button may only run actions through the server)
+    const String targetKey = entry["target"] | "";
+    Device* target = targetKey.length() ? findTarget(targetKey, ctx) : nullptr;
+    if (targetKey.length() && (target == nullptr || !target->controllable())) {
+      error = "input on GPIO " + String(pin) + " must target a switch on this board";
       return nullptr;
     }
+    if (type == "wall_switch") {
+      const uint16_t debounce = constrain((int)(entry["settings"]["debounceMs"] | 60), 5, 500);
+      return std::unique_ptr<Input>(new WallSwitch(pin, target, debounce));
+    }
     const uint16_t debounce = constrain((int)(entry["settings"]["debounceMs"] | 40), 5, 500);
-    return std::unique_ptr<Input>(new ToggleButton(pin, target, debounce));
+    return std::unique_ptr<Input>(new ToggleButton(pin, target, debounce, entry["settings"]["gestures"] | false));
   }
   error = "unknown input type '" + type + "'";
   return nullptr;

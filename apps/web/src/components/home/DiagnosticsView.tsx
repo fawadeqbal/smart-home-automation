@@ -95,7 +95,7 @@ export function DiagnosticsView({ canSetup, editHref, openHref, installerName, a
         const pins = [
           ...n.devices.map((d) => ({ pin: d.pin, label: catalog.data!.boards.find((b) => b.type === n.board)?.pins.find((p) => p.gpio === d.pin)?.label ?? `GPIO${d.pin}`, to: d.name,
             type: catalog.data!.deviceTypes.find((t) => t.type === d.type)?.controllable ? 'Switch' : 'Sensor', state: n.online ? describeState(catalog.data!, d) : d.state ? `Last: ${describeState(catalog.data!, d).toLowerCase()}` : 'No answer' })),
-          ...n.inputs.map((i) => ({ pin: i.pin, label: catalog.data!.boards.find((b) => b.type === n.board)?.pins.find((p) => p.gpio === i.pin)?.label ?? `GPIO${i.pin}`, to: `Wall button → ${i.targetName}`, type: 'Button', state: n.online ? 'Idle' : '—' })),
+          ...n.inputs.map((i) => ({ pin: i.pin, label: catalog.data!.boards.find((b) => b.type === n.board)?.pins.find((p) => p.gpio === i.pin)?.label ?? `GPIO${i.pin}`, to: `${i.type === 'wall_switch' ? 'Wall switch' : 'Wall button'}${i.targetName ? ` → ${i.targetName}` : i.name ? ` · ${i.name}` : ''}`, type: i.type === 'wall_switch' ? 'Switch' : 'Button', state: n.online ? 'Idle' : '—' })),
         ];
         const seen = n.online ? 'just now' : timeAgo(n.lastSeenAt);
         return (

@@ -220,7 +220,7 @@ export interface BoardNode {
   configError: string | null;
   health: BoardHealth | null;
   devices: NodeDevice[];
-  inputs: { id: string; type: string; pin: number; targetId: string; targetName: string; settings: Record<string, unknown> }[];
+  inputs: BoardInput[];
 }
 
 export interface FamilyMember {
@@ -496,3 +496,11 @@ export interface Rollout {
   targets: RolloutTarget[];
 }
 export interface RolloutList { images: { id: string; version: string; notes: string; createdAt: string }[]; canEdit: boolean; rollouts: Rollout[] }
+
+// wall buttons and switches on a board
+export type InputGesture = 'single' | 'double' | 'long' | 'flip';
+export type InputAction = { type: 'device'; deviceId: string; on?: boolean } | { type: 'scene'; sceneId: string } | { type: 'allOff'; roomId?: string | null };
+export interface BoardInput {
+  id: string; type: 'toggle_button' | 'wall_switch' | string; pin: number; name: string; targetId: string | null; targetName: string | null;
+  settings: Record<string, unknown>; actions: Partial<Record<InputGesture, InputAction>>; lastEventAt: string | null;
+}

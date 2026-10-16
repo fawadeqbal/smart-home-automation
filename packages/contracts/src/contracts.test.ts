@@ -10,6 +10,8 @@ test('topics round-trip through parseTopic', () => {
   assert.equal(parseTopic('other/v1/nodes/x/status'), null);
   assert.deepEqual(parseTopic(topics.log('esp-1a2b')), { kind: 'log', nodeId: 'esp-1a2b' });
   assert.equal(parseTopic('home/v1/nodes/x/devices/bulb/other'), null);
+  assert.deepEqual(parseTopic(topics.inputEvent('esp-1a2b', 14)), { kind: 'inputEvent', nodeId: 'esp-1a2b', pin: 14 });
+  assert.equal(parseTopic('home/v1/nodes/x/inputs/abc/event'), null);
 });
 
 test('pin rules', () => {

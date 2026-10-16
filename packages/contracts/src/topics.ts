@@ -12,6 +12,7 @@
  *   home/v1/nodes/{nodeId}/cmd                    server -> board             reboot ...
  *   home/v1/nodes/{nodeId}/log                    board -> server             one log line (live logs)
  *   home/v1/nodes/{nodeId}/network                board -> server             Wi-Fi scan results / Wi-Fi change result
+ *   home/v1/nodes/{nodeId}/inputs/{pin}/event     board -> server             a button press or wall switch flip
  */
 export const ROOT = 'home/v1';
 
@@ -26,13 +27,15 @@ export const topics = {
   cmd: (nodeId: string) => `${ROOT}/nodes/${nodeId}/cmd`,
   log: (nodeId: string) => `${ROOT}/nodes/${nodeId}/log`,
   network: (nodeId: string) => `${ROOT}/nodes/${nodeId}/network`,
+  inputEvent: (nodeId: string, pin: number) => `${ROOT}/nodes/${nodeId}/inputs/${pin}/event`,
   /** What the server subscribes to. */
   allFromNodes: `${ROOT}/nodes/+/#`,
 };
 
 export type ParsedTopic =
   | { kind: 'status' | 'announce' | 'config' | 'configApplied' | 'telemetry' | 'cmd' | 'log' | 'network'; nodeId: string }
-  | { kind: 'deviceSet' | 'deviceState'; nodeId: string; key: string };
+  | { kind: 'deviceSet' | 'deviceState'; nodeId: string; key: string }
+  | { kind: 'inputEvent'; nodeId: string; pin: number };
 
 const SAFE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 
@@ -60,6 +63,9 @@ export function parseTopic(topic: string): ParsedTopic | null {
   }
   if (parts.length === 7 && parts[4] === 'devices' && (parts[6] === 'set' || parts[6] === 'state')) {
     return { kind: parts[6] === 'set' ? 'deviceSet' : 'deviceState', nodeId, key: parts[5] };
+  }
+  if (parts.length === 7 && parts[4] === 'inputs' && parts[6] === 'event' && /^\d{1,2}$/.test(parts[5]!)) {
+    return { kind: 'inputEvent', nodeId, pin: Number(parts[5]) };
   }
   return null;
 }

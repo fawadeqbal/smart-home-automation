@@ -1,6 +1,6 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import {
-  announcePayload, BOARDS, checkPin, configAppliedPayload, INPUT_TYPES, NodeConfigPayload, nodeStatusPayload,
+  announcePayload, BOARDS, checkPin, configAppliedPayload, GESTURES, INPUT_TYPES, InputAction, NodeConfigPayload, nodeStatusPayload,
   PinUse, telemetryPayload, networkPayload, NetworkPayload, topics, DEVICE_TYPES, isSafeId,
 } from '@home/contracts';
 import { NodeStatus, Prisma } from '@prisma/client';
@@ -10,6 +10,7 @@ import { FirmwareService } from '../firmware/firmware.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { OutagesService } from '../monitoring/outages.service';
 import { MqttService } from '../mqtt/mqtt.service';
+import { compareVersions } from '../common/version';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { LogsService } from './logs.service';
@@ -225,8 +226,8 @@ export class NodesService implements OnModuleInit {
         : [],
       inputs: adopted
         ? node.inputs
-            .filter((i) => i.target.enabled)
-            .map((i) => ({ type: i.type, pin: i.pin, target: i.target.key, settings: i.settings as Record<string, unknown> }))
+            .filter((i) => !i.target || i.target.enabled)
+            .map((i) => ({ type: i.type, pin: i.pin, target: i.target?.key ?? '', settings: i.settings as Record<string, unknown> }))
         : [],
       telemetrySec: TELEMETRY_SEC,
     };
@@ -294,7 +295,10 @@ export class NodesService implements OnModuleInit {
         id: d.id, key: d.key, name: d.name, type: d.type, pin: d.pin, activeLow: d.activeLow, roomId: d.roomId,
         settings: d.settings, enabled: d.enabled, aliases: d.aliases, state: d.state?.state ?? null,
       })),
-      inputs: n.inputs.map((i) => ({ id: i.id, type: i.type, pin: i.pin, targetId: i.targetId, targetName: i.target.name, settings: i.settings })),
+      inputs: n.inputs.map((i) => ({
+        id: i.id, type: i.type, pin: i.pin, name: i.name, targetId: i.targetId, targetName: i.target?.name ?? null,
+        settings: i.settings, actions: i.actions, lastEventAt: i.lastEventAt,
+      })),
     }));
   }
 
@@ -372,23 +376,88 @@ export class NodesService implements OnModuleInit {
   }
 
   // ---------------------------------------------------------------- inputs (wall buttons)
-  async addInput(actor: AuthUser, nodeId: string, input: { type: string; pin: number; targetId: string; settings: unknown }) {
+  async addInput(actor: AuthUser, nodeId: string, input: { type: string; pin: number; targetId?: string | null; name?: string; settings: unknown; actions?: unknown }) {
     const node = await this.nodeIn(actor.homeId, nodeId);
     const def = INPUT_TYPES[input.type];
     if (!def) throw new BadRequestException(`Unknown input type ${input.type}.`);
     const settings = def.settings.safeParse(input.settings ?? {});
     if (!settings.success) throw new BadRequestException(`Settings: ${settings.error.issues[0].message}`);
-    const target = await this.prisma.device.findFirst({ where: { id: input.targetId, nodeId } });
-    if (!target) throw new BadRequestException('The button must control a device on the same board.');
-    if (!DEVICE_TYPES[target.type]?.controllable) throw new BadRequestException(`${target.name} cannot be switched.`);
+    const target = input.targetId ? await this.inputTarget(nodeId, input.targetId) : null;
+    const actions = await this.inputActions(actor.homeId, input.actions ?? {});
+    if (!target && !Object.keys(actions).length) throw new BadRequestException('Choose the switch it controls, or what its presses do.');
+    this.assertInputFirmware(node.firmware, input.type, settings.data as { gestures?: boolean }, !!target);
     await this.assertPinUsable(nodeId, node.board, input.pin, def.pinUse);
     const created = await this.prisma.input.create({
-      data: { nodeId, type: input.type, pin: input.pin, targetId: target.id, settings: settings.data as Prisma.InputJsonValue },
+      data: {
+        nodeId, type: input.type, pin: input.pin, name: input.name?.trim().slice(0, 60) ?? '', targetId: target?.id ?? null,
+        settings: settings.data as Prisma.InputJsonValue, actions: actions as Prisma.InputJsonValue,
+      },
     });
     await this.bumpConfig(nodeId);
-    await this.audit.record(actor.homeId, actor.id, 'input.create', created.id, { nodeId, pin: input.pin, target: target.key });
+    await this.audit.record(actor.homeId, actor.id, 'input.create', created.id, { nodeId, pin: input.pin, target: target?.key ?? null, type: input.type });
     this.realtime.nodesChanged(actor.homeId, nodeId);
     return created;
+  }
+
+  /** Name, its switch, settings and what its gestures do. */
+  async updateInput(actor: AuthUser, inputId: string, input: { name?: string; targetId?: string | null; settings?: unknown; actions?: unknown }) {
+    const row = await this.prisma.input.findFirst({ where: { id: inputId, node: { homeId: actor.homeId } }, include: { node: { select: { firmware: true } } } });
+    if (!row) throw new NotFoundException('No such button.');
+    const data: Prisma.InputUncheckedUpdateInput = {};
+    const nextSettings = (input.settings ?? row.settings) as { gestures?: boolean };
+    const hasTarget = input.targetId !== undefined ? !!input.targetId : !!row.targetId;
+    this.assertInputFirmware(row.node.firmware, row.type, nextSettings, hasTarget);
+    if (input.name !== undefined) data.name = input.name.trim().slice(0, 60);
+    if (input.targetId !== undefined) data.targetId = input.targetId ? (await this.inputTarget(row.nodeId, input.targetId)).id : null;
+    if (input.settings !== undefined) {
+      const parsed = INPUT_TYPES[row.type]!.settings.safeParse(input.settings);
+      if (!parsed.success) throw new BadRequestException(`Settings: ${parsed.error.issues[0].message}`);
+      data.settings = parsed.data as Prisma.InputJsonValue;
+    }
+    if (input.actions !== undefined) data.actions = (await this.inputActions(actor.homeId, input.actions)) as Prisma.InputJsonValue;
+    await this.prisma.input.update({ where: { id: inputId }, data });
+    if (input.targetId !== undefined || input.settings !== undefined) await this.bumpConfig(row.nodeId);
+    await this.audit.record(actor.homeId, actor.id, 'input.update', inputId, { nodeId: row.nodeId, pin: row.pin });
+    this.realtime.nodesChanged(actor.homeId, row.nodeId);
+    return this.prisma.input.findUniqueOrThrow({ where: { id: inputId } });
+  }
+
+  /** Wall switches, double-press/long press and buttons without a switch of their own need firmware 2.4. */
+  private assertInputFirmware(firmware: string | null, type: string, settings: { gestures?: boolean }, hasTarget: boolean) {
+    const needsNew = type === 'wall_switch' || settings.gestures === true || !hasTarget;
+    if (needsNew && firmware && compareVersions(firmware, '2.4.0') < 0) {
+      throw new BadRequestException(`This board runs firmware ${firmware}. Wall switches, double-press and long press need 2.4.0 or newer: update it first (Firmware tab).`);
+    }
+  }
+
+  private async inputTarget(nodeId: string, targetId: string) {
+    const target = await this.prisma.device.findFirst({ where: { id: targetId, nodeId } });
+    if (!target) throw new BadRequestException('A button or wall switch controls a switch on the same board (for others, use its actions).');
+    if (!DEVICE_TYPES[target.type]?.controllable) throw new BadRequestException(`${target.name} cannot be switched.`);
+    return target;
+  }
+
+  /** Checks gesture actions: devices and scenes of this home only. */
+  private async inputActions(homeId: string, raw: unknown) {
+    const out: Record<string, InputAction> = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [gesture, a] of Object.entries(raw as Record<string, unknown>)) {
+      if (!GESTURES.includes(gesture as never) || !a || typeof a !== 'object') continue;
+      const act = a as Record<string, unknown>;
+      if (act.type === 'device' && typeof act.deviceId === 'string') {
+        const d = await this.prisma.device.findFirst({ where: { id: act.deviceId, node: { homeId } }, select: { type: true, name: true } });
+        if (!d || !DEVICE_TYPES[d.type]?.controllable) throw new BadRequestException('Pick a switch of this home.');
+        out[gesture] = { type: 'device', deviceId: act.deviceId, ...(typeof act.on === 'boolean' ? { on: act.on } : {}) };
+      } else if (act.type === 'scene' && typeof act.sceneId === 'string') {
+        if (!(await this.prisma.scene.findFirst({ where: { id: act.sceneId, homeId } }))) throw new BadRequestException('No such scene.');
+        out[gesture] = { type: 'scene', sceneId: act.sceneId };
+      } else if (act.type === 'allOff') {
+        const roomId = typeof act.roomId === 'string' ? act.roomId : null;
+        if (roomId && !(await this.prisma.room.findFirst({ where: { id: roomId, homeId } }))) throw new BadRequestException('No such room.');
+        out[gesture] = { type: 'allOff', roomId };
+      }
+    }
+    return out;
   }
 
   async removeInput(actor: AuthUser, inputId: string) {

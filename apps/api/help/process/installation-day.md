@@ -21,14 +21,14 @@ Before you leave for the job, check that the home is in **My jobs** and its boar
 4. Tap **Configure WiFi**, pick the home's Wi-Fi and enter its password. Fill in **Server address**, **Port**, **Board login**, **Board password** and **Encrypted** exactly as shown in the console. Press **Save**.
 5. The light goes **off** once it's connected. Slow blinking means it has Wi-Fi but can't reach the server: check the server fields. Fast blinking means no Wi-Fi: check the network and password. If nothing is saved within 5 minutes, the setup page closes and the board restarts.
 6. In the console, the board changes to **Online · ready to install**. Press **Install** and name it after where it is.
-7. **Devices & buttons** → **Add device** for each light, fan, socket or sensor, and **Add wall button** for each push-button. Add the names the family uses under **Other names for voice** (for example "batti", "tube light").
+7. **Devices & buttons** → **Add device** for each light, fan, socket or sensor, and, under **Wall switches and buttons**, **Add** for each wall switch: pick **Ordinary wall switch** (stays up or down: every flip toggles) or **Push-button** (springs back). Wire it between the pin and **G**. For a button, tick **Double-press and long press do more** to give it a scene or "everything off". Add the names the family uses under **Other names for voice** (for example "batti", "tube light").
 
 ## Before you leave
 
 - Check the board's signal on its **Wi-Fi** tab. Below about −75 dBm, switching can lag. Suggest an extender near that switchboard.
 - Put every device in a room (**Rooms** tab). Devices without a room are hidden from family members.
 - Test every device **from the app and from the wall**, and once by voice.
-- Show the owner which wall buttons do what.
+- Show the owner which wall switches and buttons do what, including any double-press or long press.
 - Workspace **Overview → Setup** should show steps 1–5 done.
 - **Send owner invite** (see "Hand the home over to the owner").
 

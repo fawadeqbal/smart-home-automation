@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { Fragment, ReactNode, useState } from 'react';
+import { FormEvent, Fragment, ReactNode, useState } from 'react';
 import { BoardDiagram, pinStats } from '@/components/BoardDiagram';
 import { ConnectionPanel } from '@/components/ConnectionPanel';
 import { boardCondition, ConditionLight, hardwareFacts, HealthPanel, signalLabel } from '@/components/BoardHealth';
@@ -14,8 +14,8 @@ import { NetworkPanel } from '@/components/NetworkPanel';
 import { Badge, Confirm, Dropdown, ErrorBox, FormModal, Modal, useAction } from '@/components/ui';
 import { del, errorText, patch, post } from '@/lib/api';
 import { analogLabel, contactText } from '@/lib/format';
-import { timeAgo, useNow } from '@/lib/hooks';
-import type { BoardNode, Catalog, NodeDevice, Room, Tone } from '@/lib/types';
+import { timeAgo, useLoad, useNow } from '@/lib/hooks';
+import type { BoardInput, BoardNode, Catalog, InputAction, InputGesture, NodeDevice, Room, Tone } from '@/lib/types';
 import { isBehind } from '@/lib/version';
 
 export type BoardTab = 'overview' | 'devices' | 'pins' | 'network' | 'internet' | 'firmware' | 'logs';
@@ -269,7 +269,7 @@ function Overview({ node, catalog, rooms, canSetup, onTab, onModel, latestFirmwa
 
 /* ----------------------------------------------------------------- devices */
 
-type Editing = { kind: 'device'; device?: NodeDevice } | { kind: 'button' } | null;
+type Editing = { kind: 'device'; device?: NodeDevice } | { kind: 'button'; input?: BoardInput } | null;
 
 function DevicesTab({ node, catalog, rooms, canSetup, reload }: {
   node: BoardNode; catalog: Catalog; rooms: Room[]; canSetup: boolean; reload: () => void;
@@ -337,25 +337,30 @@ function DevicesTab({ node, catalog, rooms, canSetup, reload }: {
 
       <section className="panel">
         <div className="panel-head">
-          <Icon name="toggle-right" size={16} /><b>Wall buttons</b><span className="pill">{node.inputs.length}</span>
+          <Icon name="toggle-right" size={16} /><b>Wall switches and buttons</b><span className="pill">{node.inputs.length}</span>
           {canSetup && (
-            <button className="btn btn-sm push" onClick={() => setEditing({ kind: 'button' })} disabled={switches.length === 0}
-              title={switches.length === 0 ? 'Add a switch first — a wall button toggles one' : undefined}><Icon name="plus" size={14} />Add wall button</button>
+            <button className="btn btn-sm push" onClick={() => setEditing({ kind: 'button' })}><Icon name="plus" size={14} />Add</button>
           )}
         </div>
         {node.inputs.length ? (
           <div className="table-wrap flush">
             <table className="table">
-              <thead><tr><th>Button on pin</th><th>Toggles</th>{canSetup && <th />}</tr></thead>
+              <thead><tr><th>On pin</th><th>What</th><th>Toggles</th><th>Also does</th>{canSetup && <th />}</tr></thead>
               <tbody>
                 {node.inputs.map((i) => (
                   <tr key={i.id}>
                     <td><PinCell catalog={catalog} node={node} gpio={i.pin} /></td>
-                    <td><b>{i.targetName}</b></td>
+                    <td>
+                      <b>{i.name || (i.type === 'wall_switch' ? 'Wall switch' : 'Push-button')}</b>
+                      <div className="cell-sub">{i.type === 'wall_switch' ? 'Wall switch' : 'Push-button'}{i.lastEventAt ? ` · used ${timeAgo(i.lastEventAt)}` : ''}</div>
+                    </td>
+                    <td>{i.targetName ? <b>{i.targetName}</b> : <span className="muted">—</span>}</td>
+                    <td className="small">{actionsText(i) || <span className="muted">—</span>}</td>
                     {canSetup && (
-                      <td className="right">
-                        <button className="icon-btn danger" title="Remove this wall button" aria-label="Remove this wall button" onClick={() => setRemoving({
-                          title: 'Remove this wall button?', body: `The button on ${pinOf(catalog, node, i.pin).label} stops toggling ${i.targetName}.`,
+                      <td className="right nowrap">
+                        <button className="icon-btn" title="Change" aria-label="Change" onClick={() => setEditing({ kind: 'button', input: i })}><Icon name="pencil" size={15} /></button>
+                        <button className="icon-btn danger" title="Remove" aria-label="Remove" onClick={() => setRemoving({
+                          title: 'Remove this input?', body: `The ${i.type === 'wall_switch' ? 'wall switch' : 'button'} on ${pinOf(catalog, node, i.pin).label} stops working${i.targetName ? ` (it toggles ${i.targetName})` : ''}.`,
                           run: () => del(`/inputs/${i.id}`),
                         })}><Icon name="trash" size={15} /></button>
                       </td>
@@ -366,7 +371,7 @@ function DevicesTab({ node, catalog, rooms, canSetup, reload }: {
             </table>
           </div>
         ) : (
-          <div className="panel-pad muted small">No wall buttons. A push‑button between a pin and G toggles a light even when Wi‑Fi is down.</div>
+          <div className="panel-pad muted small">None yet. Wire an ordinary wall switch or a push-button between a pin and G: it toggles a light even when Wi‑Fi is down, and a button’s double-press or long press can run a scene.</div>
         )}
       </section>
 
@@ -379,10 +384,10 @@ function DevicesTab({ node, catalog, rooms, canSetup, reload }: {
         </Modal>
       )}
       {editing?.kind === 'button' && (
-        <Modal title="Add a wall button" sub={`On ${node.name}`} onClose={() => setEditing(null)} className="form-dialog">
+        <Modal wide title={editing.input ? 'Change this input' : 'Add a wall switch or button'} sub={`On ${node.name}`} onClose={() => setEditing(null)} className="form-dialog">
           <div className="dialog-body">
-            <ButtonForm node={node} catalog={catalog} switches={switches} onCancel={() => setEditing(null)}
-              onSubmit={async (pin, targetId) => { await post(`/nodes/${node.id}/inputs`, { type: 'toggle_button', pin, targetId }); setEditing(null); reload(); }} />
+            <InputForm node={node} catalog={catalog} switches={switches} rooms={rooms} initial={editing.input} onCancel={() => setEditing(null)}
+              onSaved={() => { setEditing(null); reload(); }} />
           </div>
         </Modal>
       )}
@@ -522,30 +527,114 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
   );
 }
 
-export function ButtonForm({ node, catalog, switches, onSubmit, onCancel }: {
-  node: BoardNode; catalog: Catalog; switches: NodeDevice[];
-  onSubmit: (pin: number, targetId: string) => Promise<void>; onCancel: () => void;
+const GESTURE_LABEL: Record<InputGesture, string> = { single: 'Press', double: 'Double-press', long: 'Long press', flip: 'Each flip' };
+
+/** "Double-press: run Good night · Long press: everything in Bedroom off". */
+function actionsText(i: BoardInput) {
+  return (Object.entries(i.actions ?? {}) as [InputGesture, InputAction][]).map(([g, a]) => `${GESTURE_LABEL[g]}: ${
+    a.type === 'scene' ? 'run a scene' : a.type === 'allOff' ? (a.roomId ? 'a room off' : 'everything off') : a.on === undefined ? 'toggle a switch' : `a switch ${a.on ? 'on' : 'off'}`}`).join(' · ');
+}
+
+/** What one gesture does: nothing, a scene, a switch anywhere in the home, or a room/everything off. */
+function ActionPicker({ label, value, onChange, scenes, devices, rooms }: {
+  label: string; value: InputAction | undefined; onChange: (a: InputAction | undefined) => void;
+  scenes: { id: string; name: string }[]; devices: { id: string; name: string; roomName: string | null }[]; rooms: Room[];
+}) {
+  const key = !value ? '' : value.type === 'scene' ? `scene:${value.sceneId}` : value.type === 'device' ? `device:${value.deviceId}:${value.on === undefined ? 't' : value.on ? '1' : '0'}` : `off:${value.roomId ?? ''}`;
+  const set = (k: string) => {
+    if (!k) return onChange(undefined);
+    const [t, id, x] = k.split(':');
+    if (t === 'scene') onChange({ type: 'scene', sceneId: id! });
+    else if (t === 'device') onChange({ type: 'device', deviceId: id!, ...(x === 't' ? {} : { on: x === '1' }) });
+    else onChange({ type: 'allOff', roomId: id || null });
+  };
+  return (
+    <label className="field">{label}
+      <select value={key} onChange={(e) => set(e.target.value)}>
+        <option value="">Nothing</option>
+        {scenes.length > 0 && <optgroup label="Run a scene">{scenes.map((sc) => <option key={sc.id} value={`scene:${sc.id}`}>{sc.name}</option>)}</optgroup>}
+        <optgroup label="Switch everything off">
+          <option value="off:">Everything in the home</option>
+          {rooms.map((r) => <option key={r.id} value={`off:${r.id}`}>Everything in {r.name}</option>)}
+        </optgroup>
+        <optgroup label="Toggle a switch (any board)">{devices.map((d) => <option key={d.id} value={`device:${d.id}:t`}>{d.name}{d.roomName ? ` · ${d.roomName}` : ''}</option>)}</optgroup>
+      </select>
+    </label>
+  );
+}
+
+/** Add or change an input: an ordinary wall switch or a push-button, its own switch, and what its gestures do. */
+export function InputForm({ node, catalog, switches, rooms, initial, onSaved, onCancel }: {
+  node: BoardNode; catalog: Catalog; switches: NodeDevice[]; rooms: Room[]; initial?: BoardInput; onSaved: () => void; onCancel: () => void;
 }) {
   const pins = freePins(catalog, node, 'input');
+  const scenes = useLoad<{ id: string; name: string }[]>('/scenes');
+  const devices = useLoad<{ id: string; name: string; roomName: string | null; controllable: boolean }[]>('/devices');
+  const [type, setType] = useState<'toggle_button' | 'wall_switch'>((initial?.type as 'wall_switch') ?? 'wall_switch');
+  const [pin, setPin] = useState<number>(initial?.pin ?? pins[0]?.gpio ?? -1);
+  const [name, setName] = useState(initial?.name ?? '');
+  const [target, setTarget] = useState<string>(initial ? initial.targetId ?? '' : switches[0]?.id ?? '');
+  const [gestures, setGestures] = useState<boolean>(!!initial?.settings?.gestures);
+  const [actions, setActions] = useState<Partial<Record<InputGesture, InputAction>>>(initial?.actions ?? {});
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const shown: InputGesture[] = type === 'wall_switch' ? (target ? [] : ['flip']) : [...(target ? [] : ['single'] as InputGesture[]), ...(gestures ? ['double', 'long'] as InputGesture[] : [])];
+  const others = (devices.data ?? []).filter((d) => d.controllable);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    const kept = Object.fromEntries(Object.entries(actions).filter(([g]) => shown.includes(g as InputGesture)));
+    const body = { name: name.trim(), targetId: target || null, settings: type === 'toggle_button' ? { gestures } : {}, actions: kept };
+    try {
+      if (initial) await patch(`/inputs/${initial.id}`, body);
+      else await post(`/nodes/${node.id}/inputs`, { ...body, type, pin });
+      onSaved();
+    } catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+  }
+
   return (
-    <form className="subtle-box stack" onSubmit={async (e) => {
-      e.preventDefault();
-      const f = new FormData(e.currentTarget);
-      try { await onSubmit(Number(f.get('pin')), String(f.get('target'))); } catch (err) { setError(errorText(err)); }
-    }}>
-      <p className="small muted">A push-button wired between the pin and GND. It works even when Wi‑Fi is down.</p>
+    <form className="subtle-box stack" onSubmit={save}>
+      {!initial && (
+        <div className="seg seg-wide" role="group">
+          <button type="button" className={type === 'wall_switch' ? 'on' : ''} onClick={() => setType('wall_switch')}>Ordinary wall switch</button>
+          <button type="button" className={type === 'toggle_button' ? 'on' : ''} onClick={() => setType('toggle_button')}>Push-button</button>
+        </div>
+      )}
+      <p className="small muted" style={{ margin: 0 }}>
+        {type === 'wall_switch'
+          ? 'A normal switch that stays up or down, wired between the pin and G. Every flip — up or down — toggles its light, so it always works, whatever the app did last. Works even when Wi‑Fi is down.'
+          : 'A bell-type button that springs back, wired between the pin and G. A press toggles its light at once (even without Wi‑Fi). Turn on double-press and long press to run scenes too.'}
+      </p>
       <div className="form-grid">
-        <label className="field">Pin
-          <select name="pin">{pins.map((p) => <option key={p.gpio} value={p.gpio}>{p.label} (GPIO {p.gpio}){p.note ? ` — ${p.note}` : ''}</option>)}</select>
-        </label>
-        <label className="field">Toggles
-          <select name="target">{switches.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
+        {!initial && (
+          <label className="field">Pin
+            <select value={pin} onChange={(e) => setPin(Number(e.target.value))}>{pins.map((p) => <option key={p.gpio} value={p.gpio}>{p.label} (GPIO {p.gpio}){p.note ? ` — ${p.note}` : ''}</option>)}</select>
+          </label>
+        )}
+        <label className="field">Name (optional)<input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder={type === 'wall_switch' ? 'Hall switch by the door' : 'Bedside button'} /></label>
+        <label className="field">Toggles (on this board)
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="">Nothing of its own</option>
+            {switches.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
         </label>
       </div>
+      {type === 'toggle_button' && (
+        <label className="check"><input type="checkbox" checked={gestures} onChange={(e) => setGestures(e.target.checked)} /> Double-press and long press do more {target && <span className="muted small">(a single press then waits a third of a second)</span>}</label>
+      )}
+      {shown.length > 0 && (
+        <div className="form-grid">
+          {shown.map((g) => (
+            <ActionPicker key={g} label={GESTURE_LABEL[g]} value={actions[g]} onChange={(a) => setActions((v) => ({ ...v, [g]: a }))}
+                          scenes={scenes.data ?? []} devices={others} rooms={rooms} />
+          ))}
+        </div>
+      )}
+      {shown.length > 0 && <p className="small muted" style={{ margin: 0 }}>These go through the server, so they need Wi‑Fi. They act with the home owner’s rights.</p>}
       {error && <div className="alert">{error}</div>}
       <div className="row">
-        <button className="btn btn-primary" disabled={pins.length === 0}>Add button</button>
+        <button className="btn btn-primary" disabled={busy || (!initial && pins.length === 0)}>{initial ? 'Save' : 'Add'}</button>
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
       </div>
     </form>

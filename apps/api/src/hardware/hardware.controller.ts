@@ -27,8 +27,18 @@ const adopt = z.object({ name, board: z.string() });
 const updateNode = z.object({ name: name.optional(), board: z.string().optional() });
 // Wi-Fi limits: SSID 1-32 bytes, WPA password 8-63 characters (empty for open networks)
 const wifi = z.object({ ssid: z.string().min(1).max(32), password: z.string().max(63).refine((p) => p.length === 0 || p.length >= 8, 'A Wi-Fi password has at least 8 characters.') });
+const inputAction = z.union([
+  z.object({ type: z.literal('device'), deviceId: z.string(), on: z.boolean().optional() }),
+  z.object({ type: z.literal('scene'), sceneId: z.string() }),
+  z.object({ type: z.literal('allOff'), roomId: z.string().nullable().optional() }),
+]);
+const inputActions = z.object({ single: inputAction, double: inputAction, long: inputAction, flip: inputAction }).partial();
 const createInput = z.object({
-  type: z.string(), pin: z.number().int(), targetId: z.string(), settings: z.record(z.unknown()).optional(),
+  type: z.string(), pin: z.number().int(), targetId: z.string().nullable().optional(), name: z.string().max(60).optional(),
+  settings: z.record(z.unknown()).optional(), actions: inputActions.optional(),
+});
+const updateInput = z.object({
+  name: z.string().max(60).optional(), targetId: z.string().nullable().optional(), settings: z.record(z.unknown()).optional(), actions: inputActions.optional(),
 });
 
 @Controller()
@@ -189,6 +199,12 @@ export class HardwareController {
   createInput(@CurrentUser() user: AuthUser, @Param('id') id: string,
               @Body(new ZodPipe(createInput)) body: z.infer<typeof createInput>) {
     return this.nodes.addInput(user, id, { ...body, settings: body.settings ?? {} });
+  }
+
+  @Setup()
+  @Patch('inputs/:id')
+  updateInput(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(updateInput)) body: z.infer<typeof updateInput>) {
+    return this.nodes.updateInput(user, id, body);
   }
 
   @Setup()

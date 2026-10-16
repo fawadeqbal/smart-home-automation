@@ -25,9 +25,16 @@ export const configDevice = z.object({
 export const configInput = z.object({
   type: z.string(),
   pin: z.number().int(),
+  /** the switch on this board it toggles by itself (works without Wi-Fi); '' for a button that only runs actions */
   target: z.string(),
   settings: z.record(z.unknown()).default({}),
 });
+
+/** A button press or a wall switch flip, from the board (the switch was already toggled on the board, if it has one). */
+export const inputEventPayload = z.object({
+  gesture: z.enum(['single', 'double', 'long', 'flip']),
+});
+export type InputEvent = z.infer<typeof inputEventPayload>;
 
 export const nodeConfigPayload = z.object({
   rev: z.number().int(),

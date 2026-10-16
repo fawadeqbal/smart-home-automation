@@ -30,6 +30,8 @@ class MqttBridge : public DeviceListener {
   bool connected() { return mqtt_.connected(); }
 
   void onDeviceChanged(Device& device) override;
+  /** A button press or wall switch flip, for the server (dropped while offline: the switch already acted). */
+  void publishInputEvent(uint8_t pin, const char* gesture);
 
  private:
   bool connect();

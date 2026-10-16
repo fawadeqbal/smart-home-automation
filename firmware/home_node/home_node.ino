@@ -9,7 +9,7 @@
 //  This file is the composition root: it creates the parts and wires them.
 //    src/core/      Device interface, DeviceRegistry, logging
 //    src/devices/   RelayDevice ("switch"), DhtSensor ("dht"), DeviceFactory
-//    src/inputs/    ToggleButton ("toggle_button")
+//    src/inputs/    ToggleButton ("toggle_button", with double-press and long press), WallSwitch ("wall_switch")
 //    src/config/    NodeSettings (setup page), ConfigManager (config from the server), BoardPins
 //    src/storage/   StateStore (switch states across power cuts), Files
 //    src/net/       MqttBridge (the link to the server), Topics, CaCert (cloud TLS)

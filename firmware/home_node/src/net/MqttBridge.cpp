@@ -9,9 +9,23 @@
 #include "../core/Log.h"
 #include "CaCert.h"
 
+static MqttBridge* activeBridge = nullptr;
+
+void MqttBridge::publishInputEvent(uint8_t pin, const char* gesture) {
+  if (!mqtt_.connected()) return;
+  JsonDocument doc;
+  doc["gesture"] = gesture;
+  publishJson(topics_->inputEvent(pin), doc, false);
+  LOG_INFO("Input on GPIO %u: %s", pin, gesture);
+}
+
 void MqttBridge::begin(const NodeSettings& settings) {
   settings_ = &settings;
   topics_ = new Topics(settings.nodeId());
+  activeBridge = this;
+  inputEventHandler = [](uint8_t pin, const char* gesture) {
+    if (activeBridge) activeBridge->publishInputEvent(pin, gesture);
+  };
   const BrokerSettings& b = settings.broker();
 
   if (b.tls) {

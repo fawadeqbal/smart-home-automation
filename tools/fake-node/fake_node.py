@@ -36,11 +36,11 @@ except ImportError:
     sys.exit("Install the MQTT library first:  pip install paho-mqtt")
 
 ROOT = "home/v1"
-FIRMWARE = "2.2.0-fake"
+FIRMWARE = "2.4.0-fake"   # what the fake can do: wall switches, double-press and long press
 # Same rules as packages/contracts/src/boards.ts
 PINS = {5: "D1", 4: "D2", 14: "D5", 12: "D6", 13: "D7", 16: "D0", 15: "D8", 0: "D3", 2: "D4", 3: "RX", 17: "A0"}
 USES = {5: "ois", 4: "ois", 14: "ois", 12: "ois", 13: "ois", 16: "o", 15: "o", 0: "i", 2: "oi", 3: "is", 17: "a"}
-NEEDS = {"switch": "o", "dht": "s", "contact": "i", "analog": "a", "toggle_button": "i"}
+NEEDS = {"switch": "o", "dht": "s", "contact": "i", "analog": "a", "toggle_button": "i", "wall_switch": "i"}
 
 
 def load_env(path: Path) -> dict:
@@ -59,7 +59,7 @@ class FakeNode:
         self.node_id, self.board, self.quiet, self.keepalive = node_id, board, quiet, keepalive
         self.firmware = FIRMWARE
         self.devices: dict[str, dict] = {}   # key -> {"type", "pin", "settings", "state"}
-        self.inputs: dict[int, str] = {}     # pin -> target key
+        self.inputs: dict[int, str] = {}     # pin -> target key ('' for a button that only runs actions)
         self.saved_switches: dict[str, bool] = {}
         self.rev = -1
         self.started = time.time()
@@ -163,7 +163,7 @@ class FakeNode:
                                      "activeLow": d.get("activeLow", False)}
             for i in config.get("inputs", []):
                 self.check_pin(i["pin"], NEEDS.get(i["type"]), used, i["type"])
-                if i["target"] not in devices:
+                if i["target"] and i["target"] not in devices:
                     raise ValueError(f"input on pin {i['pin']} targets unknown device {i['target']}")
                 inputs[i["pin"]] = i["target"]
         except (ValueError, KeyError) as exc:
@@ -223,17 +223,21 @@ class FakeNode:
             self.publish_state(key, "remote", cid)
         self.say(f"{key} -> {'ON' if device['state']['on'] else 'OFF'} (remote)")
 
-    def press(self, pin: int) -> None:
+    def press(self, pin: int, gesture: str = "single") -> None:
+        """A press ("single", "double", "long") or a wall switch "flip": like the board, a single press or a
+        flip toggles its own switch at once, then the gesture goes to the server."""
         with self.lock:
             key = self.inputs.get(pin)
             if key is None:
                 self.say(f"no button configured on {PINS.get(pin, pin)}")
                 return
-            device = self.devices[key]
-            device["state"]["on"] = not device["state"]["on"]
-            self.saved_switches[key] = device["state"]["on"]
-            self.publish_state(key, "button")
-        self.say(f"[button {PINS[pin]}] {key} -> {'ON' if device['state']['on'] else 'OFF'}")
+            if key and gesture in ("single", "flip"):
+                device = self.devices[key]
+                device["state"]["on"] = not device["state"]["on"]
+                self.saved_switches[key] = device["state"]["on"]
+                self.publish_state(key, "button")
+                self.say(f"[button {PINS[pin]}] {key} -> {'ON' if device['state']['on'] else 'OFF'}")
+            self.publish(self.t("inputs", str(pin), "event"), {"gesture": gesture})
 
     def read_sensor(self, key: str) -> None:
         with self.lock:
@@ -360,8 +364,8 @@ def main() -> None:
             cmd = parts[0].lower()
             if cmd == "quit":
                 break
-            if cmd == "press" and len(parts) > 1 and (pin := pin_from(parts[1])) is not None:
-                node.press(pin)
+            if cmd in ("press", "double", "hold", "flip") and len(parts) > 1 and (pin := pin_from(parts[1])) is not None:
+                node.press(pin, {"press": "single", "double": "double", "hold": "long", "flip": "flip"}[cmd])
             elif cmd == "temp" and len(parts) > 1:
                 node.next_temperature = float(parts[1])
             elif cmd == "trip" and len(parts) > 1:
@@ -381,7 +385,7 @@ def main() -> None:
             elif cmd == "rejoin":
                 node.rejoin()
             else:
-                print("  commands: press D5 | temp 30 | trip <contact key> | state | drop | quit")
+                print("  commands: press D5 | double D5 | hold D5 | flip D6 | temp 30 | trip <contact key> | state | drop | quit")
     except KeyboardInterrupt:
         pass
     if not node.stop.is_set():

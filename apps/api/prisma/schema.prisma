@@ -407,14 +407,20 @@ model Device {
 
 /// Local controls on a board, e.g. a wall push-button that toggles a device.
 model Input {
-  id       String @id @default(cuid())
+  id       String  @id @default(cuid())
   nodeId   String
-  node     Node   @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  node     Node    @relation(fields: [nodeId], references: [id], onDelete: Cascade)
   type     String
   pin      Int
-  targetId String
-  target   Device @relation(fields: [targetId], references: [id], onDelete: Cascade)
-  settings Json   @default("{}")
+  /// "Bedside button": what people call it
+  name     String  @default("")
+  /// the switch on the same board it toggles by itself (works without Wi-Fi); none for a button that only runs actions
+  targetId String?
+  target   Device? @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  settings Json    @default("{}")
+  /// what each gesture does through the server: { "double": {type:"scene", sceneId}, "long": {type:"allOff"} }
+  actions  Json    @default("{}")
+  lastEventAt DateTime?
 
   @@unique([nodeId, pin])
 }
