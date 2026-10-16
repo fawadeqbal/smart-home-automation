@@ -57,6 +57,8 @@ class Settings:
     language: Optional[str] = None               # force one language, e.g. "en"
     languages: Tuple[str, ...] = ("en", "ur")    # otherwise: pick the best match among these only
     piper_model: Path = APP_DIR / "models" / "en_US-lessac-medium.onnx"
+    # the Urdu voice (Piper "Fasih", ur_PK); None: Urdu replies use espeak-ng's robotic voice
+    urdu_piper_model: Optional[Path] = APP_DIR / "models" / "ur_PK-fasih-medium.onnx"
 
     @property
     def instructions_file(self) -> Path:
@@ -72,6 +74,9 @@ class Settings:
         load_dotenv(REPO_ROOT / ".env")                 # real environment variables win
         env = os.environ.get
         piper = Path(env("PIPER_MODEL", "models/en_US-lessac-medium.onnx"))
+        # empty means the default (Compose passes ""); "off" means espeak-ng for Urdu
+        urdu_raw = (env("URDU_PIPER_MODEL") or "models/ur_PK-fasih-medium.onnx").strip()
+        urdu = None if urdu_raw.lower() in ("off", "none", "false") else Path(urdu_raw)
         return cls(
             api_url=env("API_URL", "http://localhost:4000").rstrip("/"),
             shared_secret=env("ASSISTANT_SHARED_SECRET", ""),
@@ -97,4 +102,5 @@ class Settings:
             languages=tuple(x.strip() for x in (env("LANGUAGES") or "en,ur").split(",") if x.strip()) or ("en", "ur"),
             timezone=env("HOME_TIMEZONE") or "Asia/Karachi",
             piper_model=piper if piper.is_absolute() else APP_DIR / piper,
+            urdu_piper_model=(urdu if urdu.is_absolute() else APP_DIR / urdu) if urdu else None,
         )

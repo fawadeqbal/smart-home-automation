@@ -137,6 +137,7 @@ services:
       QUICK_COMMANDS: ${QUICK_COMMANDS:-true}
       FAST_REPLIES: ${FAST_REPLIES:-true}
       PIPER_MODEL: models/en_US-lessac-medium.onnx
+      URDU_PIPER_MODEL: ${URDU_PIPER_MODEL:-models/ur_PK-fasih-medium.onnx}
     volumes:
       - ../apps/assistant/models:/app/models:ro
       # Whisper's downloaded model, kept across restarts

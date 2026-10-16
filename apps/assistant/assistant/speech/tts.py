@@ -1,7 +1,8 @@
 """Text to speech. Piper (natural, local) first, espeak-ng (robotic, tiny) as a fallback.
 
-The Piper voice is English: a reply in Urdu script goes to espeak-ng's Urdu voice instead, which can
-say it (Piper would stay silent or mumble).
+English replies use the English Piper voice. A reply in Urdu script uses the Urdu Piper voice
+("Fasih", ur_PK), with the English words in it written in Urdu script first so it can say them;
+espeak-ng's Urdu voice is the fallback when that voice isn't installed.
 """
 from __future__ import annotations
 
@@ -106,6 +107,14 @@ class EspeakTTS:
         return result.stdout or None
 
 
+class UrduPiperTTS(PiperTTS):
+    """The Urdu Piper voice: English names in the reply ("Fan", "AC") are written in Urdu script first."""
+
+    def synthesize(self, text: str) -> Optional[bytes]:
+        from .urdu import for_urdu_voice
+        return super().synthesize(for_urdu_voice(text))
+
+
 class ChainTTS:
     """Tries each voice in order until one produces audio (Chain of Responsibility).
     Urdu script skips the English-only voices."""
@@ -137,6 +146,15 @@ class ChainTTS:
             return "basic"
         return "none"
 
+    def describe_urdu(self) -> str:
+        """'natural' (the Urdu Piper voice), 'basic' (espeak-ng) or 'none'."""
+        if any(isinstance(v, PiperTTS) and v._load() is not None for v in self._urdu):
+            return "natural"
+        if any(isinstance(v, EspeakTTS) and v.available() for v in self._urdu):
+            return "basic"
+        return "none"
 
-def create_tts(piper_model: Path) -> TextToSpeech:
-    return ChainTTS([PiperTTS(piper_model), EspeakTTS("en")], urdu_voices=[EspeakTTS("ur")])
+
+def create_tts(piper_model: Path, urdu_model: Optional[Path] = None) -> TextToSpeech:
+    urdu: list = [UrduPiperTTS(urdu_model)] if urdu_model and urdu_model.exists() else []
+    return ChainTTS([PiperTTS(piper_model), EspeakTTS("en")], urdu_voices=[*urdu, EspeakTTS("ur")])

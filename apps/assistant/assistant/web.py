@@ -94,7 +94,7 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         stt = WhisperSTT(settings.whisper_model, settings.language, settings.languages)
     if tts is None:
         from .speech import create_tts
-        tts = create_tts(settings.piper_model)
+        tts = create_tts(settings.piper_model, settings.urdu_piper_model)
     make_api = api_factory or (lambda token: HomeApi(settings.api_url, token))
     embed = local_embedder() if knowledge is None and settings.help_embeddings else None
     knowledge = knowledge or KnowledgeBase(embed)
@@ -178,9 +178,11 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
     @app.get("/health")
     def health():
         describe = getattr(tts, "describe", None)
+        describe_urdu = getattr(tts, "describe_urdu", None)
         return {"ok": True, "llm": settings.llm_provider,
                 "model": settings.claude_model if settings.llm_provider == "claude" else settings.ollama_model,
-                "voice": describe() if callable(describe) else "unknown"}
+                "voice": describe() if callable(describe) else "unknown",
+                "urduVoice": describe_urdu() if callable(describe_urdu) else "unknown"}
 
     @app.post("/v1/chat", response_model=ReplyOut, dependencies=[Depends(check_secret)])
     def chat(body: ChatIn):

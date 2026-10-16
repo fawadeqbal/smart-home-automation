@@ -32,6 +32,7 @@ The assistant switches things, sets timers, runs scenes and answers questions ab
 ## How it answers
 
 - It replies in the language you used. Short everyday commands ("bulb off", "batti band karo") are handled instantly and confirmed in English, for example "Done, the bulb is off."
+- Answers in Urdu script are read aloud in a natural Urdu voice. English names in them, like "Bedroom" or "AC", are said the way you'd say them in Urdu. Answers in English or Roman Urdu use the English voice.
 - It only reports something as done after the board confirms it.
 - It can only do what **you** may do. Rooms you can only see are view-only for the assistant too.
 - In the web app, **New conversation** starts afresh. A conversation also starts afresh by itself after about 30 minutes of quiet.
