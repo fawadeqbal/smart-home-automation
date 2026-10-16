@@ -209,6 +209,8 @@ export interface BoardNode {
   firmware: string | null;
   ip: string | null;
   mac?: string | null;
+  /** the phone app can switch it over the home's Wi‑Fi without internet (firmware 2.5.0+) */
+  localControl?: 'ready' | 'waiting' | 'old-firmware' | null;
   /** where it reaches the server from (the home's internet address), its place and provider */
   publicIp?: string | null;
   publicPlace?: string | null;

@@ -97,6 +97,19 @@ Everything the board prints to the Serial Monitor is also sent to the server. In
 If you keep `FIRMWARE_VERSION` unchanged, the board installs the file but still reports the old number — the update
 shows as failed with that explanation.
 
+## 6d. Phone control without internet (2.5.0+)
+
+When the home's internet is down but its Wi‑Fi works, the phone app switches the board straight over
+the Wi‑Fi: `GET /local/hello`, `POST /local/state`, `POST /local/command` on port 80, and the board
+answers to `<node id>.local`. Each request carries the person's pass for this board and a signature
+made with a one-time number from `/local/hello`; `src/net/LocalAuth.h` checks them. The server sends
+the board its key over MQTT (never retained) and the board keeps it in `/local.json`. A board taken
+out of a home forgets it. Changes made this way reach the server as `"src": "local"` once it is back.
+
+Test the checks on a PC (same test vector as the server and the phone app):
+
+    g++ -std=c++17 -I ~/Arduino/libraries/ArduinoJson/src test/local_auth_test.cpp -lcrypto -o /tmp/t && /tmp/t
+
 ## 7. How it is built
 
 ```

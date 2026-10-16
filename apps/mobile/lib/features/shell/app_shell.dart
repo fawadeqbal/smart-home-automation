@@ -8,6 +8,7 @@ import '../../core/theme/sb_icons.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../state/home_overview.dart';
+import '../../state/local_control.dart';
 import '../../state/session.dart';
 import '../../voice/hands_free.dart';
 import '../../voice/hands_free_ui.dart';
@@ -29,6 +30,7 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.sb;
     final bottom = MediaQuery.paddingOf(context).bottom;
+    ref.watch(localSyncProvider); // keeps the passes for switching over Wi‑Fi fresh
     final manages = ref.watch(
       sessionProvider.select((s) => s.value?.home?.manages ?? false),
     );

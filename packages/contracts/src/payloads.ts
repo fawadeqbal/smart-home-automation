@@ -30,6 +30,19 @@ export const configInput = z.object({
   settings: z.record(z.unknown()).default({}),
 });
 
+/**
+ * Local control (firmware 2.5.0+): the phone app switches things straight over the home's Wi-Fi when
+ * the internet is down. The server gives each board a secret key (over the cmd topic, never retained),
+ * and each person a "pass" for that board saying what they may see and switch, plus a key derived
+ * from it. The board checks every request against both. See apps/api/src/hardware/local-pass.ts.
+ */
+export const LOCAL_MIN_FIRMWARE = '2.5.0';
+export const localKeyCommand = z.object({
+  action: z.literal('local'),
+  key: z.string().regex(/^[0-9a-f]{64}$/),
+  epoch: z.number().int().min(1),
+});
+
 /** A button press or a wall switch flip, from the board (the switch was already toggled on the board, if it has one). */
 export const inputEventPayload = z.object({
   gesture: z.enum(['single', 'double', 'long', 'flip']),
@@ -52,7 +65,8 @@ export const configAppliedPayload = z.object({
 });
 
 /** Sources a state change can come from. */
-export const STATE_SOURCES = ['remote', 'button', 'boot', 'sensor', 'automation'] as const;
+// 'local': switched by the phone app straight over the home's Wi-Fi (firmware 2.5.0+, e.g. while the internet is down)
+export const STATE_SOURCES = ['remote', 'button', 'boot', 'sensor', 'automation', 'local'] as const;
 
 export const deviceStatePayload = z
   .object({
@@ -80,6 +94,8 @@ export const telemetryPayload = z.object({
   bssid: z.string().max(20).optional(), // the router / access point it is joined to
   gateway: z.string().max(40).optional(),
   mac: z.string().max(20).optional(),
+  // local control (firmware 2.5.0+): "<key id>:<epoch>" of the key it holds, "" when it has none
+  local: z.string().max(40).optional(),
 });
 export type TelemetryPayload = z.infer<typeof telemetryPayload>;
 

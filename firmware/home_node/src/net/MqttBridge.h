@@ -18,6 +18,7 @@
 #include "../config/ConfigManager.h"
 #include "../config/NodeSettings.h"
 #include "../core/DeviceRegistry.h"
+#include "LocalServer.h"
 #include "Topics.h"
 #include "WifiSwitch.h"
 
@@ -28,6 +29,8 @@ class MqttBridge : public DeviceListener {
   void begin(const NodeSettings& settings);
   void loop();
   bool connected() { return mqtt_.connected(); }
+  /** Local control (phone over Wi-Fi): the server sends its key through here. */
+  void setLocal(LocalServer& local) { local_ = &local; }
 
   void onDeviceChanged(Device& device) override;
   /** A button press or wall switch flip, for the server (dropped while offline: the switch already acted). */
@@ -64,6 +67,8 @@ class MqttBridge : public DeviceListener {
 
   bool everConnected_ = false;
   bool changedWhileOffline_ = false;
+  const char* offlineSrc_ = "button";   // who changed things while the server was away: wall switch or phone
+  LocalServer* local_ = nullptr;
   bool quiet_ = false;            // while applying a config or a command: we publish explicitly
   uint32_t nextAttempt_ = 0;
   uint32_t backoff_ = 1000;

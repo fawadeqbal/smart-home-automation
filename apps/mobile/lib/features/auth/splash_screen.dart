@@ -1,8 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../core/routing/routes.dart';
 import '../../core/theme/sb_colors.dart';
+import '../../core/theme/sb_icons.dart';
 import '../../shared/widgets/common.dart';
+import '../../state/local_control.dart';
 import '../../state/session.dart';
 import 'auth_widgets.dart';
 
@@ -22,12 +27,21 @@ class SplashScreen extends ConsumerWidget {
             children: [
               const Brand(size: 40),
               const SizedBox(height: 28),
-              if (session.hasError)
+              if (session.hasError) ...[
                 ErrorView(
                   error: session.error!,
                   onRetry: () => ref.invalidate(sessionProvider),
-                )
-              else
+                ),
+                // no internet, but the boards are on the Wi‑Fi: switch them straight
+                if (!kIsWeb && (ref.watch(localBundleProvider)?.boards.isNotEmpty ?? false)) ...[
+                  const SizedBox(height: 20),
+                  BigButton(
+                    label: 'Control over home Wi‑Fi',
+                    icon: SbIcons.wifiSlash,
+                    onTap: () => context.go(Routes.local),
+                  ),
+                ],
+              ] else
                 SizedBox(
                   width: 26,
                   height: 26,

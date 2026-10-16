@@ -1,9 +1,13 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/network/api_exception.dart';
+import '../../core/realtime/live_client.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
@@ -21,6 +25,7 @@ import '../../state/clock.dart';
 import '../../state/devices.dart';
 import '../../state/favourites.dart';
 import '../../state/home_overview.dart';
+import '../../state/local_control.dart';
 import '../../state/people.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
@@ -42,9 +47,25 @@ class HomeScreen extends ConsumerWidget {
     if (devices.value == null) {
       return devices.hasError
           ? Center(
-              child: ErrorView(
-                error: devices.error!,
-                onRetry: () => ref.invalidate(devicesProvider),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ErrorView(
+                      error: devices.error!,
+                      onRetry: () => ref.invalidate(devicesProvider),
+                    ),
+                    if (!kIsWeb && (ref.watch(localBundleProvider)?.boards.isNotEmpty ?? false)) ...[
+                      const SizedBox(height: 20),
+                      BigButton(
+                        label: 'Control over home Wi‑Fi',
+                        icon: SbIcons.wifiSlash,
+                        onTap: () => context.go(Routes.local),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             )
           : const LoadingView(label: 'Opening your home…');
@@ -69,6 +90,7 @@ class HomeScreen extends ConsumerWidget {
           SizedBox(height: 22),
           _Hero(),
           _GuestBanner(),
+          _OfflineBanner(),
           SizedBox(height: 22),
           _StatusPill(),
           _Away(),
@@ -337,6 +359,64 @@ class _GuestBanner extends ConsumerWidget {
         icon: SbIcons.clock,
         child: Text(
           'You’re a guest here. ${me.home!.name} shared $shared with you.',
+        ),
+      ),
+    );
+  }
+}
+
+/// The server is out of reach (the home's internet is down?): offer switching over the Wi‑Fi.
+class _OfflineBanner extends ConsumerStatefulWidget {
+  const _OfflineBanner();
+
+  @override
+  ConsumerState<_OfflineBanner> createState() => _OfflineBannerState();
+}
+
+class _OfflineBannerState extends ConsumerState<_OfflineBanner> {
+  Timer? _timer;
+  bool _show = false;
+  ValueNotifier<bool>? _connected;
+
+  void _changed() {
+    _timer?.cancel();
+    if (_connected!.value) {
+      if (_show) setState(() => _show = false);
+    } else {
+      // a short blip (switching networks) is not worth a banner
+      _timer = Timer(const Duration(seconds: 8), () {
+        if (mounted) setState(() => _show = true);
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _connected = ref.read(liveClientProvider).connected..addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _connected?.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final boards = ref.watch(localBundleProvider)?.boards ?? const [];
+    // (a browser can't reach the boards over plain http on the Wi‑Fi)
+    if (kIsWeb || !_show || boards.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: Pressable(
+        onTap: () => context.go(Routes.local),
+        semanticLabel: 'Control over home Wi‑Fi',
+        child: const Note(
+          tone: NoteTone.warn,
+          icon: SbIcons.wifiSlash,
+          child: Text('Can’t reach the internet. Tap to switch things over your home’s Wi‑Fi.'),
         ),
       ),
     );

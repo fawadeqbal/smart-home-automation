@@ -17,6 +17,7 @@ import { MqttService } from '../mqtt/mqtt.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { LogsService } from './logs.service';
+import { LocalService } from './local.service';
 import { NodesService } from './nodes.service';
 
 export interface DeviceInput {
@@ -80,6 +81,7 @@ export class DevicesService implements OnModuleInit {
     @Inject(SETTINGS) private readonly settings: Settings,
     private readonly logs: LogsService,
     private readonly monitoring: MonitoringService,
+    private readonly local: LocalService,
   ) {}
 
   onModuleInit() {
@@ -259,6 +261,10 @@ export class DevicesService implements OnModuleInit {
     }
     await this.prisma.device.update({ where: { id }, data });
     if (wiring) await this.nodes.bumpConfig(device.nodeId);
+    // fewer people may switch it now: retire the phones' passes for switching over Wi-Fi
+    if ((input.roomId !== undefined && input.roomId !== device.roomId) || (input.childLock === true && !device.childLock)) {
+      await this.local.revoke(actor.homeId);
+    }
     const renamed = input.name !== undefined && input.name !== device.name;
     await this.audit.record(actor.homeId, actor.id, wiring || !renamed ? 'device.update' : 'device.rename', id,
       renamed ? { ...input, from: device.name, to: input.name, board: device.nodeId } : { ...input, name: device.name, board: device.nodeId });

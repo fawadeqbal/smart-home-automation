@@ -6,6 +6,7 @@ import '../core/config/app_settings.dart';
 import '../core/network/api_client.dart';
 import '../core/network/api_exception.dart';
 import '../core/realtime/live_client.dart';
+import '../data/local/local_link.dart';
 import '../data/models/session.dart';
 import '../data/repositories/auth_repository.dart';
 
@@ -84,6 +85,7 @@ class SessionController extends AsyncNotifier<Me?> {
       // signed out on the phone either way
     }
     await ref.read(sharedPrefsProvider).remove(_homeKey);
+    await LocalStore(ref.read(sharedPrefsProvider)).clear(); // no passes for this home stay on the phone
     ref.read(apiClientProvider).homeId = null;
     state = const AsyncData(null);
   }

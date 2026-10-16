@@ -258,6 +258,8 @@ model Home {
   /// when the last daily and weekly summaries went out (so a restart doesn't send them twice)
   summaryDayAt  DateTime?
   summaryWeekAt DateTime?
+  /// local control: raised when someone loses rights here, so older phone passes stop working
+  localEpoch    Int          @default(1)
   memories      AssistantMemory[]
   tickets       Ticket[]
   installation  InstallationReport?
@@ -317,6 +319,11 @@ model Node {
   publicIsp     String?
   /// When publicIp last changed.
   publicIpAt    DateTime?
+  /// Local control (firmware 2.5.0+): the board's secret key, for the home it was made for
+  localKey      String?
+  localKeyHome  String?
+  /// "<key id>:<epoch>" the board says it holds (from its telemetry)
+  localReported String?
   devices       Device[]
   inputs        Input[]
   connections   NodeConnection[]

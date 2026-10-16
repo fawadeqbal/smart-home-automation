@@ -9,6 +9,8 @@ abstract final class Routes {
   static const login = '/login';
   static const noHome = '/no-home';
   static const ask = '/ask';
+  /// switching the home over its Wi‑Fi when the internet is down (open whatever the session)
+  static const local = '/local';
 
   static const home = '/home';
   static const rooms = '/rooms';

@@ -113,9 +113,10 @@ bool MqttBridge::connect() {
 
   // Tell the server where everything stands: after power-on, or what changed while offline.
   if (!everConnected_) publishAllStates("boot");
-  else if (changedWhileOffline_) publishAllStates("button");
+  else if (changedWhileOffline_) publishAllStates(offlineSrc_);
   everConnected_ = true;
   changedWhileOffline_ = false;
+  offlineSrc_ = "button";
   publishTelemetry();
   return true;
 }
@@ -159,6 +160,7 @@ void MqttBridge::handleConfig(JsonObjectConst config) {
     LOG_INFO("Configuration rev %d applied: %u devices%s", rev, (unsigned)registry_.count(),
              config_.adopted() ? "" : " (waiting to be adopted in the web app)");
     publishAllStates("boot");
+    if (!config_.adopted() && local_) local_->clear();   // released from the home: no phone may switch it
   } else {
     LOG_WARN("Configuration rev %d rejected: %s", rev, error.c_str());
   }
@@ -230,6 +232,12 @@ void MqttBridge::handleCmd(JsonObjectConst cmd) {
     otaUrl_ = cmd["url"] | "";
     otaVersion_ = cmd["version"] | "?";
     if (!otaUrl_.startsWith("http")) otaUrl_ = "";
+  } else if (action == "local") {
+    // local control: the key phones' passes are checked with (never retained on the broker)
+    if (local_ && local_->setKey(cmd["key"] | "", cmd["epoch"] | 0L)) publishTelemetry();
+  } else if (action == "local-off") {
+    if (local_) local_->clear();
+    publishTelemetry();
   } else if (action == "wifi-reset") {
     LOG_WARN("Forgetting Wi-Fi: restarting into the setup hotspot");
     mqtt_.disconnect();
@@ -253,11 +261,16 @@ void MqttBridge::reportNetwork() {
 // ---------------------------------------------------------------- outgoing
 void MqttBridge::onDeviceChanged(Device& device) {
   if (quiet_) return;
+  const char* src = !device.controllable() ? "sensor" : LocalServer::applying() ? "local" : "button";
   if (!mqtt_.connected()) {
+    if (device.controllable()) {
+      if (!changedWhileOffline_) offlineSrc_ = src;
+      else if (offlineSrc_ != src) offlineSrc_ = "button";   // both: the wall switch is the safer story
+    }
     changedWhileOffline_ = true;
     return;
   }
-  publishState(device, device.controllable() ? "button" : "sensor");
+  publishState(device, src);
 }
 
 void MqttBridge::publishState(Device& device, const char* src, const char* cid) {
@@ -296,6 +309,7 @@ void MqttBridge::publishTelemetry() {
   doc["bssid"] = WiFi.BSSIDstr();
   doc["gateway"] = WiFi.gatewayIP().toString();
   doc["mac"] = WiFi.macAddress();
+  if (local_) doc["local"] = local_->tag();
   publishJson(topics_->telemetry(), doc, false);
 }
 

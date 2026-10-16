@@ -18,16 +18,25 @@ While it runs, type in this window:
     drop            lose the connection abruptly (the broker announces it offline)
     rejoin          connect again after a drop, without restarting (Wi-Fi or internet back)
     quit
+
+Local control (like firmware 2.5.0): with --local-port 8081 it also answers the phone app straight
+over HTTP (GET /local/hello, POST /local/state, POST /local/command), checking passes the same way
+the board does (apps/api/src/hardware/local-pass.ts). `drop` keeps it answering, like a board whose
+internet is down but whose Wi-Fi still works.
 """
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import hmac
 import json
 import os
 import random
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 try:
@@ -36,7 +45,7 @@ except ImportError:
     sys.exit("Install the MQTT library first:  pip install paho-mqtt")
 
 ROOT = "home/v1"
-FIRMWARE = "2.4.0-fake"   # what the fake can do: wall switches, double-press and long press
+FIRMWARE = "2.5.0-fake"   # what the fake can do: wall switches, double-press and long press, local control
 # Same rules as packages/contracts/src/boards.ts
 PINS = {5: "D1", 4: "D2", 14: "D5", 12: "D6", 13: "D7", 16: "D0", 15: "D8", 0: "D3", 2: "D4", 3: "RX", 17: "A0"}
 USES = {5: "ois", 4: "ois", 14: "ois", 12: "ois", 13: "ois", 16: "o", 15: "o", 0: "i", 2: "oi", 3: "is", 17: "a"}
@@ -55,8 +64,14 @@ def load_env(path: Path) -> dict:
 
 class FakeNode:
     def __init__(self, node_id: str, board: str, host: str, port: int, user: str, password: str,
-                 quiet: bool = False, keepalive: int = 15):
+                 quiet: bool = False, keepalive: int = 15, local_port: int = 0):
         self.node_id, self.board, self.quiet, self.keepalive = node_id, board, quiet, keepalive
+        self.local_port = local_port
+        self.local_key = ""        # from the server's {"action": "local"} command
+        self.local_epoch = 0
+        self.nonces: dict[str, float] = {}
+        self.offline_src = ""   # set when something changed while the server was away: "local" (phone) or "button"
+        self.dropped = False
         self.firmware = FIRMWARE
         self.devices: dict[str, dict] = {}   # key -> {"type", "pin", "settings", "state"}
         self.inputs: dict[int, str] = {}     # pin -> target key ('' for a button that only runs actions)
@@ -97,6 +112,10 @@ class FakeNode:
     def publish(self, topic: str, payload: dict, retain: bool = False) -> None:
         self.client.publish(topic, json.dumps(payload), qos=1, retain=retain)
 
+    def ip(self) -> str:
+        # the real board answers on port 80; the fake says where it listens
+        return f"127.0.0.1:{self.local_port}" if self.local_port and self.local_port != 80 else "127.0.0.1"
+
     def publish_state(self, key: str, src: str, cid: str | None = None) -> None:
         state = dict(self.devices[key]["state"], src=src)
         if cid:
@@ -109,6 +128,8 @@ class FakeNode:
         self.client.loop_start()
         threading.Thread(target=self.sensor_loop, daemon=True).start()
         threading.Thread(target=self.telemetry_loop, daemon=True).start()
+        if self.local_port:
+            self.serve_local()
 
     def on_connect(self, client, userdata, flags, reason, properties=None):
         if reason.is_failure:
@@ -116,9 +137,15 @@ class FakeNode:
             return
         self.say(f"connected to {self.host}:{self.port}")
         self.connects += 1
-        self.publish(self.t("status"), {"online": True, "fw": self.firmware, "ip": "127.0.0.1"}, retain=True)
-        self.publish(self.t("announce"), {"board": self.board, "fw": self.firmware, "mac": "02:00:00:00:00:01", "ip": "127.0.0.1"}, retain=True)
+        self.publish(self.t("status"), {"online": True, "fw": self.firmware, "ip": self.ip()}, retain=True)
+        self.publish(self.t("announce"), {"board": self.board, "fw": self.firmware, "mac": "02:00:00:00:00:01", "ip": self.ip()}, retain=True)
         client.subscribe([(self.t("config"), 1), (self.t("devices", "+", "set"), 1), (self.t("cmd"), 1)])
+        if self.offline_src:   # like the firmware: tell the server what changed while it was away
+            with self.lock:
+                for key, d in self.devices.items():
+                    if d["type"] == "switch":
+                        self.publish_state(key, self.offline_src)
+            self.offline_src = ""
         self.report()   # fresh health right away, like the firmware
 
     def on_message(self, client, userdata, msg):
@@ -130,6 +157,16 @@ class FakeNode:
             self.apply_config(payload)
         elif msg.topic.endswith("/set") and isinstance(payload, dict):
             self.handle_set(msg.topic.split("/")[-2], payload)
+        elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "local":
+            key, epoch = str(payload.get("key", "")), int(payload.get("epoch", 0))
+            if len(key) == 64 and epoch > 0:
+                self.local_key, self.local_epoch = key, epoch
+                self.say(f"local control key {self.local_tag()} saved")
+                self.report()
+        elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "local-off":
+            self.local_key, self.local_epoch = "", 0
+            self.say("local control key forgotten")
+            self.report()
         elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "reboot":
             self.say("reboot requested (ignored by the fake board)")
         elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "ota":
@@ -276,7 +313,111 @@ class FakeNode:
             "maxBlock": 22000, "uptime": int(time.time() - self.started), "vcc": random.randint(3250, 3330), "cpuMhz": 80,
             "flashKb": 4096, "sketchKb": 484, "freeSketchKb": 1560, "reset": "Power On", "ssid": "HomeWiFi",
             "channel": 6, "connects": self.connects, "bssid": "A4:2B:B0:1C:7E:22", "gateway": "192.168.1.1", "mac": "02:00:00:00:00:01",
+            "local": self.local_tag(),
         })
+
+    # ------------------------------------------------------------ local control (no server in between)
+    def local_tag(self) -> str:
+        if not self.local_key:
+            return ""
+        return f"{hashlib.sha256(self.local_key.encode()).hexdigest()[:8]}:{self.local_epoch}"
+
+    def new_nonce(self) -> str:
+        now = time.time()
+        self.nonces = {n: t for n, t in self.nonces.items() if now - t < 60}
+        if len(self.nonces) >= 8:
+            self.nonces.pop(min(self.nonces, key=self.nonces.get))
+        nonce = os.urandom(8).hex()
+        self.nonces[nonce] = now
+        return nonce
+
+    def check_pass(self, headers, path: str, body: str) -> tuple[dict | None, str]:
+        """(pass, "") when the request is signed by a valid pass for this board, else (None, why)."""
+        if not self.local_key:
+            return None, "no local key yet"
+        p, nonce, sig = headers.get("X-Pass", ""), headers.get("X-Nonce", ""), headers.get("X-Sig", "")
+        if self.nonces.pop(nonce, None) is None:
+            return None, "unknown or used nonce"
+        try:
+            info = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        except ValueError:
+            return None, "bad pass"
+        if info.get("n") != self.node_id or info.get("e") != self.local_epoch:
+            return None, "pass for another board or an old pass"
+        key = hmac.new(self.local_key.encode(), f"pass:{p}".encode(), hashlib.sha256).hexdigest()
+        want = hmac.new(key.encode(), f"{nonce}\n{path}\n{body}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(want, sig):
+            return None, "bad signature"
+        return info, ""
+
+    def local_command(self, info: dict, command: dict) -> tuple[int, dict]:
+        key = command.get("key")
+        with self.lock:
+            device = self.devices.get(key)
+            if device is None or key not in info.get("v", []):
+                return 404, {"error": "no such device"}
+            if key not in info.get("c", []):
+                return 403, {"error": "you may not switch this"}
+            if device["type"] != "switch":
+                return 400, {"error": "not a switch"}
+            if isinstance(command.get("on"), bool):
+                device["state"]["on"] = command["on"]
+            elif command.get("toggle") is True:
+                device["state"]["on"] = not device["state"]["on"]
+            else:
+                return 400, {"error": "bad command"}
+            self.saved_switches[key] = device["state"]["on"]
+            if self.client.is_connected() and not self.dropped:
+                self.publish_state(key, "local")
+            else:
+                self.offline_src = "local"
+        self.say(f"{key} -> {'ON' if device['state']['on'] else 'OFF'} (phone over Wi-Fi, {info.get('u')})")
+        return 200, {"ok": True, "key": key, "state": device["state"]}
+
+    def local_state(self, info: dict) -> dict:
+        with self.lock:
+            return {"id": self.node_id, "devices": [
+                {"key": k, "type": d["type"], "state": d["state"]} for k, d in self.devices.items() if k in info.get("v", [])]}
+
+    def serve_local(self) -> None:
+        node = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):  # quiet
+                pass
+
+            def reply(self, code: int, body: dict) -> None:
+                data = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self):
+                if self.path != "/local/hello":
+                    return self.reply(404, {"error": "not found"})
+                self.reply(200, {"id": node.node_id, "fw": node.firmware, "local": bool(node.local_key), "nonce": node.new_nonce()})
+
+            def do_POST(self):
+                body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 512)).decode("utf-8", "replace")
+                if self.path not in ("/local/state", "/local/command"):
+                    return self.reply(404, {"error": "not found"})
+                info, why = node.check_pass(self.headers, self.path, body)
+                if info is None:
+                    return self.reply(401, {"error": why})
+                if self.path == "/local/state":
+                    return self.reply(200, node.local_state(info))
+                try:
+                    command = json.loads(body or "{}")
+                except ValueError:
+                    return self.reply(400, {"error": "bad JSON"})
+                code, out = node.local_command(info, command if isinstance(command, dict) else {})
+                self.reply(code, out)
+
+        server = ThreadingHTTPServer(("127.0.0.1", self.local_port), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.say(f"local control on http://127.0.0.1:{self.local_port}")
 
     def telemetry_loop(self) -> None:
         time.sleep(2)
@@ -309,6 +450,7 @@ class FakeNode:
 
     def drop(self) -> None:
         """Abrupt disconnect: the broker publishes our Last Will (offline)."""
+        self.dropped = True
         self.client.loop_stop()
         self.client.socket().close() if self.client.socket() else None
         self.say("connection dropped; the broker will announce this board offline")
@@ -316,6 +458,7 @@ class FakeNode:
     def rejoin(self) -> None:
         """Connect again after `drop`, without restarting (uptime goes on): like the Wi-Fi coming back."""
         # a fresh connection (with its Last Will) like the firmware makes, while uptime goes on
+        self.dropped = False
         self.client = self.make_client()
         self.client.connect_async(self.host, self.port, keepalive=self.keepalive)
         self.client.loop_start()
@@ -348,9 +491,11 @@ def main() -> None:
     parser.add_argument("--password", default=env.get("MQTT_NODE_PASSWORD", ""))
     parser.add_argument("--keepalive", type=int, default=15, help="seconds; the broker declares the board offline after 1.5x this")
     parser.add_argument("--no-console", action="store_true", help="run without reading commands (for tests)")
+    parser.add_argument("--local-port", type=int, default=0, help="answer the phone app over HTTP on this port (0: off)")
     args = parser.parse_args()
 
-    node = FakeNode(args.id, args.board, args.host, args.port, args.user, args.password, keepalive=args.keepalive)
+    node = FakeNode(args.id, args.board, args.host, args.port, args.user, args.password, keepalive=args.keepalive,
+                    local_port=args.local_port)
     node.start()
     print(f"Fake board {args.id} -> mqtt://{args.host}:{args.port}. Type 'press D5', 'temp 30', 'state', 'drop', 'quit'.")
     try:

@@ -11,6 +11,7 @@ import '../../features/auth/splash_screen.dart';
 import '../../features/family/family_screen.dart';
 import '../../features/health/health_screen.dart';
 import '../../features/home/home_screen.dart';
+import '../../features/local/local_control_screen.dart';
 import '../../features/me/me_screen.dart';
 import '../../features/rooms/room_screen.dart';
 import '../../features/rooms/rooms_screen.dart';
@@ -48,6 +49,7 @@ String? _redirect(Ref ref, GoRouterState state) {
   final loc = state.matchedLocation;
   final server = ref.read(serverUrlProvider);
   if (server == null) return loc == Routes.server ? null : Routes.server;
+  if (loc == Routes.local) return null; // works signed in or not: it uses the passes on the phone
   final session = ref.read(sessionProvider);
   if (!session.hasValue) return loc == Routes.splash ? null : Routes.splash;
   final me = session.value;
@@ -74,6 +76,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: Routes.server, builder: (_, _) => const ServerScreen()),
       GoRoute(path: Routes.login, builder: (_, _) => const LoginScreen()),
       GoRoute(path: Routes.noHome, builder: (_, _) => const NoHomeScreen()),
+      GoRoute(path: Routes.local, builder: (_, _) => const LocalControlScreen()),
       GoRoute(
         path: Routes.ask,
         parentNavigatorKey: _rootKey,

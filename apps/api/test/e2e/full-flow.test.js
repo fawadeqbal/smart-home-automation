@@ -19,6 +19,7 @@ const { io } = require('socket.io-client');
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const NODE_ID = 'esp-e2e01';
+const LOCAL_PORT = 4588;   // the fake board answers the phone app here (a real board: port 80)
 const BROKER_LOG = path.join(os.tmpdir(), `home-e2e-broker-${process.pid}.log`);
 let app, base, fake, prisma;
 
@@ -113,7 +114,7 @@ test('first run: setup creates the organization, the home and signs the owner in
 test('a new board lands in stock, is assigned to the home and adopted', async () => {
   const env = { ...process.env };
   fake = spawn('python3', [path.join(ROOT, 'tools/fake-node/fake_node.py'), '--id', NODE_ID, '--keepalive', '2',
-    '--password', process.env.MQTT_NODE_PASSWORD ?? ''], { env, stdio: ['pipe', 'pipe', 'inherit'] });
+    '--local-port', String(LOCAL_PORT), '--password', process.env.MQTT_NODE_PASSWORD ?? ''], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   fake.stdout.on('data', (d) => { state.fakeLog = (state.fakeLog ?? '') + d; });
 
   // one organization on this server: the board goes straight into its stock
@@ -765,7 +766,7 @@ test('wall switches and buttons: a flip toggles at once; double-press and long p
   const old = await owner.post(`/nodes/${NODE_ID}/inputs`, { type: 'wall_switch', pin: 0, targetId: state.bulb });
   assert.equal(old.status, 400);
   assert.match(old.body.message, /need 2\.4\.0 or newer/);
-  await prisma.node.update({ where: { id: NODE_ID }, data: { firmware: '2.4.0-fake' } });
+  await prisma.node.update({ where: { id: NODE_ID }, data: { firmware: '2.5.0-fake' } });
 
   // an ordinary wall switch (stays up or down): every flip toggles the bulb, whatever the app did last
   const wall = await owner.post(`/nodes/${NODE_ID}/inputs`, { type: 'wall_switch', pin: 0, targetId: state.bulb, name: 'Hall wall switch' });
@@ -811,6 +812,79 @@ test('wall switches and buttons: a flip toggles at once; double-press and long p
   await owner.del(`/inputs/${b.id}`);
   await owner.del(`/inputs/${wall.body.id}`);
   await applied();
+});
+
+/** What the phone app does when the internet is down: a signed request straight to the board. */
+async function localCall(board, urlPath, body = '', tamper = {}) {
+  const { createHmac } = require('node:crypto');
+  const hello = await (await fetch(`http://${board.ip}/local/hello`)).json();
+  const nonce = tamper.nonce ?? hello.nonce;
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  const sig = createHmac('sha256', board.passKey).update(`${nonce}\n${urlPath}\n${text}`).digest('hex');
+  const res = await fetch(`http://${board.ip}${urlPath}`, {
+    method: 'POST', body: text, headers: { 'X-Pass': tamper.pass ?? board.pass, 'X-Nonce': nonce, 'X-Sig': sig },
+  });
+  return { status: res.status, body: await res.json(), nonce };
+}
+
+test('local control: the phone switches the board over Wi-Fi with a pass, even with the internet down', async () => {
+  const memberId = (await member.get('/auth/me')).body.id;
+  // giving rights retires older passes and makes sure the board holds the current key
+  await owner.put(`/users/${memberId}/rooms`, { rooms: [{ roomId: state.livingRoom, access: 'CONTROL' }] });
+  const ready = await until('board holds the key', async () => (await owner.get('/nodes/local')).body.find((n) => n.nodeId === NODE_ID && n.ready), 10000);
+  assert.equal(ready.supported, true);
+  assert.equal((await owner.get('/nodes')).body.find((n) => n.id === NODE_ID).localControl, 'ready');
+  assert.equal((await member.get('/nodes/local')).status, 403);
+  await prisma.device.update({ where: { id: state.bulb }, data: { childLock: false } });
+
+  const mine = (await member.get('/local')).body;
+  const board = mine.boards.find((b) => b.nodeId === NODE_ID);
+  assert.equal(board.ready, true);
+  assert.equal(board.ip, `127.0.0.1:${LOCAL_PORT}`);
+  const pass = JSON.parse(Buffer.from(board.pass, 'base64url').toString());
+  assert.equal(pass.u, memberId);
+  assert.deepEqual(pass.c, ['bulb']);                       // the sensor can be seen, not switched
+  assert.ok(pass.v.includes('room_climate'));
+  assert.equal(board.devices.find((d) => d.key === 'room_climate').control, false);
+
+  // switch it straight on the board; the server hears it as switched from the phone
+  const before = (await owner.get(`/devices/${state.bulb}`)).body.state.on;
+  const sw = await localCall(board, '/local/command', { key: 'bulb', on: !before });
+  assert.equal(sw.status, 200, JSON.stringify(sw.body));
+  assert.equal(sw.body.state.on, !before);
+  await until('server saw the local switch', async () => (await owner.get(`/devices/${state.bulb}`)).body.state.on === !before);
+  const st = await localCall(board, '/local/state');
+  assert.deepEqual(st.body.devices.map((d) => d.key).sort(), [...pass.v].sort());
+
+  // what doesn't work: a nonce used twice, an edited pass, switching what the pass doesn't allow
+  assert.equal((await localCall(board, '/local/command', { key: 'bulb', toggle: true }, { nonce: sw.nonce })).status, 401);
+  const edited = Buffer.from(JSON.stringify({ ...pass, c: ['bulb', 'room_climate'] })).toString('base64url');
+  assert.equal((await localCall(board, '/local/command', { key: 'bulb', toggle: true }, { pass: edited })).status, 401);
+  assert.equal((await localCall(board, '/local/command', { key: 'room_climate', on: true })).status, 403);
+
+  // rights reduced: the old pass stops working; the new one may only look
+  await owner.put(`/users/${memberId}/rooms`, { rooms: [{ roomId: state.livingRoom, access: 'VIEW' }] });
+  await until('old pass refused', async () => (await localCall(board, '/local/state')).status === 401);
+  const viewer = (await member.get('/local')).body.boards.find((b) => b.nodeId === NODE_ID);
+  await until('new pass accepted', async () => (await localCall(viewer, '/local/state')).status === 200);
+  assert.equal((await localCall(viewer, '/local/command', { key: 'bulb', toggle: true })).status, 403);
+  await owner.put(`/users/${memberId}/rooms`, { rooms: [{ roomId: state.livingRoom, access: 'CONTROL' }] });
+
+  // the internet goes: the board still answers the phone, and tells the server when it's back
+  const ownerBoard = (await owner.get('/local')).body.boards.find((b) => b.nodeId === NODE_ID);
+  await until('owner pass accepted', async () => (await localCall(ownerBoard, '/local/state')).status === 200);
+  const online = async () => (await owner.get('/nodes')).body.find((n) => n.id === NODE_ID)?.online;
+  fake.stdin.write('drop\n');
+  await until('offline', async () => !(await online()), 12000);
+  const now = (await owner.get(`/devices/${state.bulb}`)).body.state.on;
+  const offlineSwitch = await localCall(ownerBoard, '/local/command', { key: 'bulb', on: !now });
+  assert.equal(offlineSwitch.status, 200, JSON.stringify(offlineSwitch.body));
+  fake.stdin.write('rejoin\n');
+  await until('online again', online, 12000);
+  await until('server caught up', async () => (await owner.get(`/devices/${state.bulb}`)).body.state.on === !now);
+  // (the outages test below counts its own outages)
+  await until('outage closed', async () => !(await prisma.node.findUnique({ where: { id: NODE_ID } })).offlineSince);
+  await prisma.outage.deleteMany({ where: { nodeId: NODE_ID } });
 });
 
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
@@ -919,7 +993,7 @@ test('outages: the internet drops (the board stays on), then a power cut (the bo
   fake.kill('SIGKILL');
   await until('offline', async () => !(await online()), 12000);
   fake = spawn('python3', [path.join(ROOT, 'tools/fake-node/fake_node.py'), '--id', NODE_ID, '--keepalive', '2',
-    '--password', process.env.MQTT_NODE_PASSWORD ?? ''], { env: { ...process.env }, stdio: ['pipe', 'pipe', 'inherit'] });
+    '--local-port', String(LOCAL_PORT), '--password', process.env.MQTT_NODE_PASSWORD ?? ''], { env: { ...process.env }, stdio: ['pipe', 'pipe', 'inherit'] });
   await until('online again', online, 15000);
   const cut = await until('power cut recorded', async () => (await owner.get('/outages')).body.outages.find((o) => o.kind === 'POWER'));
   assert.equal(cut.label, 'Power cut');

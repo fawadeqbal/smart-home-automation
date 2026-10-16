@@ -247,6 +247,16 @@ function Overview({ node, catalog, rooms, canSetup, onTab, onModel, latestFirmwa
                     : <span className="fw-chip static"><Icon name="arrow-up" size={11} stroke={2.4} />{latestFirmware} available</span>
                   : latestFirmware && node.firmware ? <span className="small muted">latest</span> : null}
               </dd>
+              {node.localControl && <>
+                <dt>Without internet</dt>
+                <dd title="The phone app can switch this board straight over the home's Wi‑Fi when the internet is down">
+                  {node.localControl === 'ready'
+                    ? <span className="badge ok">Phone can switch it over Wi‑Fi</span>
+                    : node.localControl === 'waiting'
+                      ? <span className="muted small">Gets its key when it next comes online</span>
+                      : <span className="muted small">Needs firmware 2.5.0 for phone control over Wi‑Fi</span>}
+                </dd>
+              </>}
               <dt>Settings</dt>
               <dd className="row" style={{ gap: 6 }}><SyncBadge node={node} /><span className="muted small">v{node.appliedRev} of {node.configRev}</span></dd>
               <dt>Last report</dt>

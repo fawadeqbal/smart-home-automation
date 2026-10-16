@@ -7,6 +7,7 @@ import { ZodPipe } from '../common/zod';
 import { MqttService } from '../mqtt/mqtt.service';
 import { DevicesService } from './devices.service';
 import { ConnectionsService } from './connections.service';
+import { LocalService } from './local.service';
 import { NodesService } from './nodes.service';
 
 const name = z.string().trim().min(1).max(60);
@@ -48,7 +49,17 @@ export class HardwareController {
     private readonly devices: DevicesService,
     private readonly mqtt: MqttService,
     private readonly connectionsService: ConnectionsService,
+    private readonly local: LocalService,
   ) {}
+
+  /**
+   * What the phone app keeps for switching things over the home's Wi-Fi when the internet is down:
+   * a pass per board for what this person may see and switch (fetched again whenever it's online).
+   */
+  @Get('local')
+  localPasses(@CurrentUser() user: AuthUser) {
+    return this.local.passes(user);
+  }
 
   /** Board pin rules and device types, for the UI's forms. */
   @NoHome()
@@ -107,6 +118,13 @@ export class HardwareController {
   @Get('nodes')
   listNodes(@CurrentUser() user: AuthUser) {
     return this.nodes.list(user.homeId);
+  }
+
+  /** Which boards the phone can switch over Wi-Fi without internet. */
+  @Roles('OWNER', 'ADMIN')
+  @Get('nodes/local')
+  localStatus(@CurrentUser() user: AuthUser) {
+    return this.local.status(user.homeId);
   }
 
   /** Asks the broker to send every board's announcement again (finds boards that started before setup). */

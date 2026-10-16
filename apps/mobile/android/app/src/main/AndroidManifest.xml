@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- the API and the live connection -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- finding the boards on the home Wi‑Fi (<node id>.local) for control without internet -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- "Ask Switchboard" by voice -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- "Hey Switchboard" with the app in the background: a microphone foreground service (lib/voice) -->

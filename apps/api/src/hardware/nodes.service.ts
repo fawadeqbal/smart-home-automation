@@ -13,6 +13,7 @@ import { MqttService } from '../mqtt/mqtt.service';
 import { compareVersions } from '../common/version';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { LocalService } from './local.service';
 import { LogsService } from './logs.service';
 import { PLANS } from '../platform/plans';
 
@@ -37,6 +38,7 @@ export class NodesService implements OnModuleInit {
     private readonly outages: OutagesService,
     @Inject(forwardRef(() => FirmwareService)) private readonly firmware: FirmwareService,
     private readonly logs: LogsService,
+    private readonly local: LocalService,
   ) {}
 
   onModuleInit() {
@@ -286,8 +288,11 @@ export class NodesService implements OnModuleInit {
     const fallback = new Map(saved.map((r) => [r.nodeId, {
       at: r.at.toISOString(), ...(r.rssi !== null ? { rssi: r.rssi } : {}), ...(r.vcc !== null ? { vcc: r.vcc } : {}), ...(r.heap !== null ? { heap: r.heap } : {}), saved: true,
     }]));
+    const local = new Map((await this.local.status(homeId)).map((l) => [l.nodeId, l]));
     return nodes.map((n) => ({
       id: n.id, name: n.name, board: n.board, boardName: BOARDS[n.board]?.name ?? n.board, status: n.status, online: n.online, firmware: n.firmware, ip: n.ip, mac: n.mac,
+      // can the phone app switch it over the home's Wi-Fi without internet?
+      localControl: !local.has(n.id) ? null : local.get(n.id)!.ready ? 'ready' : local.get(n.id)!.supported ? 'waiting' : 'old-firmware',
       rssi: n.rssi, lastSeenAt: n.lastSeenAt, configRev: n.configRev, appliedRev: n.appliedRev, configError: n.configError,
       publicIp: n.publicIp, publicPlace: n.publicPlace, publicIsp: n.publicIsp,
       health: this.health.get(n.id) ?? fallback.get(n.id) ?? null,
@@ -360,6 +365,7 @@ export class NodesService implements OnModuleInit {
         data: {
           homeId: null, installerId: null, assignedAt: null, status, name: nodeId, configRev: { increment: 1 }, configError: null,
           publicIp: null, publicPlace: null, publicIsp: null, publicIpAt: null, ...(note !== undefined ? { note } : {}),
+          localKey: null, localKeyHome: null, localReported: null,
         },
       });
     });
@@ -367,6 +373,7 @@ export class NodesService implements OnModuleInit {
     const empty: NodeConfigPayload = { rev: node.configRev, adopted: false, devices: [], inputs: [], telemetrySec: TELEMETRY_SEC };
     await this.mqtt.publish(topics.config(nodeId), empty, { qos: 1, retain: true });
     for (const key of keys) await this.mqtt.publish(topics.deviceState(nodeId, key), null, { qos: 1, retain: true });
+    await this.local.forget(nodeId);
   }
 
   async reboot(actor: AuthUser, nodeId: string) {

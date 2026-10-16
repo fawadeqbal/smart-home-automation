@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/config/app_settings.dart';
 import '../../core/network/api_exception.dart';
@@ -10,6 +12,7 @@ import '../../data/models/session.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/sb_switch.dart';
 import '../../state/home_overview.dart';
+import '../../state/local_control.dart';
 import '../../state/people.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
@@ -173,6 +176,13 @@ class MeScreen extends ConsumerWidget {
                 SbIcons.envelope,
                 'Help requests',
                 onTap: () => showHelpRequests(context),
+              ),
+            if (!kIsWeb && (ref.watch(localBundleProvider)?.boards.isNotEmpty ?? false))
+              row(
+                SbIcons.wifiSlash,
+                'Control over home Wi‑Fi',
+                value: 'No internet needed',
+                onTap: () => context.go(Routes.local),
               ),
             if (me.homes.length > 1)
               row(

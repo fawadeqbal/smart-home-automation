@@ -197,6 +197,12 @@ jobs:
             "DHT sensor library@1.4.7" "Adafruit Unified Sensor@1.1.15"
       - name: Compile
         run: arduino-cli compile -b esp8266:esp8266:nodemcuv2 --warnings default --output-dir build firmware/home_node
+      - name: Test local-control checks on the PC
+        run: |
+          dpkg -s libssl-dev >/dev/null 2>&1 || sudo apt-get install -y libssl-dev
+          g++ -std=c++17 -Wall -Wno-deprecated-declarations -I ~/Arduino/libraries/ArduinoJson/src \
+            firmware/home_node/test/local_auth_test.cpp -lcrypto -o local_auth_test
+          ./local_auth_test
       - name: Name the .bin after its version
         run: |
           v=$(grep -oP '#define FIRMWARE_VERSION\s+"\K[^"]+' firmware/home_node/config.h)

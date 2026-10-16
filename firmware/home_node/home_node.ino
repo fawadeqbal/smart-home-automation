@@ -12,7 +12,8 @@
 //    src/inputs/    ToggleButton ("toggle_button", with double-press and long press), WallSwitch ("wall_switch")
 //    src/config/    NodeSettings (setup page), ConfigManager (config from the server), BoardPins
 //    src/storage/   StateStore (switch states across power cuts), Files
-//    src/net/       MqttBridge (the link to the server), Topics, CaCert (cloud TLS)
+//    src/net/       MqttBridge (the link to the server), Topics, CaCert (cloud TLS),
+//                   LocalServer + LocalAuth (the phone app straight over Wi-Fi, without internet)
 //
 //  Board:     Tools > Board > "NodeMCU 1.0 (ESP-12E Module)" or "LOLIN(WEMOS) D1 R2 & mini"
 //  Libraries: ArduinoJson 7, PubSubClient, WiFiManager (tzapu), DHT sensor library + Adafruit Unified Sensor
@@ -24,6 +25,7 @@
 #include "src/config/NodeSettings.h"
 #include "src/core/DeviceRegistry.h"
 #include "src/core/Log.h"
+#include "src/net/LocalServer.h"
 #include "src/net/MqttBridge.h"
 #include "src/storage/Files.h"
 #include "src/storage/StateStore.h"
@@ -42,6 +44,7 @@ NodeSettings settings;
 const char FIRMWARE_TAG[] = "@@HOMENODE-FW:" FIRMWARE_VERSION "@@";
 const char* volatile firmwareTag = nullptr;
 MqttBridge bridge(registry, config);
+LocalServer local(registry);   // the phone app over the home's Wi-Fi, even without internet
 
 // ---------------------------------------------------------------- status LED
 void led(bool on) {
@@ -101,6 +104,7 @@ bool checkSetupHold() {
   if (held < SETUP_HOLD_MS) { led((now / 80) % 2); return true; }
   led(true);
   LOG_INFO("FLASH held for %lu s: opening the setup page", (unsigned long)(SETUP_HOLD_MS / 1000));
+  local.stop();                                 // the setup page needs port 80
   settings.runSetupPortal();                    // blocks until saved or it times out (then it restarts)
   ESP.restart();                                // start cleanly with the new settings
   return true;
@@ -136,7 +140,9 @@ void setup() {
   WiFi.hostname(settings.nodeId());
   WiFi.setAutoReconnect(true);
   WiFi.begin();
+  bridge.setLocal(local);
   bridge.begin(settings);
+  local.begin(settings.nodeId());
 }
 
 void loop() {
@@ -144,5 +150,6 @@ void loop() {
   registry.loopAll();
   states.loop();
   bridge.loop();
+  local.loop();
   if (!checkSetupHold()) blinkStatus();
 }

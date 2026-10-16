@@ -6,6 +6,7 @@ import { Access, Prisma, Role, StaffRole } from '@prisma/client';
 import { AuthService, randomToken, sha256 } from '../auth/auth.service';
 import { AuthUser, canSetup, isAdmin } from '../auth/auth.types';
 import { AuditService } from '../common/audit.service';
+import { LocalService } from '../hardware/local.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { PLANS } from '../platform/plans';
@@ -19,6 +20,7 @@ export class UsersService {
     private readonly auth: AuthService,
     private readonly audit: AuditService,
     private readonly realtime: RealtimeService,
+    private readonly local: LocalService,
   ) {}
 
   /**
@@ -126,6 +128,8 @@ export class UsersService {
       await this.prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     }
     await this.audit.record(actor.homeId, actor.id, 'user.update', userId, { ...input, name: updated.name });
+    // their phone's passes for switching over Wi-Fi still carry the old rights: retire them
+    if ((input.role && input.role !== m.role) || input.disabled) await this.local.revoke(actor.homeId);
     this.realtime.accessChanged(userId);
     return { id: updated.id, role: input.role ?? m.role, disabled: updated.disabled, name: updated.name };
   }
@@ -143,6 +147,7 @@ export class UsersService {
     await this.audit.record(actor.homeId, actor.id, 'room.access', userId, {
       name: m.user.name, rooms: clean.map((r) => ({ room: names.get(r.roomId), access: r.access })),
     });
+    await this.local.revoke(actor.homeId);
     this.realtime.accessChanged(userId);
     return { ok: true };
   }
@@ -158,6 +163,7 @@ export class UsersService {
     const left = await this.prisma.membership.count({ where: { userId } });
     if (!left && !m.user.staffRole) await this.prisma.user.delete({ where: { id: userId } });
     await this.audit.record(actor.homeId, actor.id, 'user.remove', userId, { email: m.user.email, name: m.user.name });
+    await this.local.revoke(actor.homeId);
     this.realtime.accessChanged(userId);
   }
 
