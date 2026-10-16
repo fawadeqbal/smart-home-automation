@@ -601,7 +601,9 @@ test('installation report: checklist (some items check themselves), photos behin
   const img = await fetch(base.replace('/api', '') + withPhoto.photos[0].url);
   assert.equal(img.status, 200);
   assert.equal(img.headers.get('content-type'), 'image/png');
-  assert.equal((await fetch(base.replace('/api', '') + withPhoto.photos[0].url.replace(/sig=\w/, 'sig=0'))).status, 403);
+  // a changed signature (its first character changed, whatever it was) is refused
+  const forged = withPhoto.photos[0].url.replace(/sig=(\w)/, (_, c) => `sig=${c === '0' ? '1' : '0'}`);
+  assert.equal((await fetch(base.replace('/api', '') + forged)).status, 403);
 
   // a member can't see it; the customer signs on the installer's phone; then it's a record
   const kid = new Client();
