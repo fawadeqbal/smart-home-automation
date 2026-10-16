@@ -56,8 +56,10 @@ class ClaudeProvider:
         self.max_tokens = settings.max_tokens
         if client is None:
             import anthropic                       # only needed when Claude is used
-            # retries with back-off on overload / rate limits / network blips; never hang the person for long
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=3, timeout=45.0)
+            # one retry on overload / rate limits / network blips, and a short wait: someone is waiting for
+            # the answer, so failing in seconds beats three minutes of silence
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=settings.llm_retries,
+                                         timeout=settings.llm_timeout)
         self._client = client
 
     def chat(self, system: str, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec]) -> LLMReply:
@@ -71,4 +73,7 @@ class ClaudeProvider:
         text = "".join(b.text for b in response.content if b.type == "text").strip()
         calls = [ToolCall(id=b.id, name=b.name, arguments=dict(b.input))
                  for b in response.content if b.type == "tool_use"]
-        return LLMReply(text=text, tool_calls=calls)
+        truncated = getattr(response, "stop_reason", None) == "max_tokens"
+        if truncated:
+            log.warning("Claude reached max_tokens (%d): the reply was cut", self.max_tokens)
+        return LLMReply(text=text, tool_calls=calls, truncated=truncated)

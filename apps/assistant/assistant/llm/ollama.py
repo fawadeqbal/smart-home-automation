@@ -47,7 +47,8 @@ def parse_ollama_reply(data: dict) -> LLMReply:
             except ValueError:
                 args = {}
         calls.append(ToolCall(id=raw.get("id") or uuid.uuid4().hex, name=fn.get("name", ""), arguments=args))
-    return LLMReply(text=(msg.get("content") or "").strip(), tool_calls=calls)
+    return LLMReply(text=(msg.get("content") or "").strip(), tool_calls=calls,
+                    truncated=data.get("done_reason") == "length")
 
 
 # ------------------------------------------------------------------ provider

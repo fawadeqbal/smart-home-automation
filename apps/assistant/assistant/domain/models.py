@@ -46,3 +46,5 @@ class ChatMessage:
 class LLMReply:
     text: str
     tool_calls: List[ToolCall] = field(default_factory=list)
+    # the model stopped because it reached the length limit (the text ends mid-sentence)
+    truncated: bool = False

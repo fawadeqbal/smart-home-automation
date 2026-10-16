@@ -27,8 +27,17 @@ class Settings:
     ollama_model: str = "qwen2.5:3b"
     anthropic_api_key: str = ""
     claude_model: str = "claude-sonnet-5-5"
-    max_tokens: int = 600
+    # room for a full answer with a few steps; the instructions keep answers short, and an answer that
+    # still reaches the limit is ended at its last full sentence (never mid-word)
+    max_tokens: int = 1024
     max_turns: int = 8
+    # waiting for the AI: seconds per attempt, retries, and the whole answer's budget (tools included)
+    llm_timeout: float = 25.0
+    llm_retries: int = 1
+    answer_budget_s: float = 40.0
+    # off-topic questions are politely declined without asking the AI; prices, warranty and refunds are
+    # answered only from published Help Center articles
+    scope_guard: bool = True
     # a conversation nobody has used for this long starts afresh (0 = never)
     idle_minutes: float = 30
     # speed: answer everyday commands without the AI, and skip the AI's second round after a plain action
@@ -69,7 +78,11 @@ class Settings:
             ollama_model=env("OLLAMA_MODEL", "qwen2.5:3b"),
             anthropic_api_key=env("ANTHROPIC_API_KEY", ""),
             claude_model=env("CLAUDE_MODEL") or "claude-sonnet-5-5",
-            max_tokens=int(env("MAX_TOKENS") or "600"),
+            max_tokens=int(env("MAX_TOKENS") or "1024"),
+            llm_timeout=float(env("LLM_TIMEOUT") or "25"),
+            llm_retries=int(env("LLM_RETRIES") or "1"),
+            answer_budget_s=float(env("ANSWER_BUDGET_S") or "40"),
+            scope_guard=(env("SCOPE_GUARD") or "true").strip().lower() != "false",
             max_turns=int(env("MAX_TURNS") or "8"),
             idle_minutes=float(env("CONVERSATION_IDLE_MINUTES") or "30"),
             quick_commands=env("QUICK_COMMANDS", "true").strip().lower() != "false",

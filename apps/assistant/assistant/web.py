@@ -17,8 +17,10 @@ from .config import Settings
 from .conversation import ConversationService, PromptBuilder
 from .domain.ports import LLMProvider, SpeechToText, TextToSpeech
 from .home_api import HomeApi, HomeApiError
+from .guard import ScopeGuard
 from .quick import QuickCommands
 from .knowledge import KnowledgeBase, local_embedder
+from .retrieval import retriever_for
 from .connections import fleet_summary, role_text
 from .tools import SearchHelpTool, build_console_tools, build_tools, describe_home, home_zone
 
@@ -99,7 +101,9 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         threading.Thread(target=lambda: embed(["warm up"]), daemon=True).start()
     console_prompt = PromptBuilder(settings.console_instructions_file)
     conversation = ConversationService(llm, PromptBuilder(settings.instructions_file), max_turns=settings.max_turns,
-                                       fast_replies=settings.fast_replies, idle_minutes=settings.idle_minutes)
+                                       fast_replies=settings.fast_replies, idle_minutes=settings.idle_minutes,
+                                       guard=ScopeGuard() if settings.scope_guard else None,
+                                       budget_s=settings.answer_budget_s)
     for part in (llm, stt):                             # load the models now, not on the first question
         warm = getattr(part, "warm_up", None)
         if callable(warm):
@@ -134,9 +138,11 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         tz = home_zone(who.timezone or settings.timezone)
         if who.console:
             # staff in the console: read-only tools about the boards their role covers, their own conversation
-            reply = conversation.ask(who.user_id, who.user_name, text, build_console_tools(api, tz, knowledge), None,
+            tools = build_console_tools(api, tz, knowledge)
+            reply = conversation.ask(who.user_id, who.user_name, text, tools, None,
                                      home_id=CONSOLE, home_name="", fresh=fresh, tz=tz,
-                                     home_state=console_state(api, who), prompt=console_prompt)
+                                     home_state=console_state(api, who), prompt=console_prompt,
+                                     retriever=retriever_for(tools.get("search_help")), console=True)
             return speak_reply(text, reply, speak)
         devices = load_devices(api, who) if devices is None else devices
         clock = lambda: datetime.now(tz)                # noqa: E731 - the home's clock, shared by both
@@ -145,7 +151,8 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
         scenes = getattr(tools.get("run_scene"), "_scenes", [])
         reply = conversation.ask(who.user_id, who.user_name, text, tools, quick,
                                  home_id=who.home_id, home_name=who.home_name, fresh=fresh,
-                                 tz=tz, home_state=describe_home(devices, scenes))
+                                 tz=tz, home_state=describe_home(devices, scenes),
+                                 retriever=retriever_for(tools.get("search_help")))
         return speak_reply(text, reply, speak)
 
     def speak_reply(text: str, reply: str, speak: bool) -> ReplyOut:

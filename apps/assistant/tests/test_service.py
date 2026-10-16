@@ -65,12 +65,12 @@ def test_silence_gets_a_friendly_retry(devices):
 
 def test_each_person_has_their_own_history_and_can_reset_it(devices):
     client, _ = make(devices)
-    client.post("/v1/chat", json={"text": "hello", **WHO}, headers=HEADERS)
-    client.post("/v1/chat", json={"text": "hi", "user_id": "u2", "user_name": "Sara", "home_id": "h1", "token": "t2"},
+    client.post("/v1/chat", json={"text": "how do scenes work", **WHO}, headers=HEADERS)
+    client.post("/v1/chat", json={"text": "how do timers work", "user_id": "u2", "user_name": "Sara", "home_id": "h1", "token": "t2"},
                 headers=HEADERS)
     conv = client.app.state.conversation
-    assert [m.content for m in conv.history("u1", "h1")] == ["hello", "echo: hello"]
-    assert [m.content for m in conv.history("u2", "h1")] == ["hi", "echo: hi"]
+    assert [m.content for m in conv.history("u1", "h1")] == ["how do scenes work", "echo: how do scenes work"]
+    assert [m.content for m in conv.history("u2", "h1")] == ["how do timers work", "echo: how do timers work"]
     assert client.post("/v1/reset", json=WHO, headers=HEADERS).status_code == 204
     assert conv.history("u1", "h1") == []
     assert len(conv.history("u2", "h1")) == 2                           # Sara's conversation is untouched
@@ -80,22 +80,22 @@ def test_the_same_person_has_a_separate_conversation_in_each_home(devices):
     """Staff looking into several customers' homes (or an owner with two homes) never mix them up."""
     llm = bulb_llm()
     client, _ = make(devices, llm=llm)
-    client.post("/v1/chat", json={"text": "hello", **WHO}, headers=HEADERS)
+    client.post("/v1/chat", json={"text": "how do scenes work", **WHO}, headers=HEADERS)
     other = {**WHO, "home_id": "h2", "home_name": "Sara's flat"}
-    client.post("/v1/chat", json={"text": "tell me a joke", **other}, headers=HEADERS)
+    client.post("/v1/chat", json={"text": "how do rooms work", **other}, headers=HEADERS)
     conv = client.app.state.conversation
-    assert [m.content for m in conv.history("u1", "h1")] == ["hello", "echo: hello"]
-    assert [m.content for m in conv.history("u1", "h2")] == ["tell me a joke", "echo: tell me a joke"]
-    assert [m.content for m in llm.calls[1]["messages"]] == ["tell me a joke"]   # nothing from the other home
+    assert [m.content for m in conv.history("u1", "h1")] == ["how do scenes work", "echo: how do scenes work"]
+    assert [m.content for m in conv.history("u1", "h2")] == ["how do rooms work", "echo: how do rooms work"]
+    assert [m.content for m in llm.calls[1]["messages"]] == ["how do rooms work"]   # nothing from the other home
     assert 'in the home "Sara\'s flat"' in llm.calls[1]["system"]
 
 
 def test_a_fresh_chat_screen_starts_a_fresh_conversation(devices):
     llm = bulb_llm()
     client, _ = make(devices, llm=llm)
-    client.post("/v1/chat", json={"text": "hello", **WHO}, headers=HEADERS)
-    client.post("/v1/chat", json={"text": "again", "fresh": True, **WHO}, headers=HEADERS)
-    assert [m.content for m in llm.calls[1]["messages"]] == ["again"]
+    client.post("/v1/chat", json={"text": "how do scenes work", **WHO}, headers=HEADERS)
+    client.post("/v1/chat", json={"text": "and the fan?", "fresh": True, **WHO}, headers=HEADERS)
+    assert [m.content for m in llm.calls[1]["messages"]] == ["and the fan?"]
     client.post("/v1/voice", files={"audio": ("speech", b"webm", "audio/webm")}, data={**WHO, "fresh": "true"},
                 headers=HEADERS)
     conv = client.app.state.conversation
@@ -124,7 +124,7 @@ def test_a_quiet_conversation_is_forgotten():
 def test_the_ai_is_only_told_about_devices_the_person_may_switch(devices):
     llm = bulb_llm()
     client, _ = make(devices, llm=llm)
-    client.post("/v1/chat", json={"text": "hello", **WHO}, headers=HEADERS)
+    client.post("/v1/chat", json={"text": "how do scenes work", **WHO}, headers=HEADERS)
     set_device = next(t for t in llm.calls[0]["tools"] if t.name == "set_device")
     assert "Bulb" in set_device.description and "Fan" not in set_device.description
     assert "You are talking to Ali." in llm.calls[0]["system"]

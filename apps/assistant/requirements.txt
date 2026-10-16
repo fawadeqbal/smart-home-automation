@@ -14,3 +14,7 @@ tzdata
 piper-tts>=1.2
 # Help Center search by meaning: a small multilingual embedding model on ONNX Runtime
 fastembed>=0.5
+# how a question is answered: a LangGraph state graph (quick commands -> Help Center retrieval -> topic
+# guard -> AI with tools), with the Help Center search as a LangChain retriever
+langgraph>=1.2,<2
+langchain-core>=1.6,<2

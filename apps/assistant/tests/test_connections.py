@@ -184,12 +184,12 @@ def test_a_console_chat_gets_the_role_the_summary_and_only_read_only_tools():
 def test_console_and_home_conversations_are_separate():
     llm = FakeLLM()
     client, _ = make(llm)
-    client.post("/v1/chat", json={**CONSOLE, "text": "first in console", "speak": False}, headers=HEADERS)
+    client.post("/v1/chat", json={**CONSOLE, "text": "which boards are offline?", "speak": False}, headers=HEADERS)
     client.post("/v1/chat", json={"user_id": "u9", "user_name": "Ravi", "token": "tok-ravi", "home_id": "h1",
-                                  "home_name": "Khan residence", "text": "in the home", "speak": False}, headers=HEADERS)
+                                  "home_name": "Khan residence", "text": "is the bulb on?", "speak": False}, headers=HEADERS)
     home_call = llm.calls[-1]
-    assert [m.content for m in home_call["messages"]] == ["in the home"]
+    assert [m.content for m in home_call["messages"]] == ["is the bulb on?"]
     assert "the company's console" not in home_call["system"]
     client.post("/v1/reset", json={k: v for k, v in CONSOLE.items()}, headers=HEADERS)
-    client.post("/v1/chat", json={**CONSOLE, "text": "after reset", "speak": False}, headers=HEADERS)
-    assert [m.content for m in llm.calls[-1]["messages"]] == ["after reset"]
+    client.post("/v1/chat", json={**CONSOLE, "text": "any board dropped today?", "speak": False}, headers=HEADERS)
+    assert [m.content for m in llm.calls[-1]["messages"]] == ["any board dropped today?"]
