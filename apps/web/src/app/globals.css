@@ -1481,3 +1481,8 @@ input[type='file'] { height: auto; padding: 8px; }
   .hce-actions > .btn-primary { order: -1; flex-basis: 100%; }
 }
 .ai-voice.off { color: var(--mu); background: var(--sf2); }
+.ok-text { color: var(--okt); }
+.me-link { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; color: inherit; border-radius: 10px; }
+.me-link:hover b { color: var(--act); }
+.btn-wa { background: #1fa855; border-color: #1fa855; color: #fff; }
+.btn-wa:hover { background: #178c46; border-color: #178c46; color: #fff; }

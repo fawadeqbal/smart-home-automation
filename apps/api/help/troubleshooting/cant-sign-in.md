@@ -2,7 +2,7 @@
 title: I can't sign in, forgot my password or got too many tries
 category: troubleshooting
 audience: everyone
-tags: [sign in, login, password, forgot password, wrong password, too many attempts, locked, paused, 15 minutes, account disabled, password bhool gaya, login nahi ho raha]
+tags: [sign in, login, password, forgot password, reset password, password link, change password, new password, wrong password, too many attempts, locked, paused, 15 minutes, account disabled, password bhool gaya, login nahi ho raha]
 published: true
 ---
 ## "Wrong email or password"
@@ -19,10 +19,20 @@ Wait the full 15 minutes. Be careful with the next try: one more wrong password 
 
 ## Forgot your password?
 
-There's no "reset by email" in Switchboard. What to do depends on your role:
-- **Family members and guests:** ask the home owner. The owner can **Remove from home** in **People** and then invite you again with a new link, where you choose a new password. Removing deletes your account (unless you belong to another home) and the timers and scenes you made, and your room access must be set again.
-- **Home owners:** the owner can't be removed and invited again, and the app has no way to reset the owner's password. Contact your installer.
-- **Already have an account?** An invite link to a new home asks for your **existing** password. It doesn't replace it.
+1. On the sign-in page, press **Forgot it?** (in the phone app: **Forgot it?**, then **Email me a link**).
+2. Enter the email you sign in with and press **Send the link**.
+3. Open the email ("Choose a new Switchboard password"; look in **Spam** too) and press **Choose a new password**.
+4. Type the new password twice and press **Save and sign in**.
+
+The link works **once**, for **one hour**. Using it signs you out on your other devices. You can ask for up to 3 links an hour.
+
+**No email arriving?** Your home owner (or an admin of your home) can make you a link instead: **People** → **⋯** next to your name → **Password link**, then send it to you on WhatsApp. That link works once, for 24 hours. For installers and support staff, the company's super admin does the same under **Team**.
+
+The owner can't make a link for someone who also belongs to another home or works for a company: that person uses **Forgot it?** themselves.
+
+## Change your password
+
+Signed in, open **Your account** (press your name at the bottom of the menu on the web; **Me** → **Change password** in the phone app). Enter your current password and the new one twice. You stay signed in on that device; your other devices are signed out.
 
 ## "This account is disabled…"
 

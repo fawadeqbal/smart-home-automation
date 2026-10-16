@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { InvitePersonDialog } from '@/components/console/Dialogs';
+import { PasswordLinkDialog } from '@/components/PasswordLinkDialog';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { Avatar, Confirm, Dropdown, ErrorBox, useAction } from '@/components/ui';
@@ -21,6 +22,7 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
   const invites = useLoad<Invite[]>(canManage || ownerInviteOnly ? '/invites' : null);
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<FamilyMember | null>(null);
+  const [resetFor, setResetFor] = useState<FamilyMember | null>(null);
   const { error, run } = useAction();
 
   if (!people.data || !rooms.data) return people.error ?? rooms.error ? <div className="alert">{people.error ?? rooms.error}</div> : <Loader label="Loading people…" />;
@@ -104,6 +106,9 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
                             <button className="menu-item" onClick={() => { close(); void run(() => patch(`/users/${p.id}`, { disabled: !p.disabled })).then(() => people.reload()); }}>
                               <Icon name={p.disabled ? 'check' : 'lock'} size={15} />{p.disabled ? 'Enable account' : 'Disable account'}
                             </button>
+                            {!p.staff && !p.disabled && (
+                              <button className="menu-item" onClick={() => { close(); setResetFor(p); }}><Icon name="key" size={15} />Password link</button>
+                            )}
                             <button className="menu-item danger" onClick={() => { close(); setRemoving(p); }}><Icon name="trash" size={15} />Remove from home</button>
                           </>
                         )}
@@ -133,6 +138,7 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
         </table>
       </div>
       {inviting && <InvitePersonDialog rooms={rooms.data} canAdmin={isOwner} ownerInvite={ownerInviteOnly} onClose={() => setInviting(false)} onDone={reload} />}
+      {resetFor && <PasswordLinkDialog name={resetFor.name} endpoint={`/users/${resetFor.id}/reset-link`} onClose={() => setResetFor(null)} />}
       {removing && (
         <Confirm title={`Remove ${removing.name}?`} confirmLabel="Remove"
           body={<>They can no longer open this home. Their account is deleted if they belong to no other home.</>}

@@ -76,6 +76,10 @@ services:
       MQTT_PUBLIC_PORT: '8883'
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
       PUBLIC_API_URL: https://${DOMAIN}
+      # email (password links, alerts): a Gmail address and an app password; empty = email off
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       FIRMWARE_DIR: /data/firmware
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}

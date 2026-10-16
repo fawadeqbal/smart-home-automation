@@ -77,6 +77,7 @@ model User {
   boardJobs         Node[]             @relation("NodeInstaller")
   rooms             RoomAccess[]
   sessions          Session[]
+  passwordResets    PasswordReset[]
   schedules         Schedule[]
   scenes            Scene[]
   notifications     Notification[]
@@ -152,6 +153,22 @@ model Session {
   expiresAt   DateTime
   revokedAt   DateTime?
   createdAt   DateTime  @default(now())
+}
+
+/// A link to choose a new password: asked for by email ("Forgot password?"), or made by a home owner or
+/// admin, or a super admin, for someone who can't get the email. Works once, for a short time.
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  /// who made the link for them (null: they asked for it themselves)
+  createdBy String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 /// An invite link. Either into a home (homeId + role) or onto an organization's staff (orgId + staffRole).

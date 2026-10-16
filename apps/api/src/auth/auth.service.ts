@@ -104,6 +104,11 @@ export class AuthService {
     return user;
   }
 
+  /** A new password ends any sign-in lock-out for that email. */
+  clearFailures(email: string) {
+    this.failures.delete(email.toLowerCase());
+  }
+
   /** Creates a session (refresh token) and sets both cookies. */
   async startSession(user: User, res: Response, userAgent?: string) {
     const refresh = randomToken();

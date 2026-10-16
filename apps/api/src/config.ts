@@ -38,6 +38,10 @@ export interface Settings {
   brokerLog: string | null;
   /** Where the free DB-IP lite databases (IP -> city, provider) are kept; null: no lookups (GEOIP=off). */
   geoDir: string | null;
+  /** The site people open: links in emails start with it (default: the first WEB_ORIGIN). */
+  publicUrl: string;
+  /** Outgoing email (Gmail: smtp.gmail.com, 465, the address, an app password). null: email is off. */
+  smtp: { host: string; port: number; user: string; pass: string; from: string } | null;
 }
 
 export function loadSettings(): Settings {
@@ -64,6 +68,15 @@ export function loadSettings(): Settings {
     // Off by default: all boards share one broker login, so open sign-up would let any tenant's staff
     // read that password. Turn on once boards have their own credentials (see README → Selling it).
     allowSignup: process.env.ALLOW_SIGNUP === 'true',
+    publicUrl: (process.env.PUBLIC_URL || (process.env.WEB_ORIGIN ?? 'http://localhost:3000').split(',')[0]!).trim().replace(/\/+$/, ''),
+    smtp: process.env.SMTP_USER && process.env.SMTP_PASS ? {
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: Number(process.env.SMTP_PORT || 465),
+      user: process.env.SMTP_USER,
+      // Google shows app passwords in groups of four ("abcd efgh ijkl mnop"): the spaces aren't part of it
+      pass: process.env.SMTP_PASS.replace(/\s+/g, ''),
+      from: process.env.MAIL_FROM || `Switchboard <${process.env.SMTP_USER}>`,
+    } : null,
   };
 }
 

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { InviteStaffDialog } from '@/components/console/Dialogs';
+import { PasswordLinkDialog } from '@/components/PasswordLinkDialog';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
@@ -15,6 +16,7 @@ export default function TeamPage() {
   const { data, error, reload } = useLoad<StaffList>('/platform/staff');
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<StaffList['people'][number] | null>(null);
+  const [resetFor, setResetFor] = useState<StaffList['people'][number] | null>(null);
   const { error: actionError, run } = useAction();
   useCrumbs([{ label: 'Platform', href: '/console' }, { label: 'Team' }]);
   if (!data) return error ? <div className="alert">{error}</div> : <Loader label="Loading your team…" />;
@@ -58,6 +60,9 @@ export default function TeamPage() {
                           <button className="menu-item" onClick={() => { close(); void run(() => patch(`/platform/staff/${p.id}`, { disabled: !p.disabled })).then(() => reload()); }}>
                             <Icon name={p.disabled ? 'check' : 'lock'} size={15} />{p.disabled ? 'Enable sign-in' : 'Disable sign-in'}
                           </button>
+                          {p.staffRole !== 'SUPERADMIN' && !p.disabled && (
+                            <button className="menu-item" onClick={() => { close(); setResetFor(p); }}><Icon name="key" size={15} />Password link</button>
+                          )}
                           <button className="menu-item danger" onClick={() => { close(); setRemoving(p); }}><Icon name="trash" size={15} />Remove from team</button>
                         </>
                       )}
@@ -84,6 +89,7 @@ export default function TeamPage() {
         </table>
       </div>
       {inviting && <InviteStaffDialog onClose={() => setInviting(false)} onDone={() => void reload()} />}
+      {resetFor && <PasswordLinkDialog name={resetFor.name} endpoint={`/platform/staff/${resetFor.id}/reset-link`} onClose={() => setResetFor(null)} />}
       {removing && (
         <Confirm title={`Remove ${removing.name} from the team?`} confirmLabel="Remove"
           body={<>They lose access to the console{removing.homes ? ` and their ${removing.homes} homes are left without an installer` : ''}. Homes they belong to as a person are not affected.</>}

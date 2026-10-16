@@ -4,6 +4,7 @@ import { Plan, Prisma, StaffRole } from '@prisma/client';
 import { z } from 'zod';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Staff } from '../auth/decorators';
+import { PasswordsService } from '../auth/passwords.service';
 import { ZodPipe } from '../common/zod';
 import { ConnectionsService } from '../hardware/connections.service';
 import { PlatformService } from './platform.service';
@@ -50,7 +51,8 @@ export function staffScope(user: AuthUser): Prisma.NodeWhereInput {
 /** The platform console: an organization's homes, board inventory, staff, audit log and billing. */
 @Controller('platform')
 export class PlatformController {
-  constructor(private readonly platform: PlatformService, private readonly connections: ConnectionsService) {}
+  constructor(private readonly platform: PlatformService, private readonly connections: ConnectionsService,
+              private readonly passwords: PasswordsService) {}
 
   // ---------------------------------------------------------------- board connections (all homes in scope)
   /** Every board the caller looks after: online or not, where it connects from, how often it dropped. */
@@ -176,6 +178,13 @@ export class PlatformController {
   @Patch('staff/:id')
   updateStaff(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(updateStaff)) body: z.infer<typeof updateStaff>) {
     return this.platform.updateStaff(user, id, body);
+  }
+
+  /** A link to choose a new password, for an installer or support person of this company. */
+  @Staff('SUPERADMIN')
+  @Post('staff/:id/reset-link')
+  staffResetLink(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.passwords.linkForStaff(user, id);
   }
 
   @Staff('SUPERADMIN')

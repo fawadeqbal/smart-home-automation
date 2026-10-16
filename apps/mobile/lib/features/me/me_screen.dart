@@ -16,6 +16,7 @@ import '../../state/toast.dart';
 import '../../voice/hands_free_ui.dart';
 import '../health/ask_for_help.dart';
 import '../home/home_actions.dart';
+import 'change_password.dart';
 
 /// Alerts in the owner's words; each switch covers a few of the real notification settings.
 /// People only see the ones the server offers them (board alerts are for owners and admins).
@@ -222,6 +223,11 @@ class MeScreen extends ConsumerWidget {
                 ThemeMode.light => ThemeMode.dark,
                 ThemeMode.dark => ThemeMode.system,
               }),
+            ),
+            row(
+              SbIcons.lock,
+              'Change password',
+              onTap: () => showChangePassword(context),
             ),
             row(
               SbIcons.globe,

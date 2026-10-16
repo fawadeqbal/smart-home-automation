@@ -24,6 +24,17 @@ class AuthRepository {
   Future<Me> login(String email, String password) async =>
       Me.fromJson(asJson(await _api.post<Object?>('/auth/login', {'email': email, 'password': password})));
 
+  /// "Forgot password?": the server emails a link if the account exists (it answers the same either way).
+  /// Returns whether this server sends email at all.
+  Future<bool> forgotPassword(String email) async {
+    final r = await _api.post<Object?>('/auth/forgot', {'email': email.trim()});
+    return r is Map && r['mail'] == true;
+  }
+
+  /// A new password while signed in; other devices are signed out.
+  Future<void> changePassword(String current, String next) =>
+      _api.post<Object?>('/auth/password', {'current': current, 'password': next});
+
   Future<Me> me() async => Me.fromJson(asJson(await _api.get<Object?>('/auth/me')));
 
   /// Opens another of my homes; the server remembers it for next time.

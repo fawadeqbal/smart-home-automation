@@ -93,7 +93,7 @@ const member = new Client();
 const state = {};
 
 test('first run: setup creates the organization, the home and signs the owner in', async () => {
-  assert.deepEqual((await owner.get('/auth/status')).body, { setupNeeded: true, signupOpen: true });
+  assert.deepEqual((await owner.get('/auth/status')).body, { setupNeeded: true, signupOpen: true, mail: false });
   const res = await owner.post('/auth/setup', { homeName: 'Test home', name: 'Fawad', email: 'Owner@Example.com', password: 'secret123' });
   assert.equal(res.status, 201);
   assert.equal(res.body.role, 'OWNER');
@@ -720,4 +720,74 @@ test('Help Center: starter articles, policies as drafts, staff-only articles, ed
   const mine = (await owner.get('/platform/help')).body[0];
   assert.equal((await other.patch(`/platform/help/${mine.id}`, { title: 'Hacked' })).status, 404);
   assert.equal((await other.get(`/platform/help/${mine.id}`)).status, 404);   // nor read it
+});
+
+
+test('passwords: forgot (same answer for everyone), links made by the owner or a super admin, change while signed in', async () => {
+  // "Forgot password?" never tells whether an account exists (and without email set up it says so)
+  assert.deepEqual((await new Client().post('/auth/forgot', { email: 'kid@example.com' })).body, { mail: false });
+  assert.deepEqual((await new Client().post('/auth/forgot', { email: 'nobody@example.com' })).body, { mail: false });
+
+  // the owner makes a link for a family member who only belongs to this home
+  owner.home = state.homeId;
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  const kidId = (await kid.get('/auth/me')).body.id;
+  assert.equal((await kid.post(`/users/${owner.id ?? 'x'}/reset-link`)).status, 403);           // a member can't
+  const me = (await owner.get('/auth/me')).body;
+  assert.equal((await owner.post(`/users/${me.id}/reset-link`)).status, 400);                  // not for yourself
+  const link = await owner.post(`/users/${kidId}/reset-link`);
+  assert.equal(link.status, 201, JSON.stringify(link.body));
+  assert.equal(link.body.expiresInHours, 24);
+  const token = link.body.path.split('/').pop();
+  const info = (await new Client().get(`/auth/reset/${token}`)).body;
+  assert.equal(info.name, 'Ali');
+  assert.equal(info.email, 'k**@example.com');
+  assert.equal(info.madeByOther, true);
+  assert.equal((await new Client().post(`/auth/reset/${token}`, { password: 'password' })).status, 400);   // too common
+  const fresh = new Client();
+  const done = await fresh.post(`/auth/reset/${token}`, { password: 'new-kid-pass-7' });
+  assert.equal(done.status, 200);
+  assert.equal(done.body.email, 'kid@example.com');                                            // signed in here
+  assert.equal((await fresh.get('/devices')).status, 200);
+  assert.equal((await new Client().post(`/auth/reset/${token}`, { password: 'again-pass-7' })).status, 404); // works once
+  assert.equal((await kid.post('/auth/refresh')).status, 401);                                  // other sessions are signed out
+  assert.equal((await new Client().post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' })).status, 401);
+  assert.equal((await new Client().post('/auth/login', { email: 'kid@example.com', password: 'new-kid-pass-7' })).status, 200);
+  const audit = await prisma.auditLog.findMany({ where: { action: { in: ['user.reset_link', 'user.password_reset'] } } });
+  assert.deepEqual(audit.map((a) => a.action).sort(), ['user.password_reset', 'user.reset_link']);
+
+  // change while signed in: the current password is needed; this browser stays signed in, others don't
+  const other = new Client();
+  await other.post('/auth/login', { email: 'kid@example.com', password: 'new-kid-pass-7' });
+  assert.equal((await fresh.post('/auth/password', { current: 'wrong', password: 'next-kid-pass-8' })).status, 401);
+  assert.equal((await fresh.post('/auth/password', { current: 'new-kid-pass-7', password: 'next-kid-pass-8' })).status, 200);
+  assert.equal((await fresh.post('/auth/refresh')).status, 200);
+  assert.equal((await other.post('/auth/refresh')).status, 401);
+  assert.equal((await new Client().post('/auth/login', { email: 'kid@example.com', password: 'next-kid-pass-8' })).status, 200);
+
+  // never for someone who works for a company or also belongs elsewhere: that would hand over their account
+  const co = new Client();
+  assert.equal((await co.post('/auth/signup', { orgName: 'Reset Co', name: 'Rehan', email: 'rehan@reset.example', password: 'lamp-post-42' })).status, 201);
+  const staffInvite = await co.post('/platform/staff/invites', { email: 'imran@reset.example', name: 'Imran', staffRole: 'INSTALLER' });
+  const imran = new Client();
+  assert.equal((await imran.post(`/invites/${staffInvite.body.token}/accept`, { name: 'Imran', password: 'secret123' })).status, 201);
+  const imranId = (await imran.get('/auth/me')).body.id;
+  const homeInvite = await owner.post('/invites', { email: 'imran@reset.example', role: 'MEMBER' });
+  assert.equal((await imran.post(`/invites/${homeInvite.body.token}/accept`, { password: 'secret123' })).status, 201);
+  const refused = await owner.post(`/users/${imranId}/reset-link`);
+  assert.equal(refused.status, 403);
+  assert.match(refused.body.message, /Forgot password/);
+
+  // a super admin makes one for their own installer, not for another company's
+  const staffLink = await co.post(`/platform/staff/${imranId}/reset-link`);
+  assert.equal(staffLink.status, 403);                                    // he also has a home with another company
+  const sInvite = await co.post('/platform/staff/invites', { email: 'sana@reset.example', name: 'Sana', staffRole: 'SUPPORT' });
+  const sana = new Client();
+  await sana.post(`/invites/${sInvite.body.token}/accept`, { name: 'Sana', password: 'secret123' });
+  const sanaId = (await sana.get('/auth/me')).body.id;
+  assert.equal((await co.post(`/platform/staff/${sanaId}/reset-link`)).status, 201);
+  assert.equal((await owner.post(`/platform/staff/${sanaId}/reset-link`)).status, 404);
+  const coId = (await co.get('/auth/me')).body.id;
+  assert.equal((await co.post(`/platform/staff/${coId}/reset-link`)).status, 400);
 });

@@ -9,6 +9,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../../shared/widgets/common.dart';
 import '../../state/session.dart';
 import 'auth_widgets.dart';
@@ -24,8 +25,31 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-  bool _show = false, _busy = false, _forgot = false;
+  bool _show = false, _busy = false, _forgot = false, _sending = false;
   String? _error;
+  /// after "Email me a link": true = sent (if the account exists), false = this server sends no email
+  bool? _mailed;
+
+  Future<void> _sendLink() async {
+    final email = _email.text.trim();
+    if (_sending) return;
+    if (!email.contains('@')) {
+      setState(() => _error = 'Type your email above first.');
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      final mail = await ref.read(authRepositoryProvider).forgotPassword(email);
+      if (mounted) setState(() => _mailed = mail);
+    } catch (e) {
+      if (mounted) setState(() => _error = ApiException.from(e).message);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -123,13 +147,41 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     if (_forgot) ...[
                       const SizedBox(height: 14),
-                      const Note(
-                        tone: NoteTone.info,
-                        icon: SbIcons.lock,
-                        child: Text(
-                          'Ask whoever invited you — your home owner, or your installer — to send a new invite link. It lets you choose a new password.',
+                      if (_mailed == null)
+                        Note(
+                          tone: NoteTone.info,
+                          icon: SbIcons.lock,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('We’ll email a link to the address above. Open it to choose a new password.'),
+                              const SizedBox(height: 8),
+                              GestureDetector(
+                                onTap: _sendLink,
+                                child: Text(
+                                  _sending ? 'Sending…' : 'Email me a link',
+                                  style: TextStyle(fontWeight: FontWeight.w600, color: c.acText),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (_mailed == true)
+                        const Note(
+                          tone: NoteTone.ok,
+                          icon: SbIcons.check,
+                          child: Text(
+                            'If this email has an account, a link is on its way. It works once, for one hour. Look in Spam too.',
+                          ),
+                        )
+                      else
+                        const Note(
+                          tone: NoteTone.info,
+                          icon: SbIcons.lock,
+                          child: Text(
+                            'This server doesn’t send email. Ask your home owner, or your installer’s company, for a password link: People, your name, Password link.',
+                          ),
                         ),
-                      ),
                     ],
                     if (_error != null) ...[
                       const SizedBox(height: 14),

@@ -222,8 +222,10 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="side-foot">
             <span className={`live ${live ? '' : 'off'}`}><span className="live-dot" />{live ? 'Live connection' : 'Reconnecting…'}</span>
             <div className="me-row">
-              <Avatar name={me.name} role={avatarRole} />
-              <span className="me-text"><b>{me.name}</b><span>{roleLabel}</span></span>
+              <Link href="/account" className="me-link" title="Your account">
+                <Avatar name={me.name} role={avatarRole} />
+                <span className="me-text"><b>{me.name}</b><span>{roleLabel}</span></span>
+              </Link>
               <button className="icon-btn" onClick={toggle} title="Light / dark" aria-label="Switch light or dark mode"><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button>
               <button className="icon-btn" onClick={logout} title="Sign out" aria-label="Sign out"><Icon name="log-out" size={16} /></button>
             </div>
@@ -259,6 +261,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   {staffRole && <button className="menu-item" onClick={() => { close(); router.push(staffRole === 'INSTALLER' ? '/console/homes' : '/console'); }}><Icon name="shield" size={15} />Platform console</button>}
                   {me.homes.map((h) => <button key={h.id} className="menu-item" onClick={() => { close(); void openHome(h.id); }}><Icon name="house" size={15} />{h.name}</button>)}
                   <div className="menu-sep" />
+                  <button className="menu-item" onClick={() => { close(); router.push('/account'); }}><Icon name="user" size={15} />Your account</button>
                   <button className="menu-item" onClick={() => { close(); toggle(); }}><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
                   <button className="menu-item danger" onClick={() => { close(); void logout(); }}><Icon name="log-out" size={15} />Sign out</button>
                 </>

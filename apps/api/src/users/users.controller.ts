@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { passwordSchema } from '../auth/auth.controller';
 import { AuthService } from '../auth/auth.service';
+import { PasswordsService } from '../auth/passwords.service';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Public, Roles } from '../auth/decorators';
 import { ZodPipe } from '../common/zod';
@@ -27,7 +28,7 @@ const acceptSchema = z.object({ name: z.string().trim().max(80).optional(), pass
 
 @Controller()
 export class UsersController {
-  constructor(private readonly users: UsersService, private readonly auth: AuthService) {}
+  constructor(private readonly users: UsersService, private readonly auth: AuthService, private readonly passwords: PasswordsService) {}
 
   @Roles('OWNER', 'ADMIN')
   @Get('users')
@@ -47,6 +48,13 @@ export class UsersController {
   setRooms(@CurrentUser() user: AuthUser, @Param('id') id: string,
            @Body(new ZodPipe(roomsSchema)) body: z.infer<typeof roomsSchema>) {
     return this.users.setRooms(user, id, body.rooms);
+  }
+
+  /** A link to choose a new password, for someone in this home who can't get the email. */
+  @Roles('OWNER', 'ADMIN')
+  @Post('users/:id/reset-link')
+  resetLink(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.passwords.linkForHomePerson(user, id);
   }
 
   @Roles('OWNER', 'ADMIN')

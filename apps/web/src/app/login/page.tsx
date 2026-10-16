@@ -22,7 +22,6 @@ export default function LoginPage() {
   const [signupOpen, setSignupOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [forgot, setForgot] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
@@ -99,12 +98,7 @@ export default function LoginPage() {
               <IconField label="Email" icon="mail" name="email" type="email" required autoComplete="email" autoFocus
                 placeholder="you@example.com" value={email} onChange={(e) => { setEmail(e.target.value); setError(null); }} />
               <PasswordField value={password} onChange={(v) => { setPassword(v); setError(null); }} autoComplete="current-password" bad={!!error}
-                extra={<button type="button" className="au-link" style={{ fontSize: 13 }} onClick={() => setForgot(!forgot)} aria-expanded={forgot}>Forgot it?</button>} />
-              {forgot && (
-                <Note tone="info" icon="key">
-                  Ask whoever invited you — your home owner, or your company admin — to send you a new invite link. It lets you choose a new password.
-                </Note>
-              )}
+                extra={<Link className="au-link" style={{ fontSize: 13 }} href={`/forgot${email ? `?email=${encodeURIComponent(email)}` : ''}`}>Forgot it?</Link>} />
               {error && <Note tone="bad" icon="alert-triangle">{error}</Note>}
               {opening && <Note tone="ok" icon="check">Signed in — opening {opening}…</Note>}
               <button type="submit" className="au-btn" disabled={busy}>

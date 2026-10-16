@@ -177,6 +177,15 @@ export function CopyField({ value, label = 'Copy link' }: { value: string; label
   );
 }
 
+/** Opens WhatsApp (app or web) with the message ready; the person picks who to send it to. */
+export function WhatsAppShare({ text, label = 'Send on WhatsApp', small = false }: { text: string; label?: string; small?: boolean }) {
+  return (
+    <a className={`btn btn-wa ${small ? 'btn-sm' : ''}`} href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer noopener">
+      <Icon name="send" size={14} />{label}
+    </a>
+  );
+}
+
 /** A dropdown that closes on an outside click or Escape. */
 export function Dropdown({ trigger, children, align = 'left', width }: {
   trigger: (open: boolean, toggle: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: 'left' | 'right'; width?: number | string;

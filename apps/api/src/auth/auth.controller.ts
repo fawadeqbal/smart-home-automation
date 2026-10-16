@@ -1,10 +1,11 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { ZodPipe } from '../common/zod';
 import { MqttService } from '../mqtt/mqtt.service';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
+import { PasswordsService } from './passwords.service';
 import { AuthUser, REFRESH_COOKIE } from './auth.types';
 import { CurrentUser, NoHome, Public } from './decorators';
 import { Inject } from '@nestjs/common';
@@ -32,6 +33,9 @@ const signupSchema = z.object({
   password: passwordSchema,
 });
 const loginSchema = z.object({ email: emailSchema, password: z.string().min(1) });
+const forgotSchema = z.object({ email: emailSchema });
+const resetSchema = z.object({ password: passwordSchema });
+const changeSchema = z.object({ current: z.string().min(1), password: passwordSchema });
 
 @Controller('auth')
 export class AuthController {
@@ -40,6 +44,7 @@ export class AuthController {
     private readonly users: UsersService,
     private readonly mqtt: MqttService,
     private readonly prisma: PrismaService,
+    private readonly passwords: PasswordsService,
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
@@ -47,7 +52,40 @@ export class AuthController {
   @Get('status')
   async status() {
     const setupNeeded = await this.auth.setupNeeded();
-    return { setupNeeded, signupOpen: setupNeeded || this.settings.allowSignup };
+    return { setupNeeded, signupOpen: setupNeeded || this.settings.allowSignup, mail: this.passwords.mailEnabled };
+  }
+
+  /** "Forgot password?": emails a link if the account exists (the answer is the same either way). */
+  @Public()
+  @Post('forgot')
+  @HttpCode(200)
+  forgot(@Body(new ZodPipe(forgotSchema)) body: z.infer<typeof forgotSchema>, @Req() req: Request) {
+    return this.passwords.forgot(body.email, req.ip ?? '');
+  }
+
+  /** What the reset page shows: whose account, until when. */
+  @Public()
+  @Get('reset/:token')
+  resetInfo(@Param('token') token: string) {
+    return this.passwords.info(token);
+  }
+
+  /** A new password from a link; signs them in here and out everywhere else. */
+  @Public()
+  @Post('reset/:token')
+  @HttpCode(200)
+  async reset(@Param('token') token: string, @Body(new ZodPipe(resetSchema)) body: z.infer<typeof resetSchema>,
+              @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const user = await this.passwords.reset(token, body.password, res, req.headers['user-agent']);
+    return this.users.me(user.id);
+  }
+
+  /** A new password while signed in (the current one is needed). Other sessions are signed out. */
+  @NoHome()
+  @Post('password')
+  @HttpCode(200)
+  changePassword(@CurrentUser() user: AuthUser, @Body(new ZodPipe(changeSchema)) body: z.infer<typeof changeSchema>, @Req() req: Request) {
+    return this.passwords.change(user, body.current, body.password, req.cookies?.[REFRESH_COOKIE]);
   }
 
   /** Creates an organization and its first super admin (14-day trial). */
