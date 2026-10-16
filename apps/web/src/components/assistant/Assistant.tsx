@@ -215,6 +215,7 @@ export function AssistantDrawer() {
   const hfStage = a.handsFree.stage;
   const status = a.phase === 'recording' || hfStage === 'listening' || hfStage === 'hearing' ? 'Listening…'
     : a.phase === 'thinking' ? 'Thinking…' : a.speaking ? 'Speaking…'
+    : !a.voice ? 'Voice off · replies as text only'
     : a.handsFree.enabled && a.handsFree.status === 'ready' ? `Say “${a.handsFree.phrase}” · English and Urdu` : 'Ready · speaks English and Urdu';
 
   function submit(e?: FormEvent) {
@@ -234,6 +235,11 @@ export function AssistantDrawer() {
             <b>{a.console ? 'Console assistant' : 'Assistant'}</b>
             <span className={`ai-status ${a.phase}`}>{status}</span>
           </div>
+          <button className={`icon-btn ai-voice ${a.voice ? '' : 'off'}`} onClick={a.toggleVoice} aria-pressed={a.voice}
+            title={a.voice ? 'Speaking replies: on (tap to turn off)' : 'Speaking replies: off (tap to turn on)'}
+            aria-label={a.voice ? 'Turn off spoken replies' : 'Turn on spoken replies'}>
+            <Icon name={a.voice ? 'volume-2' : 'volume-x'} size={17} />
+          </button>
           {a.lines.length > 0 && (
             <button className="icon-btn" onClick={a.reset} title="New conversation" aria-label="New conversation"><Icon name="rotate" size={16} /></button>
           )}

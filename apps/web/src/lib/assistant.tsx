@@ -50,6 +50,9 @@ interface AssistantCtx {
   dismissVoice: () => void;
   /** The console assistant (staff, about all the homes they look after) rather than a home's. */
   console: boolean;
+  /** Replies read aloud (on by default; the speaker button in the assistant turns it off on this device). */
+  voice: boolean;
+  toggleVoice: () => void;
 }
 
 const Ctx = createContext<AssistantCtx | null>(null);
@@ -57,6 +60,9 @@ const MAX_RECORDING_MS = 15_000;
 const HANDS_FREE_KEY = 'sb_hands_free';
 const readFlag = () => { try { return localStorage.getItem(HANDS_FREE_KEY) === '1'; } catch { return false; } };
 const writeFlag = (on: boolean) => { try { localStorage.setItem(HANDS_FREE_KEY, on ? '1' : '0'); } catch { /* private mode */ } };
+const VOICE_KEY = 'sb_voice_replies';
+const readVoice = () => { try { return localStorage.getItem(VOICE_KEY) !== '0'; } catch { return true; } };
+const writeVoice = (on: boolean) => { try { localStorage.setItem(VOICE_KEY, on ? '1' : '0'); } catch { /* private mode */ } };
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 
 export function AssistantProvider({ children, homeId, console = false }: { children: ReactNode; homeId: string | null; console?: boolean }) {
@@ -71,6 +77,9 @@ export function AssistantProvider({ children, homeId, console = false }: { child
   const [micOk, setMicOk] = useState(true);
   const [level, setLevel] = useState(0);
   const [speaking, setSpeaking] = useState(false);
+  const [voice, setVoice] = useState(true);
+  const voiceRef = useRef(true);
+  useEffect(() => { voiceRef.current = readVoice(); setVoice(voiceRef.current); }, []);
   const player = useRef<HTMLAudioElement | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const cancelled = useRef(false);
@@ -144,7 +153,7 @@ export function AssistantProvider({ children, homeId, console = false }: { child
       const reply = await fn();
       if (reply.heard && !shown) add({ who: 'me', text: reply.heard });
       add({ who: 'bot', text: reply.reply, audio: reply.audio });
-      if (!quiet) play(reply.audio);
+      if (!quiet && voiceRef.current) play(reply.audio);
       return reply;
     } catch (err) {
       setError(errorText(err));
@@ -159,7 +168,7 @@ export function AssistantProvider({ children, homeId, console = false }: { child
     if (!value || phase !== 'idle') return;
     unlockSound();
     const isFresh = takeFresh();
-    void request(() => post<Reply>(`${baseRef.current}/chat`, { text: value, speak: true, fresh: isFresh }), value);
+    void request(() => post<Reply>(`${baseRef.current}/chat`, { text: value, speak: voiceRef.current, fresh: isFresh }), value);
   }, [phase, request, unlockSound]);
 
   const stopMeter = () => {
@@ -256,11 +265,13 @@ export function AssistantProvider({ children, homeId, console = false }: { child
     }
     // while it answers, "Hey Switchboard" interrupts it
     engine.listenForWake();
-    if (reply.audio) {
+    if (reply.audio && voiceRef.current) {
       go('speaking');
       setSpeaking(true);
       await engine.speak(reply.audio);
       setSpeaking(false);
+    } else {
+      go('speaking');   // voice off: the answer shows on screen only
     }
     if (stageRef.current !== 'speaking' && stageRef.current !== 'thinking') return;   // interrupted by a new wake word
     if (/[?؟]\s*$/.test(reply.reply)) {
@@ -271,7 +282,7 @@ export function AssistantProvider({ children, homeId, console = false }: { child
       engine.capture(6000);
     } else {
       // leave the answer on screen a moment, like Siri, unless something new has started
-      setTimeout(() => { if (stageRef.current === 'speaking') go('idle'); }, 2500);
+      setTimeout(() => { if (stageRef.current === 'speaking') go('idle'); }, voiceRef.current ? 2500 : 7000);   // longer to read
     }
   }, [request]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -352,6 +363,14 @@ export function AssistantProvider({ children, homeId, console = false }: { child
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const toggleVoice = useCallback(() => {
+    const on = !voiceRef.current;
+    voiceRef.current = on;
+    setVoice(on);
+    writeVoice(on);
+    if (!on) { player.current?.pause(); setSpeaking(false); }
+  }, []);
+
   const reset = useCallback(() => {
     setLines([]);
     fresh.current = true;
@@ -365,7 +384,7 @@ export function AssistantProvider({ children, homeId, console = false }: { child
     <Ctx.Provider value={{
       open, setOpen, lines, phase, error, notice, micOk, level, speaking, send, startRecording, stopRecording, cancelRecording, play, reset,
       handsFree: { supported: hfSupported, enabled: hfEnabled, status: hfStatus, phrase: hfPhrase, stage, detail: hfDetail },
-      toggleHandsFree, dismissVoice, console,
+      toggleHandsFree, dismissVoice, console, voice, toggleVoice,
     }}>
       {children}
     </Ctx.Provider>

@@ -1480,3 +1480,4 @@ input[type='file'] { height: auto; padding: 8px; }
   .hce-actions > .btn { flex: 1 1 0; justify-content: center; }
   .hce-actions > .btn-primary { order: -1; flex-basis: 100%; }
 }
+.ai-voice.off { color: var(--mu); background: var(--sf2); }
