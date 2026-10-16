@@ -437,3 +437,25 @@ export interface Ticket {
   node?: { id: string; name: string; online: boolean } | null;
 }
 export interface TicketQueue { tickets: Ticket[]; open: number; overdue: number }
+
+// installation report
+export interface InstallItem { key: string; label: string; done: boolean; note?: string; check: { ok: boolean; text: string } | null }
+export interface InstallReport {
+  id: string;
+  homeId: string;
+  home: string;
+  installer: string | null;
+  items: InstallItem[];
+  notes: string;
+  done: number;
+  total: number;
+  signed: boolean;
+  signedName: string | null;
+  signedAt: string | null;
+  signature: string | null;
+  photos: { id: string; caption: string; size: number; createdAt: string; url: string }[];
+  updatedAt: string;
+  canEdit?: boolean;
+  canReopen?: boolean;
+  canSign?: boolean;
+}

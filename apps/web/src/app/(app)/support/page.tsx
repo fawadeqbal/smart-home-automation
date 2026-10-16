@@ -26,7 +26,10 @@ export default function SupportPage() {
   return (
     <div className="stack" style={{ maxWidth: 820 }}>
       <PageHead title="Help requests" sub={isAdmin ? 'Ask your installer’s team for help, and see every request from this home.' : 'Ask for help, and see the answers to your requests.'}
-                actions={canAsk && <button className="btn btn-primary" onClick={() => setAsking(true)}><Icon name="plus" size={15} />Ask for help</button>} />
+                actions={<>
+                  {isAdmin && <Link className="btn" href="/installation"><Icon name="file-text" size={15} />Installation report</Link>}
+                  {canAsk && <button className="btn btn-primary" onClick={() => setAsking(true)}><Icon name="plus" size={15} />Ask for help</button>}
+                </>} />
       {!list.data ? (list.error ? <div className="alert">{list.error}</div> : <Loader />) : list.data.length === 0 ? (
         <Empty action={canAsk ? <button className="btn btn-primary" onClick={() => setAsking(true)}>Ask for help</button> : undefined}>
           No requests yet. If something isn’t working, or you want something added or changed, ask here. Your installer’s team answers here and you get a notification.

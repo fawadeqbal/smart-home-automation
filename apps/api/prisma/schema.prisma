@@ -247,6 +247,7 @@ model Home {
   summaryWeekAt DateTime?
   memories      AssistantMemory[]
   tickets       Ticket[]
+  installation  InstallationReport?
 }
 
 model Room {
@@ -718,4 +719,37 @@ model TicketMessage {
   createdAt DateTime @default(now())
 
   @@index([ticketId, createdAt])
+}
+
+/// The installer's record of a home's installation: a checklist, photos, and the customer's sign-off.
+model InstallationReport {
+  id          String         @id @default(cuid())
+  homeId      String         @unique
+  home        Home           @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  orgId       String
+  installerId String?
+  /// [{ key, label, done, note }]
+  items       Json           @default("[]")
+  notes       String         @default("")
+  /// signed by the customer: their name, when, and their drawn signature (a small PNG data URL)
+  signedName  String?
+  signedAt    DateTime?
+  signature   String?
+  signedById  String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  photos      InstallPhoto[]
+}
+
+model InstallPhoto {
+  id        String             @id @default(cuid())
+  reportId  String
+  report    InstallationReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  caption   String             @default("")
+  mime      String
+  size      Int
+  byId      String?
+  createdAt DateTime           @default(now())
+
+  @@index([reportId])
 }

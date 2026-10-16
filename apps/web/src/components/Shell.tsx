@@ -195,7 +195,7 @@ export function Shell({ children }: { children: ReactNode }) {
     </Dropdown>
   );
 
-  const PAGE: Record<string, string> = { '/automations': 'Automations', '/energy': 'Electricity', '/summary': 'Summary', '/support': 'Help requests', '/notifications': 'Notifications', '/help': 'Help' };
+  const PAGE: Record<string, string> = { '/automations': 'Automations', '/energy': 'Electricity', '/summary': 'Summary', '/support': 'Help requests', '/installation': 'Installation', '/notifications': 'Notifications', '/help': 'Help' };
   const fallback = PAGE[path] ?? (path.startsWith('/devices/') ? 'Device' : null);
   const shownCrumbs: Crumb[] = crumbs.length ? crumbs
     : platform ? [{ label: 'Platform' }]

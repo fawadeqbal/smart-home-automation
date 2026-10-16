@@ -567,6 +567,59 @@ test('service tickets: the home asks, the team answers (staff notes stay private
   assert.equal(help.body.ticket.number, t2.body.number + 1);
 });
 
+test('installation report: checklist (some items check themselves), photos behind signed links, the customer signs', async () => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const url = `/platform/homes/${state.homeId}/installation`;
+  const r = (await owner.get(url)).body;
+  assert.equal(r.total, 11);
+  assert.equal(r.signed, false);
+  assert.equal(r.canEdit, true);
+  const wifi = r.items.find((i) => i.key === 'wifi');
+  assert.match(wifi.check.text, /boards online/);
+  assert.match(r.items.find((i) => i.key === 'owner').check.text, /has joined/);
+
+  // can't sign with items open
+  const sig = `data:image/png;base64,${PNG.toString('base64')}`;
+  const early = await owner.post(`${url}/sign`, { name: 'Fawad', signature: sig });
+  assert.equal(early.status, 400);
+  assert.match(early.body.message, /Tick every item first \(11 left/);
+
+  const ticked = await owner.put(url, { items: r.items.map((i) => ({ key: i.key, done: true })), notes: 'Router moved to the hallway.' });
+  assert.equal(ticked.body.done, 11);
+
+  // photos: images only; served by a signed link that an <img> can use
+  const form = (blob, name) => { const f = new FormData(); f.append('photo', blob, name); f.append('caption', 'Kitchen board'); return f; };
+  const notImage = await fetch(`${base}${url}/photos`, { method: 'POST', body: form(new Blob([new Uint8Array([1, 2])], { type: 'application/pdf' }), 'x.pdf'), headers: { Cookie: owner.cookieHeader } });
+  assert.equal(notImage.status, 400);
+  const up = await fetch(`${base}${url}/photos`, { method: 'POST', body: form(new Blob([PNG], { type: 'image/png' }), 'board.png'), headers: { Cookie: owner.cookieHeader } });
+  assert.equal(up.status, 201);
+  const withPhoto = await up.json();
+  assert.equal(withPhoto.photos.length, 1);
+  assert.equal(withPhoto.photos[0].caption, 'Kitchen board');
+  const img = await fetch(base.replace('/api', '') + withPhoto.photos[0].url);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal((await fetch(base.replace('/api', '') + withPhoto.photos[0].url.replace(/sig=\w/, 'sig=0'))).status, 403);
+
+  // a member can't see it; the customer signs on the installer's phone; then it's a record
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  assert.equal((await kid.get('/home/installation')).status, 403);
+  assert.equal((await owner.post(`${url}/sign`, { name: 'Fawad', signature: 'data:image/png;base64,<script>' })).status, 400);
+  const signed = await owner.post(`${url}/sign`, { name: 'Fawad Iqbal', signature: sig });
+  assert.equal(signed.status, 201, JSON.stringify(signed.body));
+  assert.equal(signed.body.signed, true);
+  assert.equal(signed.body.signedName, 'Fawad Iqbal');
+  assert.equal((await owner.put(url, { notes: 'late change' })).status, 400);
+
+  // a super admin can open it again; the owner can sign from their own phone too
+  assert.equal((await owner.post(`${url}/reopen`)).body.signed, false);
+  const mine = await owner.post('/home/installation/sign', { name: 'Fawad', signature: sig });
+  assert.equal(mine.status, 201, JSON.stringify(mine.body));
+  assert.equal(mine.body.signed, true);
+  assert.equal((await owner.get('/home/installation')).body.photos.length, 1);
+});
+
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
   const bad = new FormData();
   bad.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.bin');

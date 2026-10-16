@@ -29,6 +29,8 @@ export interface Settings {
   allowSignup: boolean;
   /** Where uploaded firmware images are kept. */
   firmwareDir: string;
+  /** uploaded files (installation photos) */
+  filesDir: string;
   /** Shown to owners in the add-board wizard (what to type on the board's setup page). */
   mqttNodePassword: string;
   mqttPublicPort: number;
@@ -62,6 +64,7 @@ export function loadSettings(): Settings {
     mqttNodePassword: process.env.MQTT_NODE_PASSWORD ?? '',
     mqttPublicPort: Number(process.env.MQTT_PUBLIC_PORT || 1883),
     firmwareDir: resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware')),
+    filesDir: resolve(process.env.FILES_DIR || resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware'), '../files')),
     publicApiUrl: process.env.PUBLIC_API_URL?.replace(/\/+$/, '') || null,
     brokerLog: process.env.BROKER_LOG || null,
     geoDir: process.env.GEOIP === 'off' ? null : resolve(process.env.GEOIP_DIR || resolve(process.env.FIRMWARE_DIR || resolve(__dirname, '../../../data/firmware'), '../geo')),

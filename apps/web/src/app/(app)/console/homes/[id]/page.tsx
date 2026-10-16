@@ -1,4 +1,5 @@
 'use client';
+import { InstallationView } from '@/components/installation/InstallationView';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -19,7 +20,7 @@ import { useLive } from '@/lib/live';
 import { useSession } from '@/lib/session';
 import type { Catalog, Workspace, WorkspaceBoard } from '@/lib/types';
 
-const TABS = ['overview', 'boards', 'rooms', 'people', 'diagnostics', 'activity'] as const;
+const TABS = ['overview', 'boards', 'rooms', 'people', 'diagnostics', 'installation', 'activity'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function HomeWorkspace() {
@@ -95,7 +96,7 @@ export default function HomeWorkspace() {
       </div>
 
       <div className="tabs" role="tablist">
-        {([['overview', 'Overview'], ['boards', 'Boards', ws.boards.length], ['rooms', 'Rooms', ws.rooms.length], ['people', 'People', ws.stats.people], ['diagnostics', 'Diagnostics'], ['activity', 'Activity']] as [Tab, string, number?][]).map(([k, label, n]) => (
+        {([['overview', 'Overview'], ['boards', 'Boards', ws.boards.length], ['rooms', 'Rooms', ws.rooms.length], ['people', 'People', ws.stats.people], ['diagnostics', 'Diagnostics'], ['installation', 'Installation'], ['activity', 'Activity']] as [Tab, string, number?][]).map(([k, label, n]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={`tab-btn ${tab === k ? 'active' : ''}`} onClick={() => go(k)}>
             {label}{n ? <span className="pill">{n}</span> : null}
             {k === 'diagnostics' && installedOffline > 0 && <Dot tone="bad" />}
@@ -201,6 +202,7 @@ export default function HomeWorkspace() {
         <DiagnosticsView canSetup={canSetup} installerName={h.installer?.name} allowSupport={false}
           editHref={(nodeId) => boardHref(nodeId, 'devices')} openHref={(nodeId) => boardHref(nodeId)} />
       )}
+      {tab === 'installation' && <InstallationView homeId={id} />}
       {tab === 'activity' && <ActivityView source={`/platform/audit?home=${id}`} showHome={false} />}
 
       {dialog === 'edit' && <EditHomeDialog ws={ws} onClose={() => setDialog(null)} onSaved={() => void reload()} />}

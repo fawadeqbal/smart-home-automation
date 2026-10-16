@@ -13,6 +13,8 @@ import { PlaceService } from './automation/place.service';
 import { EnergyController } from './energy/energy.controller';
 import { MemoryController } from './assistant/memory.controller';
 import { TicketsController } from './tickets/tickets.controller';
+import { InstallationController } from './installation/installation.controller';
+import { InstallationService } from './installation/installation.service';
 import { TicketsService } from './tickets/tickets.service';
 import { SummaryService } from './monitoring/summary.service';
 import { EnergyService } from './energy/energy.service';
@@ -70,11 +72,11 @@ export function createAppModule(settings: Settings) {
       JwtModule.register({ global: true, secret: settings.jwtSecret }),
     ],
     controllers: [
-      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, RulesController, EnergyController, MemoryController, TicketsController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
+      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, RulesController, EnergyController, MemoryController, TicketsController, InstallationController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
     ],
   })
   class AppModule {}
