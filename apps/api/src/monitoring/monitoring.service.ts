@@ -22,6 +22,7 @@ export const NOTICE_KINDS = {
   weeklySummary: { label: 'A summary of the week, on Sunday evening', default: true, adminsOnly: true },
   dailySummary: { label: 'A summary of the day, every evening at 9 pm', default: false, adminsOnly: true },
   summaryEmail: { label: 'Also email me the weekly summary', default: true, adminsOnly: true },
+  ticketReply: { label: 'An answer to my help request', default: true, adminsOnly: false },
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;

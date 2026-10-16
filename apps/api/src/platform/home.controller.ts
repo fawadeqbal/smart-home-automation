@@ -7,6 +7,7 @@ import { AuditService } from '../common/audit.service';
 import { ZodPipe } from '../common/zod';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TicketsService } from '../tickets/tickets.service';
 import { PlatformService } from './platform.service';
 
 /** Things about the current home as a whole: its activity log, and asking the installer/support for help. */
@@ -17,6 +18,7 @@ export class HomeController {
     private readonly prisma: PrismaService,
     private readonly monitoring: MonitoringService,
     private readonly audit: AuditService,
+    private readonly tickets: TicketsService,
   ) {}
 
   /** Changes to this home — by its people, its installer and the system. */
@@ -59,22 +61,14 @@ export class HomeController {
     await this.prisma.membership.updateMany({ where: { userId: user.id, homeId: user.homeId, onboardedAt: null }, data: { onboardedAt: new Date() } });
   }
 
-  /** "Send to support": a notice for the organization's support staff, super admins and the installer. */
+  /** "Send to support": opens a service ticket that the organization's support staff and the installer see. */
   @Roles('OWNER', 'ADMIN')
   @Post('support')
   @HttpCode(200)
   async support(@CurrentUser() user: AuthUser,
                 @Body(new ZodPipe(z.object({ message: z.string().trim().min(1).max(1000), nodeId: z.string().max(64).optional() }))) body: { message: string; nodeId?: string }) {
-    const home = await this.prisma.home.findUniqueOrThrow({ where: { id: user.homeId }, select: { id: true, name: true, orgId: true, installerId: true } });
-    const staff = await this.prisma.user.findMany({
-      where: { orgId: home.orgId, disabled: false, OR: [{ staffRole: { in: [StaffRole.SUPPORT, StaffRole.SUPERADMIN] } }, { id: home.installerId ?? '' }] },
-      select: { id: true },
-    });
-    await this.monitoring.notify(home.id, staff.map((s) => s.id).filter((id) => id !== user.id), {
-      kind: 'supportRequest', severity: 'WARN', title: `Help requested · ${home.name}`,
-      body: `${user.name}: ${body.message}`, link: `/console/homes/${home.id}?tab=diagnostics${body.nodeId ? `&board=${body.nodeId}` : ''}`,
-    });
-    await this.audit.record(home.id, user.id, 'support.request', body.nodeId ?? home.id, { message: body.message });
-    return { sent: staff.length, role: user.role === Role.OWNER ? 'owner' : 'admin' };
+    const ticket = await this.tickets.open(user, { body: body.message, nodeId: body.nodeId, category: 'fault' });
+    await this.audit.record(user.homeId, user.id, 'support.request', body.nodeId ?? user.homeId, { message: body.message, ticket: ticket.number });
+    return { sent: true, ticket: { id: ticket.id, number: ticket.number }, role: user.role === Role.OWNER ? 'owner' : 'admin' };
   }
 }

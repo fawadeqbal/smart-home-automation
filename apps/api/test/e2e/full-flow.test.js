@@ -520,6 +520,53 @@ test('summaries: the week in lines to share; sent on Sunday evening as a notice;
   assert.equal((await owner.del(`/assistant/memory/${m.body.id}`)).status, 204);
 });
 
+test('service tickets: the home asks, the team answers (staff notes stay private), solved by the home', async () => {
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  const t = await kid.post('/support/tickets', { body: 'Water is leaking near the kitchen board. Please send someone.' });
+  assert.equal(t.status, 201, JSON.stringify(t.body));
+  assert.equal(t.body.priority, 'URGENT');
+  assert.equal(t.body.title, 'Water is leaking near the kitchen board');
+  assert.equal(t.body.statusText, 'Open');
+  const t2 = await kid.post('/support/tickets', { title: 'Add a socket', body: 'Can you add one more socket in the lounge?', category: 'installation' });
+  assert.equal(t2.body.number, t.body.number + 1);
+  assert.equal(t2.body.priority, 'NORMAL');
+
+  // the team sees both in the queue; the owner (an admin of the home) sees the home's tickets
+  const queue = (await owner.get('/platform/tickets?status=open')).body;
+  assert.ok(queue.open >= 2 && queue.tickets.some((x) => x.id === t.body.id));
+  assert.equal((await owner.get('/support/tickets')).body.filter((x) => x.homeId === state.homeId).length >= 2, true);
+  assert.ok((await owner.get('/notifications')).body.items.some((n) => n.kind === 'supportRequest' && n.title.includes(`#${t.body.number}`)));
+
+  // a staff-only note, then an answer: the home sees only the answer
+  await owner.post(`/platform/tickets/${t.body.id}/reply`, { body: 'Check the board enclosure for moisture', internal: true });
+  const answered = await owner.post(`/platform/tickets/${t.body.id}/reply`, { body: 'Switch off the kitchen board at the DB. Our installer comes at 4 pm.' });
+  assert.equal(answered.status, 201, JSON.stringify(answered.body));
+  assert.equal(answered.body.status, 'IN_PROGRESS');
+  assert.equal(answered.body.messages.filter((m) => m.internal).length, 1);
+  const seen = (await kid.get(`/support/tickets/${t.body.id}`)).body;
+  const said = seen.messages.filter((m) => !m.event);
+  assert.equal(said.length, 2);
+  assert.ok(!seen.messages.some((m) => /moisture/.test(m.body)));
+  assert.equal(said[1].staff, true);
+  assert.ok(seen.messages.some((m) => m.event && m.body === 'Status: Being worked on'));
+  assert.ok((await kid.get('/notifications')).body.items.some((n) => n.kind === 'ticketReply'));
+
+  // priority and assignment are the team's; the home marks it solved
+  const upd = await owner.patch(`/platform/tickets/${t.body.id}`, { priority: 'HIGH', assigneeId: (await owner.get('/auth/me')).body.id });
+  assert.equal(upd.body.priority, 'HIGH');
+  assert.equal(upd.body.assignee, 'Fawad');
+  const solved = await kid.post(`/support/tickets/${t.body.id}/reply`, { body: 'Fixed, thank you', solved: true });
+  assert.equal(solved.body.status, 'RESOLVED');
+  assert.equal((await kid.get(`/support/tickets/${t2.body.id}`)).status, 200);
+  assert.equal((await kid.get('/platform/tickets')).status, 403);
+
+  // "Send to support" in Diagnostics opens a ticket too
+  const help = await owner.post('/home/support', { message: 'Board keeps restarting', nodeId: NODE_ID });
+  assert.equal(help.status, 200);
+  assert.equal(help.body.ticket.number, t2.body.number + 1);
+});
+
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
   const bad = new FormData();
   bad.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.bin');

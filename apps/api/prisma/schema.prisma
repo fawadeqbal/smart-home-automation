@@ -131,6 +131,9 @@ model Organization {
   firmware     FirmwareImage[]
   visitRequests VisitRequest[]
   helpArticles HelpArticle[]
+  tickets      Ticket[]
+  /// the last ticket number used (tickets are numbered per company: #1, #2…)
+  ticketSeq    Int             @default(0)
   createdAt    DateTime        @default(now())
 }
 
@@ -243,6 +246,7 @@ model Home {
   summaryDayAt  DateTime?
   summaryWeekAt DateTime?
   memories      AssistantMemory[]
+  tickets       Ticket[]
 }
 
 model Room {
@@ -657,4 +661,61 @@ model AssistantMemory {
   createdAt DateTime @default(now())
 
   @@index([userId, homeId])
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+/// A service ticket: a home's problem or request, from opening to resolved, with its conversation.
+model Ticket {
+  id          String         @id @default(cuid())
+  orgId       String
+  org         Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  homeId      String
+  home        Home           @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  number      Int
+  title       String
+  category    String         @default("fault")
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(NORMAL)
+  nodeId      String?
+  openedById  String
+  assigneeId  String?
+  /// when it should be answered by (from the priority)
+  dueAt       DateTime?
+  resolvedAt  DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  messages    TicketMessage[]
+
+  @@unique([orgId, number])
+  @@index([orgId, status])
+  @@index([homeId])
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String?
+  body      String
+  /// a note for staff only (the home doesn't see it)
+  internal  Boolean  @default(false)
+  /// "status: OPEN -> RESOLVED" and the like, written by the system
+  event     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
 }
