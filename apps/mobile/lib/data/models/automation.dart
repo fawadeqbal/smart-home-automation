@@ -87,7 +87,10 @@ enum ScheduleKind {
   once,
 
   /// Every day, or on chosen weekdays, at a time.
-  daily;
+  daily,
+
+  /// Every day (or chosen weekdays) at sunrise or sunset, give or take some minutes.
+  sun;
 
   String get json => name.toUpperCase();
 
@@ -113,9 +116,13 @@ class Schedule {
     this.actions = const [],
     this.createdBy,
     this.createdById,
+    this.sunEvent,
+    this.offsetMin = 0,
   });
 
   factory Schedule.fromJson(Json json) => Schedule(
+    sunEvent: strOrNull(json['sunEvent']),
+    offsetMin: json['offsetMin'] is num ? (json['offsetMin'] as num).toInt() : 0,
     id: str(json['id']),
     name: str(json['name'], 'Schedule'),
     kind: ScheduleKind.fromJson(json['kind']),
@@ -157,6 +164,17 @@ class Schedule {
   final String? createdBy;
   final String? createdById;
 
+  /// [ScheduleKind.sun]: `SUNRISE` or `SUNSET`, and minutes after it (negative = before).
+  final String? sunEvent;
+  final int offsetMin;
+
+  /// "15 min after sunset" / "at sunrise".
+  String get sunText {
+    final ev = sunEvent == 'SUNRISE' ? 'sunrise' : 'sunset';
+    if (offsetMin == 0) return 'at $ev';
+    return '${offsetMin.abs()} min ${offsetMin < 0 ? 'before' : 'after'} $ev';
+  }
+
   /// A waiting one-off that switches just [deviceId] off — the device sheet's "Turn off automatically".
   bool isTimerFor(String deviceId) =>
       kind == ScheduleKind.once &&
@@ -183,6 +201,8 @@ class Schedule {
     actions: actions,
     createdBy: createdBy,
     createdById: createdById,
+    sunEvent: sunEvent,
+    offsetMin: offsetMin,
   );
 }
 
@@ -229,4 +249,79 @@ class NewSchedule {
     if (kind == ScheduleKind.daily) ...{'time': time, 'days': days},
     'actions': [for (final a in actions) a.toJson()],
   };
+}
+
+/// "When this happens, do that" (`/rules`). Made on the web or by asking the assistant; the phone
+/// lists them, pauses and deletes them.
+@immutable
+class Rule {
+  const Rule({
+    required this.id,
+    required this.name,
+    this.enabled = true,
+    this.summary = '',
+    this.lastFiredAt,
+    this.lastResult,
+    this.createdBy,
+    this.createdById,
+  });
+
+  factory Rule.fromJson(Json json) => Rule(
+    id: str(json['id']),
+    name: str(json['name'], 'Rule'),
+    enabled: boolean(json['enabled'], true),
+    summary: str(json['summary']),
+    lastFiredAt: dateOrNull(json['lastFiredAt']),
+    lastResult: strOrNull(json['lastResult']),
+    createdBy: strOrNull(json['createdBy']),
+    createdById: strOrNull(json['createdById']),
+  );
+
+  final String id;
+  final String name;
+  final bool enabled;
+
+  /// In plain words: "When Main door opens between 22:00 and 06:00: Hall light on for 5 min, tell me".
+  final String summary;
+  final DateTime? lastFiredAt;
+  final String? lastResult;
+  final String? createdBy;
+  final String? createdById;
+
+  Rule copyWith({bool? enabled}) => Rule(
+    id: id,
+    name: name,
+    enabled: enabled ?? this.enabled,
+    summary: summary,
+    lastFiredAt: lastFiredAt,
+    lastResult: lastResult,
+    createdBy: createdBy,
+    createdById: createdById,
+  );
+}
+
+/// Away mode: door and motion alerts at any hour, and (if picked) lights that make the home look lived-in.
+@immutable
+class AwayState {
+  const AwayState({this.on = false, this.since, this.by, this.lights = const [], this.loaded = false});
+
+  factory AwayState.fromJson(Json json) => AwayState(
+    on: boolean(json['on']),
+    since: dateOrNull(json['since']),
+    by: strOrNull(json['by']),
+    lights: [
+      for (final id in strList(json['lights']))
+        for (final s in asJsonList(json['switches']))
+          if (str(s['id']) == id) str(s['name']),
+    ],
+    loaded: true,
+  );
+
+  final bool on;
+  final DateTime? since;
+  final String? by;
+
+  /// Names of the lights that go on and off in the evening while away.
+  final List<String> lights;
+  final bool loaded;
 }

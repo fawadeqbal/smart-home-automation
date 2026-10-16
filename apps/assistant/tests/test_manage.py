@@ -258,3 +258,95 @@ def test_power_cuts_in_words():
 def test_power_questions_reach_the_ai():
     for q in ["when did the power go", "load shedding kab hui", "was there an outage last night"]:
         assert ScopeGuard().decide(q, followup=False).route == AGENT
+
+
+# ------------------------------------------------------------------ rules, away mode, safety, sunset timers
+class RulesApi(OwnerApi):
+    def __init__(self):
+        super().__init__(devices=home() + [device("d4", "Gate", room="Hall", controllable=False, state={"active": False})])
+        self._rules = []
+        self._away = {"on": False, "lights": [], "switches": [{"id": "d1", "name": "Bulb"}, {"id": "d2", "name": "Fan"}]}
+
+    def scenes(self):
+        return [{"id": "sc1", "name": "Good night"}]
+
+    def rules(self):
+        return self._rules
+
+    def create_rule(self, body):
+        self.changes.append(("create_rule", body))
+        r = {"id": f"r{len(self._rules) + 1}", "name": "Gate rule", "enabled": True, "summary": "When Gate opens: Bulb on for 5 min, tell me"}
+        self._rules.append(r)
+        return r
+
+    def update_rule(self, rule_id, body):
+        self.changes.append(("update_rule", rule_id, body))
+        return {}
+
+    def delete_rule(self, rule_id):
+        self.changes.append(("delete_rule", rule_id))
+
+    def away(self):
+        return self._away
+
+    def set_away(self, body):
+        self.changes.append(("set_away", body))
+        self._away = {**self._away, **({"on": body["on"]} if "on" in body else {}), **({"lights": body["lights"]} if "lights" in body else {})}
+        return self._away
+
+
+def test_create_rule_from_words():
+    from assistant.manage import CreateRuleTool
+    api = RulesApi()
+    out = CreateRuleTool(api, api.devices()).run({
+        "when_device": "gate", "event": "opens", "from_time": "22:00", "to_time": "06:00",
+        "switch": [{"device": "batti", "state": "on", "for_minutes": 5}], "tell": "me", "scene": "good night"})
+    assert out.startswith("Saved the rule: When Gate opens")
+    body = api.changes[-1][1]
+    assert body["trigger"] == {"deviceId": "d4", "event": "opens"}
+    assert body["conditions"] == {"from": "22:00", "to": "06:00"}
+    assert body["actions"] == [{"type": "device", "deviceId": "d1", "on": True, "forMinutes": 5},
+                               {"type": "scene", "sceneId": "sc1"}, {"type": "notify", "to": "me"}]
+    # a reading needs a value; a rule must do something
+    assert CreateRuleTool(api, api.devices()).run({"when_device": "climate", "event": "above"}).startswith("Error: say the value")
+    assert "say what the rule should do" in CreateRuleTool(api, api.devices()).run({"when_device": "gate", "event": "opens"})
+    temp = CreateRuleTool(api, api.devices()).run({"when_device": "climate", "event": "above", "value": 32, "switch": [{"device": "fan", "state": "on"}]})
+    assert temp.startswith("Saved") and api.changes[-1][1]["trigger"] == {"deviceId": "d3", "event": "above", "value": 32.0}
+
+
+def test_rules_list_pause_and_delete_needs_a_yes():
+    from assistant.manage import ChangeRuleTool, CreateRuleTool, ListRulesTool
+    api = RulesApi()
+    CreateRuleTool(api, api.devices()).run({"when_device": "gate", "event": "opens", "tell": "me"})
+    assert ListRulesTool(api).run({}).startswith("1. When Gate opens")
+    assert ChangeRuleTool(api).run({"which": "1", "action": "pause"}) == "Paused the rule 'Gate rule'."
+    assert api.changes[-1] == ("update_rule", "r1", {"enabled": False})
+    assert ChangeRuleTool(api).run({"which": "gate", "action": "delete"}).startswith(CONFIRM)
+    assert ChangeRuleTool(api).run({"which": "gate", "action": "delete", "confirmed": True}) == "Deleted the rule 'Gate rule'."
+    assert "no matching rule" in ChangeRuleTool(api).run({"which": "kitchen", "action": "pause"})
+
+
+def test_away_mode_and_device_safety():
+    from assistant.manage import AwayModeTool, DeviceSafetyTool
+    api = RulesApi()
+    assert AwayModeTool(api, api.devices()).run({"turn": "status"}) == "Away mode is off."
+    on = AwayModeTool(api, api.devices()).run({"turn": "on", "lights": ["bulb"]})
+    assert on.startswith("Away mode is ON") and "Bulb will go on and off" in on
+    assert api.changes[-1] == ("set_away", {"lights": ["d1"], "on": True})
+    out = DeviceSafetyTool(api, api.devices()).run({"device": "fan", "child_lock": True, "auto_off_minutes": 60})
+    assert out == "Fan in the Bedroom: child lock on, switches itself off 60 minutes after going on."
+    assert api.changes[-1] == ("update_device", "d2", {"childLock": True, "autoOffMinutes": 60})
+    DeviceSafetyTool(api, api.devices()).run({"device": "fan", "auto_off_minutes": 0})
+    assert api.changes[-1] == ("update_device", "d2", {"autoOffMinutes": None})
+
+
+def test_sunset_schedules():
+    from assistant.tools import ScheduleDeviceTool
+    api = FakeApi("tok", home())
+    out = ScheduleDeviceTool(api, api.devices()).run({"device": "bulb", "state": "on", "at_sun": "sunset", "sun_offset_minutes": 15})
+    body = api.schedules()[-1]["body"]
+    assert body["kind"] == "SUN" and body["sunEvent"] == "SUNSET" and body["offsetMin"] == 15
+    api._schedules[-1].update({"kind": "SUN", "sunEvent": "SUNSET", "offsetMin": 15})
+    from assistant.tools import _when_text
+    assert _when_text(api._schedules[-1]) == "every day 15 minutes after sunset"
+    assert out.startswith("Scheduled")

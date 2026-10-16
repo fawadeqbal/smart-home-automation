@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { errorText, post } from '@/lib/api';
 import { timeAgo } from '@/lib/hooks';
+import { useSession } from '@/lib/session';
 import type { Device } from '@/lib/types';
 import { Icon } from './Icon';
 import { analogLabel, contactText, deviceIcon } from '@/lib/format';
@@ -17,9 +18,11 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const on = device.state?.on === true && device.online;
+  const { isAdmin } = useSession();
   const viewOnly = device.access === 'VIEW';
   const sensor = !device.controllable;
-  const canSwitch = !sensor && device.online && !viewOnly && device.enabled;
+  const locked = !!device.childLock && !isAdmin;
+  const canSwitch = !sensor && device.online && !viewOnly && device.enabled && !locked;
 
   async function toggle() {
     if (!canSwitch) return;
@@ -59,7 +62,7 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
           )}
         </span>
       )}
-      <span className="tile-text"><b>{device.name}</b><span>{meta}{viewOnly && !sensor ? ' · view only' : ''}</span></span>
+      <span className="tile-text"><b>{device.name}</b><span>{meta}{viewOnly && !sensor ? ' · view only' : locked ? ' · child lock' : ''}</span></span>
     </>
   );
 
@@ -69,7 +72,7 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
         <div className="tile-body">{body}</div>
       ) : (
         <button className="tile-body" onClick={toggle} disabled={!canSwitch || busy} aria-pressed={on}
-          title={viewOnly ? 'You can see this device but not switch it' : !device.online ? 'Its board is offline — the wall switch still works' : undefined}>
+          title={viewOnly ? 'You can see this device but not switch it' : locked ? 'Child lock: only the owner or an admin can switch it' : !device.online ? 'Its board is offline — the wall switch still works' : undefined}>
           {body}
         </button>
       )}

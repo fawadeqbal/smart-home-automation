@@ -53,6 +53,7 @@ class Device {
     this.roomName,
     this.source,
     this.updatedAt,
+    this.childLock = false,
   });
 
   factory Device.fromJson(Json json) => Device(
@@ -74,6 +75,7 @@ class Device {
     roomName: strOrNull(json['roomName']),
     source: strOrNull(json['source']),
     updatedAt: dateOrNull(json['updatedAt']),
+    childLock: boolean(json['childLock']),
   );
 
   final String id;
@@ -111,6 +113,9 @@ class Device {
   final String? source;
   final DateTime? updatedAt;
 
+  /// Only the owner and admins may switch it (the server enforces it).
+  final bool childLock;
+
   bool get isOn => state['on'] == true;
 
   /// This person may switch it (a switch, enabled, in a room they control).
@@ -145,5 +150,6 @@ class Device {
     roomName: roomName,
     source: source ?? this.source,
     updatedAt: updatedAt ?? this.updatedAt,
+    childLock: childLock,
   );
 }

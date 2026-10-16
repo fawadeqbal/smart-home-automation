@@ -24,6 +24,16 @@ class AutomationRepository {
   Future<void> setEnabled(String id, bool enabled) => _api.patch<Object?>('/schedules/$id', {'enabled': enabled});
 
   Future<void> deleteSchedule(String id) => _api.delete<Object?>('/schedules/$id');
+
+  Future<List<Rule>> rules() async => asJsonList(await _api.get<Object?>('/rules')).map(Rule.fromJson).toList();
+
+  Future<void> setRuleEnabled(String id, bool enabled) => _api.patch<Object?>('/rules/$id', {'enabled': enabled});
+
+  Future<void> deleteRule(String id) => _api.delete<Object?>('/rules/$id');
+
+  Future<AwayState> away() async => AwayState.fromJson(asJson(await _api.get<Object?>('/home/away')));
+
+  Future<AwayState> setAway(bool on) async => AwayState.fromJson(asJson(await _api.put<Object?>('/home/away', {'on': on})));
 }
 
 final automationRepositoryProvider = Provider<AutomationRepository>(

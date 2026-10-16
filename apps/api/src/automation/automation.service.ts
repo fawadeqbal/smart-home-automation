@@ -8,12 +8,17 @@ import { DevicesService } from '../hardware/devices.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { PlaceService } from './place.service';
+import { nextSun, SunEvent } from './sun';
 import { nextDaily, parseHhMm } from './time';
 
 export interface Action { deviceId: string; on: boolean }
 export interface ScheduleInput {
   name?: string;
-  kind: 'ONCE' | 'DAILY';
+  kind: 'ONCE' | 'DAILY' | 'SUN';
+  /** SUN: sunrise or sunset, and minutes after it (negative: before) */
+  sunEvent?: SunEvent;
+  offsetMin?: number;
   /** ONCE: either an absolute time or minutes from now */
   runAt?: string;
   inMinutes?: number;
@@ -46,6 +51,7 @@ export class AutomationService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
     private readonly monitoring: MonitoringService,
     private readonly auth: AuthService,
+    private readonly place: PlaceService,
   ) {}
 
   onModuleInit() {
@@ -102,8 +108,16 @@ export class AutomationService implements OnModuleInit, OnModuleDestroy {
     let runAt: Date | null = null;
     let time: string | null = null;
     let days: number[] = [];
+    let sunEvent: SunEvent | null = null;
+    let offsetMin = 0;
     let nextRunAt: Date | null;
-    if (input.kind === 'ONCE') {
+    if (input.kind === 'SUN') {
+      if (input.sunEvent !== 'SUNRISE' && input.sunEvent !== 'SUNSET') throw new BadRequestException('Say sunrise or sunset.');
+      sunEvent = input.sunEvent;
+      offsetMin = Math.max(-180, Math.min(180, Math.round(input.offsetMin ?? 0)));
+      days = [...new Set((input.days ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
+      nextRunAt = await this.nextSunFor(user.homeId, home.timezone, sunEvent, offsetMin, days, new Date());
+    } else if (input.kind === 'ONCE') {
       runAt = input.inMinutes !== undefined ? new Date(Date.now() + input.inMinutes * 60000) : input.runAt ? new Date(input.runAt) : null;
       if (!runAt || Number.isNaN(runAt.getTime())) throw new BadRequestException('Say when: a time or a number of minutes.');
       if (runAt.getTime() < Date.now() - 60000) throw new BadRequestException('That time has already passed.');
@@ -119,7 +133,7 @@ export class AutomationService implements OnModuleInit, OnModuleDestroy {
     const name = input.name?.trim() || (await this.autoName(user.homeId, actions, sceneId));
     const created = await this.prisma.schedule.create({
       data: {
-        homeId: user.homeId, name, kind: input.kind as ScheduleKind, runAt, time, days, sceneId,
+        homeId: user.homeId, name, kind: input.kind as ScheduleKind, runAt, time, days, sceneId, sunEvent, offsetMin,
         actions: actions as unknown as Prisma.InputJsonValue, createdById: user.id, nextRunAt,
       },
       include: { createdBy: { select: { name: true } }, scene: { select: { name: true } } },
@@ -135,6 +149,7 @@ export class AutomationService implements OnModuleInit, OnModuleDestroy {
     let nextRunAt = s.nextRunAt;
     if (enabled) {
       if (s.kind === 'DAILY') nextRunAt = nextDaily(s.time!, s.days, home.timezone, new Date());
+      else if (s.kind === 'SUN') nextRunAt = await this.nextSunFor(s.homeId, home.timezone, s.sunEvent as SunEvent, s.offsetMin, s.days, new Date());
       else if (!s.runAt || s.runAt.getTime() < Date.now()) throw new BadRequestException('This timer has already run.');
     }
     await this.prisma.schedule.update({ where: { id }, data: { enabled, nextRunAt } });
@@ -201,8 +216,10 @@ export class AutomationService implements OnModuleInit, OnModuleDestroy {
 
   private async fire(s: Schedule & { scene: { actions: Prisma.JsonValue } | null; createdBy: { id: string; disabled: boolean }; home: { timezone: string } }) {
     // move it forward first, so a slow or failing run never fires twice
-    const next = s.kind === 'DAILY' ? nextDaily(s.time!, s.days, s.home.timezone, new Date()) : null;
-    await this.prisma.schedule.update({ where: { id: s.id }, data: { nextRunAt: next, enabled: s.kind === 'DAILY' } });
+    const next = s.kind === 'DAILY' ? nextDaily(s.time!, s.days, s.home.timezone, new Date())
+      : s.kind === 'SUN' ? await this.nextSunFor(s.homeId, s.home.timezone, s.sunEvent as SunEvent, s.offsetMin, s.days, new Date(Date.now() + 60_000))
+        : null;
+    await this.prisma.schedule.update({ where: { id: s.id }, data: { nextRunAt: next, enabled: s.kind !== 'ONCE' } });
 
     let summary: string;
     let ok = false;
@@ -242,6 +259,22 @@ export class AutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ---------------------------------------------------------------- helpers
+  /** The home moved (its location was set): sunrise and sunset timers get new times. */
+  async resyncSun(homeId: string) {
+    const home = await this.prisma.home.findUniqueOrThrow({ where: { id: homeId }, select: { timezone: true } });
+    const rows = await this.prisma.schedule.findMany({ where: { homeId, kind: 'SUN', enabled: true } });
+    for (const s of rows) {
+      const nextRunAt = await this.nextSunFor(homeId, home.timezone, s.sunEvent as SunEvent, s.offsetMin, s.days, new Date());
+      await this.prisma.schedule.update({ where: { id: s.id }, data: { nextRunAt } });
+    }
+    if (rows.length) this.realtime.schedulesChanged(homeId);
+  }
+
+  private async nextSunFor(homeId: string, timeZone: string, event: SunEvent, offsetMin: number, days: number[], after: Date) {
+    const p = await this.place.of(homeId);
+    return nextSun(event, offsetMin, days, timeZone, p.lat, p.lon, after);
+  }
+
   private async own(user: AuthUser, id: string) {
     const s = await this.prisma.schedule.findFirst({ where: { id, homeId: user.homeId } });
     if (!s) throw new NotFoundException('No such schedule.');
@@ -285,7 +318,7 @@ export class AutomationService implements OnModuleInit, OnModuleDestroy {
   private scheduleDto(s: Schedule & { createdBy: { name: string }; scene: { name: string } | null }, names: Map<string, string>) {
     const actions = (s.actions as unknown as Action[]).map((a) => ({ ...a, deviceName: names.get(a.deviceId) ?? 'Removed device' }));
     return {
-      id: s.id, name: s.name, kind: s.kind, runAt: s.runAt, time: s.time, days: s.days, enabled: s.enabled,
+      id: s.id, name: s.name, kind: s.kind, runAt: s.runAt, time: s.time, days: s.days, enabled: s.enabled, sunEvent: s.sunEvent, offsetMin: s.offsetMin,
       nextRunAt: s.nextRunAt, lastRunAt: s.lastRunAt, lastResult: s.lastResult,
       sceneId: s.sceneId, sceneName: s.scene?.name ?? null, actions, createdBy: s.createdBy.name, createdById: s.createdById,
     };

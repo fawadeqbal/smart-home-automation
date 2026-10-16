@@ -201,6 +201,13 @@ def spoken_clock(h: int, m: int) -> str:
 
 
 def _when_text(s: dict, tz: Optional[tzinfo] = None) -> str:
+    if s.get("kind") == "SUN":
+        days = s.get("days") or []
+        on_days = "every day" if not days or len(days) == 7 else "on " + ", ".join(DAY_NAMES[d].capitalize() for d in days)
+        event = "sunrise" if s.get("sunEvent") == "SUNRISE" else "sunset"
+        off = int(s.get("offsetMin") or 0)
+        rel = f"{abs(off)} minutes {'before' if off < 0 else 'after'} {event}" if off else f"at {event}"
+        return f"{on_days} {rel}"
     if s.get("kind") == "DAILY":
         days = s.get("days") or []
         on_days = "every day" if not days or len(days) == 7 else "on " + ", ".join(DAY_NAMES[d].capitalize() for d in days)
@@ -230,7 +237,8 @@ class ScheduleDeviceTool(Tool):
     @property
     def description(self) -> str:  # type: ignore[override]
         return ("Switch a device on or off LATER: after a number of minutes (a timer), at a clock time today/tomorrow, "
-                "or every day at a time. The home server runs it even if nobody has the app open. "
+                "every day at a time, or every day at sunrise/sunset (with an offset, e.g. 15 minutes after sunset). "
+                "The home server runs it even if nobody has the app open. "
                 "Devices: " + ", ".join(_describe(d) for d in self._switches) + ".")
 
     @property
@@ -243,6 +251,9 @@ class ScheduleDeviceTool(Tool):
                 "in_minutes": {"type": "number", "description": "Run after this many minutes (for 'in 30 minutes', 'after an hour' = 60)"},
                 "at_time": {"type": "string", "description": "Clock time in 24-hour HH:MM, e.g. 19:30 for 7:30 pm"},
                 "repeat_daily": {"type": "boolean", "description": "true for 'every day' / 'every night' schedules"},
+                "at_sun": {"type": "string", "enum": ["sunrise", "sunset"],
+                           "description": "Every day at sunrise or sunset (Maghrib time), instead of a clock time"},
+                "sun_offset_minutes": {"type": "integer", "description": "With at_sun: minutes after (positive) or before (negative)"},
                 "days": {"type": "array", "items": {"type": "string", "enum": DAY_NAMES},
                          "description": "Only these weekdays (with repeat_daily). Empty = every day"},
             },
@@ -264,7 +275,12 @@ class ScheduleDeviceTool(Tool):
         device = matches[0]
         body: Dict[str, Any] = {"actions": [{"deviceId": device["id"], "on": state == "on"}]}
         at_time = str(args.get("at_time") or "").strip()
-        if args.get("repeat_daily"):
+        sun = str(args.get("at_sun") or "").lower()
+        if sun in ("sunrise", "sunset"):
+            days = [DAY_NAMES.index(d.lower()) for d in (args.get("days") or []) if str(d).lower() in DAY_NAMES]
+            offset = max(-180, min(180, int(args.get("sun_offset_minutes") or 0)))
+            body.update({"kind": "SUN", "sunEvent": sun.upper(), "offsetMin": offset, "days": days})
+        elif args.get("repeat_daily"):
             if not re.match(r"^\d{1,2}:\d{2}$", at_time):
                 return "Error: a daily schedule needs at_time as HH:MM."
             days = [DAY_NAMES.index(d.lower()) for d in (args.get("days") or []) if str(d).lower() in DAY_NAMES]

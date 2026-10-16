@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
@@ -10,6 +11,7 @@ import '../../core/util/format.dart';
 import '../../data/models/session.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
+import '../../shared/widgets/sb_switch.dart';
 import '../../state/activity.dart';
 import '../../state/automation.dart';
 import '../../state/clock.dart';
@@ -65,6 +67,7 @@ class HomeScreen extends ConsumerWidget {
           _GuestBanner(),
           SizedBox(height: 22),
           _StatusPill(),
+          _Away(),
           _Scenes(),
           _Favourites(),
           _Rooms(),
@@ -330,6 +333,74 @@ class _GuestBanner extends ConsumerWidget {
         child: Text(
           'You’re a guest here. ${me.home!.name} shared $shared with you.',
         ),
+      ),
+    );
+  }
+}
+
+/// Away mode: one switch. While on, doors and motion alert at any hour.
+class _Away extends ConsumerWidget {
+  const _Away();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final away = ref.watch(awayProvider).value;
+    final me = ref.watch(meProvider);
+    if (away == null || !away.loaded) return const SizedBox.shrink();
+    final text = away.on
+        ? 'Doors and motion alert everyone at any hour'
+              '${away.lights.isNotEmpty ? '; ${away.lights.join(', ')} go on and off in the evening' : ''}.'
+              '${away.by != null ? ' Turned on by ${away.by}.' : ''}'
+        : 'Going away? Doors and motion will alert you at any hour.';
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: GroupCard(
+        radius: 22,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: away.on ? c.ac : c.sf2,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(child: SbIcon(SbIcons.shield, size: 18, color: away.on ? Colors.white : c.tx)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        away.on ? 'Away mode is on' : 'Away mode',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx),
+                      ),
+                      Text(text, style: TextStyle(fontSize: 13, color: c.mu)),
+                    ],
+                  ),
+                ),
+                if (me.home?.readOnly != true)
+                  SbSwitch(
+                    value: away.on,
+                    semanticLabel: 'Away mode',
+                    onChanged: (v) async {
+                      try {
+                        await ref.read(awayProvider.notifier).set(v);
+                        ref.read(toastProvider.notifier).show(v ? 'Away mode on' : 'Welcome home');
+                      } catch (e) {
+                        ref.read(toastProvider.notifier).show(ApiException.from(e).message, error: true);
+                      }
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

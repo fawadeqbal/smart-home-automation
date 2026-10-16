@@ -9,6 +9,9 @@ import { HelpService } from './help/help.service';
 import { AuthController } from './auth/auth.controller';
 import { AutomationController } from './automation/automation.controller';
 import { AutomationService } from './automation/automation.service';
+import { PlaceService } from './automation/place.service';
+import { RulesController } from './automation/rules.controller';
+import { RulesService } from './automation/rules.service';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { AuditModule } from './common/audit.service';
@@ -61,11 +64,11 @@ export function createAppModule(settings: Settings) {
       JwtModule.register({ global: true, secret: settings.jwtSecret }),
     ],
     controllers: [
-      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
+      HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, RulesController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
     ],
   })
   class AppModule {}

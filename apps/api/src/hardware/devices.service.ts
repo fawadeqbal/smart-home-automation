@@ -8,7 +8,7 @@ import {
 import { Access, CommandStatus, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { AccessService } from '../access/access.service';
-import { AuthUser, canSetup } from '../auth/auth.types';
+import { AuthUser, canSetup, isAdmin } from '../auth/auth.types';
 import { AuditService } from '../common/audit.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { slugKey } from '../common/zod';
@@ -38,7 +38,16 @@ export interface DeviceUpdate {
   activeLow?: boolean;
   settings?: unknown;
   enabled?: boolean;
+  /** only the owner and admins can switch it */
+  childLock?: boolean;
+  /** it switches itself off this long after going on (null = never) */
+  autoOffMinutes?: number | null;
 }
+
+export type StateListener = (
+  device: { id: string; name: string; type: string; roomId: string | null; settings: unknown; autoOffMinutes: number | null; node: { homeId: string | null; online: boolean } },
+  before: Record<string, unknown> | null, now: Record<string, unknown>,
+) => unknown;
 
 interface Pending {
   resolve: (state: Record<string, unknown>) => void;
@@ -57,6 +66,7 @@ type DeviceRow = Prisma.DeviceGetPayload<{ include: typeof deviceInclude }>;
 export class DevicesService implements OnModuleInit {
   private readonly log = new Logger('Devices');
   private readonly pending = new Map<string, Pending>();
+  private readonly listeners: StateListener[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -74,6 +84,11 @@ export class DevicesService implements OnModuleInit {
     this.mqtt.on('deviceState', (t, p) => (t.kind === 'deviceState' ? this.onState(t.nodeId, t.key, p) : undefined));
   }
 
+  /** Rules and safety timers listen here (they depend on this service, so they can't be injected into it). */
+  onStateChange(fn: StateListener) {
+    this.listeners.push(fn);
+  }
+
   // ---------------------------------------------------------------- reading
   private toDto(d: DeviceRow, level: Access) {
     const def = DEVICE_TYPES[d.type];
@@ -84,6 +99,7 @@ export class DevicesService implements OnModuleInit {
       nodeId: d.nodeId, nodeName: d.node.name, online: d.node.online,
       roomId: d.roomId, roomName: d.room?.name ?? null,
       pin: d.pin, pinLabel: pinLabel(d.node.board, d.pin), activeLow: d.activeLow, settings: d.settings, enabled: d.enabled,
+      childLock: d.childLock, autoOffMinutes: d.autoOffMinutes, autoOffAt: d.autoOffAt,
       state: (d.state?.state as Record<string, unknown> | undefined) ?? null,
       source: d.state?.source ?? null, updatedAt: d.state?.updatedAt ?? null,
       access: level,
@@ -217,11 +233,21 @@ export class DevicesService implements OnModuleInit {
     if (wiring && !canSetup(actor)) {
       throw new ForbiddenException('Pins and wiring are managed by the installer.');
     }
+    const safety = input.childLock !== undefined || input.autoOffMinutes !== undefined;
+    if (safety && !isAdmin(actor.role)) throw new ForbiddenException('Only the owner or an admin can change child lock and auto-off.');
+    if (safety && DEVICE_TYPES[device.type]?.controllable !== true) throw new BadRequestException(`${device.name} is a sensor; child lock and auto-off are for switches.`);
     const data: Prisma.DeviceUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.aliases !== undefined) data.aliases = input.aliases;
     if (input.roomId !== undefined) data.room = input.roomId ? { connect: { id: input.roomId } } : { disconnect: true };
     if (input.enabled !== undefined) data.enabled = input.enabled;
+    if (input.childLock !== undefined) data.childLock = input.childLock;
+    if (input.autoOffMinutes !== undefined) {
+      const m = input.autoOffMinutes ? Math.max(1, Math.min(24 * 60, Math.round(input.autoOffMinutes))) : null;
+      data.autoOffMinutes = m;
+      if (!m) data.autoOffAt = null;
+      else if ((device.state?.state as { on?: boolean } | null)?.on === true) data.autoOffAt = new Date(Date.now() + m * 60_000);
+    }
     if (input.activeLow !== undefined) data.activeLow = DEVICE_TYPES[device.type]?.hasActiveLow ? input.activeLow : false;
     if (input.settings !== undefined) data.settings = this.settingsFor(device.type, input.settings).settings;
     if (input.pin !== undefined && input.pin !== device.pin) {
@@ -258,6 +284,9 @@ export class DevicesService implements OnModuleInit {
     const parsed = switchCommand.safeParse(body);
     if (!parsed.success) throw new BadRequestException('Send {"on": true}, {"on": false} or {"toggle": true}.');
     if (!device.enabled) throw new BadRequestException(`${device.name} is disabled.`);
+    if (device.childLock && !isAdmin(user.role) && user.channel !== 'automation') {
+      throw new ForbiddenException(`${device.name} has child lock on: only the owner or an admin can switch it.`);
+    }
     if (!device.node.online) throw new ServiceUnavailableException(`${device.name} is offline: its board is not connected.`);
 
     const cid = `c_${randomBytes(6).toString('hex')}`;
@@ -333,6 +362,11 @@ export class DevicesService implements OnModuleInit {
       });
       void this.monitoring.deviceState({ ...device, node: { homeId } }, (device.state?.state ?? null) as Record<string, unknown> | null, fields)
         .catch((e) => this.log.warn(`notice failed: ${e}`));
+      const before = (device.state?.state ?? null) as Record<string, unknown> | null;
+      for (const fn of this.listeners) {
+        void Promise.resolve().then(() => fn({ ...device, node: { homeId, online: device.node.online } }, before, fields))
+          .catch((e) => this.log.warn(`state listener failed: ${e}`));
+      }
     }
     if (pending) {
       clearTimeout(pending.timer);

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AskBar } from '@/components/assistant/Assistant';
 import { DeviceCard } from '@/components/DeviceCard';
 import { Icon } from '@/components/Icon';
+import { AwayCard } from '@/components/home/AwayCard';
 import { PowerCard } from '@/components/home/OutagesPanel';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
@@ -91,6 +92,7 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
         <Kpi label="Inside" value={temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : '–'} unit="°C" chip={{ icon: 'thermometer', tone: 'ok' }} small />
       </div>
 
+      <AwayCard isAdmin={isAdmin} readOnly={readOnly} />
       <PowerCard link={isAdmin} />
 
       {runnable.length > 0 && (

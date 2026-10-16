@@ -80,6 +80,7 @@ model User {
   passwordResets    PasswordReset[]
   schedules         Schedule[]
   scenes            Scene[]
+  rules             Rule[]
   notifications     Notification[]
   pushSubscriptions PushSubscription[]
   /// which notices this person wants: { "leak": true, "motionAtNight": false, ... }
@@ -225,6 +226,16 @@ model Home {
   invites     Invite[]
   schedules   Schedule[]
   scenes      Scene[]
+  rules       Rule[]
+  /// where the home is, for sunrise and sunset (null: from its city, or its board's internet address)
+  latitude    Float?
+  longitude   Float?
+  /// Away mode: door and motion alerts at any hour, and the chosen lights switch on and off in the
+  /// evening so the home looks lived-in
+  awayMode    Boolean      @default(false)
+  awaySince   DateTime?
+  awayById    String?
+  awayLights  String[]     @default([])
 }
 
 model Room {
@@ -349,6 +360,12 @@ model Device {
   activeLow Boolean      @default(false)
   settings  Json         @default("{}")
   enabled   Boolean      @default(true)
+  /// only the owner and admins may switch it (members and guests, their timers and scenes may not)
+  childLock Boolean      @default(false)
+  /// switched off by itself this many minutes after it goes on (geyser, iron); null: never
+  autoOffMinutes Int?
+  /// when it goes off by itself next (set when it goes on: by auto-off, away mode, or "for 10 minutes" in a rule)
+  autoOffAt DateTime?
   state     DeviceState?
   history   StateEvent[]
   commands  Command[]
@@ -415,6 +432,7 @@ model Command {
 enum ScheduleKind {
   ONCE /// at runAt (a timer: "turn it off in 30 minutes")
   DAILY /// at `time` (HH:MM, home time zone) on `days` (0 = Sunday; empty = every day)
+  SUN /// at sunrise or sunset (sunEvent) plus offsetMin, on `days`
 }
 
 /// Switch devices (or run a scene) later or every day. Runs with the rights of the person who made it.
@@ -427,6 +445,9 @@ model Schedule {
   runAt       DateTime?
   time        String?
   days        Int[]
+  /// SUN: "SUNRISE" | "SUNSET", and minutes after it (negative: before)
+  sunEvent    String?
+  offsetMin   Int          @default(0)
   /// [{ "deviceId": "...", "on": true }] — or empty when sceneId is set
   actions     Json         @default("[]")
   sceneId     String?
@@ -458,6 +479,32 @@ model Scene {
   createdAt   DateTime   @default(now())
 
   @@unique([homeId, name])
+}
+
+/// "When this happens, do that": a device changes (on, off, a door opens, motion, a leak, a temperature
+/// crosses a value), within a time window if set; then switch devices, run a scene or send a notice.
+/// Runs with the rights of the person who made it.
+model Rule {
+  id          String    @id @default(cuid())
+  homeId      String
+  home        Home      @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  name        String
+  enabled     Boolean   @default(true)
+  /// { "deviceId": "...", "event": "on" | "off" | "opens" | "closes" | "above" | "below", "value": 30 }
+  trigger     Json
+  /// { "from": "22:00", "to": "06:00", "days": [1,2], "away": true }
+  conditions  Json      @default("{}")
+  /// [{ "type": "device", "deviceId": "...", "on": true, "forMinutes": 5 } | { "type": "scene", "sceneId": "..." } | { "type": "notify", "to": "me" | "admins" | "everyone", "message": "..." }]
+  actions     Json
+  /// fires at most once in this many seconds (a door opened twice is one notice)
+  cooldownSec Int       @default(120)
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  lastFiredAt DateTime?
+  lastResult  String?
+  createdAt   DateTime  @default(now())
+
+  @@index([homeId])
 }
 
 enum Severity {

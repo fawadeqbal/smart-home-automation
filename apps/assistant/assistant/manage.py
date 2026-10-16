@@ -73,7 +73,7 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
     """Rooms (with empty ones), boards, people and invites, timers: what the AI is told on top of the
     devices. Parts this person may not see (people and boards are for owners and admins) are left out
     and their role says why."""
-    names = ("rooms", "nodes", "users", "invites", "schedules", "outages")
+    names = ("rooms", "nodes", "users", "invites", "schedules", "outages", "rules", "away")
     calls = [getattr(api, n, None) for n in names]
     got = dict(zip(names, _POOL.map(lambda f: _safe(f) if callable(f) else None, calls)))
     lines: List[str] = []
@@ -137,6 +137,14 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
     if isinstance(schedules, list):
         active = [s for s in schedules if s.get("enabled", True)]
         lines.append(f"\nTimers and daily schedules: {len(active)} active" + (" (list_schedules shows them)" if active else "."))
+    rules = got["rules"]
+    if isinstance(rules, list):
+        on = [r for r in rules if r.get("enabled")]
+        lines.append(f"Rules (when this happens, do that): {len(on)} active" + (" (list_rules shows them)" if on else "."))
+    away = got["away"]
+    if isinstance(away, dict):
+        lines.append("Away mode: " + (f"ON since {_local(away['since'], tz)}" + (f", turned on by {away['by']}" if away.get("by") else "")
+                                      if away.get("on") else "off") + ".")
     return "\n".join(lines)
 
 
@@ -474,10 +482,227 @@ class DeleteSceneTool(Tool):
         return f"Deleted the scene {scene['name']}."
 
 
+# ------------------------------------------------------------------ rules, away mode, safety
+EVENTS = ["on", "off", "opens", "closes", "above", "below"]
+
+
+class CreateRuleTool(Tool):
+    name = "create_rule"
+    description = ("Save a rule: WHEN a device does something (a switch turns on/off; a door, motion or leak sensor opens/closes "
+                   "- 'opens' means triggered, e.g. motion seen or water found; a temperature, humidity or level reading goes "
+                   "above/below a value), optionally only between two times or only while away, THEN switch devices "
+                   "(optionally for some minutes), run a scene, and/or tell someone. E.g. 'when the gate opens after 10 pm, "
+                   "turn the porch light on for 5 minutes and tell me'.")
+
+    def __init__(self, api: HomeApi, devices: Sequence[dict]) -> None:
+        self._api, self._devices = api, devices
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {
+            "when_device": {"type": "string", "description": "The device that starts the rule"},
+            "event": {"type": "string", "enum": EVENTS},
+            "value": {"type": "number", "description": "For above/below: the number (°C or %)"},
+            "reading": {"type": "string", "enum": ["temperature", "humidity"], "description": "For a temperature sensor: which reading"},
+            "from_time": {"type": "string", "description": "Only from this time, HH:MM 24-hour (with to_time)"},
+            "to_time": {"type": "string", "description": "Only until this time, HH:MM (may be past midnight)"},
+            "only_when_away": {"type": "boolean"},
+            "switch": {"type": "array", "items": {"type": "object", "properties": {
+                "device": {"type": "string"}, "state": {"type": "string", "enum": ["on", "off"]},
+                "for_minutes": {"type": "integer", "description": "Switch back off after this long"}}, "required": ["device", "state"]}},
+            "scene": {"type": "string", "description": "A saved scene to run"},
+            "tell": {"type": "string", "enum": ["me", "admins", "everyone"], "description": "Send a notice"},
+            "message": {"type": "string", "description": "Optional text for the notice"},
+            "name": {"type": "string"},
+        }, "required": ["when_device", "event"]}
+
+    def run(self, args: dict) -> str:
+        found = find_device(list(self._devices), str(args.get("when_device", "")))
+        if len(found) != 1:
+            return (f"Error: {args.get('when_device')!r} " + ("isn't a device here." if not found else
+                    "matches several: " + ", ".join(_describe(d) for d in found) + ". Ask which one."))
+        trigger: Dict[str, Any] = {"deviceId": found[0]["id"], "event": str(args.get("event", "")).lower()}
+        if trigger["event"] in ("above", "below"):
+            if args.get("value") is None:
+                return "Error: say the value, e.g. above 30."
+            trigger["value"] = float(args["value"])
+            if args.get("reading") == "humidity":
+                trigger["field"] = "humidity"
+        body: Dict[str, Any] = {"trigger": trigger, "actions": []}
+        cond: Dict[str, Any] = {}
+        if args.get("from_time") and args.get("to_time"):
+            cond.update({"from": str(args["from_time"]), "to": str(args["to_time"])})
+        if args.get("only_when_away"):
+            cond["away"] = True
+        if cond:
+            body["conditions"] = cond
+        for a in args.get("switch") or []:
+            dev = find_device([d for d in self._devices if d.get("controllable")], str(a.get("device", "")))
+            if len(dev) != 1:
+                return (f"Error: {a.get('device')!r} " + ("isn't a switchable device here." if not dev else
+                        "matches several: " + ", ".join(_describe(d) for d in dev) + ". Ask which one."))
+            act: Dict[str, Any] = {"type": "device", "deviceId": dev[0]["id"], "on": str(a.get("state", "")).lower() == "on"}
+            if a.get("for_minutes"):
+                act["forMinutes"] = int(a["for_minutes"])
+            body["actions"].append(act)
+        if args.get("scene"):
+            scene, err = match_one(self._api.scenes(), str(args["scene"]), "scene")
+            if err:
+                return err
+            body["actions"].append({"type": "scene", "sceneId": scene["id"]})
+        if args.get("tell"):
+            note: Dict[str, Any] = {"type": "notify", "to": args["tell"]}
+            if args.get("message"):
+                note["message"] = str(args["message"])
+            body["actions"].append(note)
+        if not body["actions"]:
+            return "Error: say what the rule should do: switch something, run a scene, or tell someone."
+        if args.get("name"):
+            body["name"] = str(args["name"])
+        rule = self._api.create_rule(body)
+        return f"Saved the rule: {rule.get('summary') or rule.get('name')}. It works even when nobody has the app open."
+
+
+class ListRulesTool(Tool):
+    name = "list_rules"
+    description = "List the rules (when this happens, do that), numbered, with when each last ran."
+
+    def __init__(self, api: HomeApi, tz=None) -> None:
+        self._api, self._tz = api, tz
+
+    def run(self, args: dict) -> str:
+        rows = self._api.rules()
+        if not rows:
+            return "There are no rules yet."
+        return "; ".join(f"{i + 1}. {r.get('summary') or r['name']}" + ("" if r.get("enabled") else " (paused)")
+                         + (f" - last ran {_local(r['lastFiredAt'], self._tz)}: {r.get('lastResult') or ''}" if r.get("lastFiredAt") else "")
+                         for i, r in enumerate(rows))
+
+
+def _pick_rule(api: HomeApi, which: str) -> Tuple[Optional[dict], Optional[str]]:
+    rows = api.rules()
+    which = which.strip()
+    if which.isdigit() and 1 <= int(which) <= len(rows):
+        return rows[int(which) - 1], None
+    wanted = _norm(which)
+    hits = [r for r in rows if wanted and (wanted in _norm(r["name"]) or wanted in _norm(r.get("summary", "")))]
+    if len(hits) == 1:
+        return hits[0], None
+    return None, ("Error: no matching rule. Use list_rules first." if not hits
+                  else "Error: that matches several rules: " + "; ".join(r["name"] for r in hits) + ". Ask which one.")
+
+
+class ChangeRuleTool(Tool):
+    name = "change_rule"
+    description = ("Pause, resume or delete a rule, by its number from list_rules or words from it. "
+                   "Deleting needs confirmed true, only after the person said yes.")
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {
+            "which": {"type": "string"}, "action": {"type": "string", "enum": ["pause", "resume", "delete"]},
+            "confirmed": {"type": "boolean"}}, "required": ["which", "action"]}
+
+    def run(self, args: dict) -> str:
+        rule, err = _pick_rule(self._api, str(args.get("which", "")))
+        if err:
+            return err
+        action = str(args.get("action", ""))
+        if action == "delete":
+            if not args.get("confirmed"):
+                return f"{CONFIRM} Deleting the rule '{rule['name']}' can't be undone."
+            self._api.delete_rule(rule["id"])
+            return f"Deleted the rule '{rule['name']}'."
+        self._api.update_rule(rule["id"], {"enabled": action == "resume"})
+        return f"{'Resumed' if action == 'resume' else 'Paused'} the rule '{rule['name']}'."
+
+
+class AwayModeTool(Tool):
+    name = "away_mode"
+    description = ("Turn away mode on or off, or say whether it's on. While away, any door, window or motion sensor "
+                   "sends an alert at any hour, and (if lights were picked) chosen lights go on and off in the evening "
+                   "so the home looks lived-in. Owners and admins can also pick those lights.")
+
+    def __init__(self, api: HomeApi, devices: Sequence[dict], tz=None) -> None:
+        self._api, self._devices, self._tz = api, devices, tz
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {
+            "turn": {"type": "string", "enum": ["on", "off", "status"]},
+            "lights": {"type": "array", "items": {"type": "string"}, "description": "Lights to switch in the evening while away"},
+        }, "required": ["turn"]}
+
+    def run(self, args: dict) -> str:
+        body: Dict[str, Any] = {}
+        said = []
+        if args.get("lights"):
+            ids = []
+            for name in args["lights"]:
+                dev = find_device([d for d in self._devices if d.get("controllable")], str(name))
+                if len(dev) != 1:
+                    return f"Error: {name!r} " + ("isn't a light here." if not dev else "matches several. Ask which one.")
+                ids.append(dev[0]["id"])
+                said.append(_describe(dev[0]))
+            body["lights"] = ids
+        turn = str(args.get("turn", "status"))
+        if turn in ("on", "off"):
+            body["on"] = turn == "on"
+        a = self._api.set_away(body) if body else self._api.away()
+        names = {s["id"]: s["name"] for s in a.get("switches", [])}
+        lights = [names.get(i, "a light") for i in a.get("lights", [])]
+        text = ("Away mode is ON: doors, windows and motion alert everyone at any hour" if a.get("on") else "Away mode is off")
+        if a.get("on") and lights:
+            text += f"; in the evening {', '.join(lights)} will go on and off by themselves"
+        elif a.get("on"):
+            text += ". No lights are picked to look lived-in (the owner can pick some)"
+        return text + "."
+
+
+class DeviceSafetyTool(Tool):
+    name = "device_safety"
+    description = ("Owners and admins: child lock (only owners and admins can switch it) and safety auto-off "
+                   "(it switches itself off after some minutes, e.g. a geyser or iron after 60). auto_off_minutes 0 turns auto-off off.")
+
+    def __init__(self, api: HomeApi, devices: Sequence[dict]) -> None:
+        self._api, self._devices = api, devices
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {
+            "device": {"type": "string"}, "child_lock": {"type": "boolean"}, "auto_off_minutes": {"type": "integer"},
+        }, "required": ["device"]}
+
+    def run(self, args: dict) -> str:
+        found = find_device([d for d in self._devices if d.get("controllable")], str(args.get("device", "")))
+        if len(found) != 1:
+            return (f"Error: {args.get('device')!r} " + ("isn't a switch here." if not found else
+                    "matches several: " + ", ".join(_describe(d) for d in found) + ". Ask which one."))
+        body: Dict[str, Any] = {}
+        said = []
+        if args.get("child_lock") is not None:
+            body["childLock"] = bool(args["child_lock"])
+            said.append("child lock " + ("on" if body["childLock"] else "off"))
+        if args.get("auto_off_minutes") is not None:
+            m = int(args["auto_off_minutes"])
+            body["autoOffMinutes"] = m if m > 0 else None
+            said.append(f"switches itself off {m} minutes after going on" if m > 0 else "no auto-off")
+        if not body:
+            d = found[0]
+            return (f"{_describe(d)}: child lock {'on' if d.get('childLock') else 'off'}, "
+                    + (f"auto-off after {d['autoOffMinutes']} minutes." if d.get("autoOffMinutes") else "no auto-off."))
+        self._api.update_device(found[0]["id"], body)
+        return f"{_describe(found[0])}: " + ", ".join(said) + "."
+
+
 def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public_url: str = "", tz=None) -> List[Tool]:
     return [HomeOverviewTool(api, me, tz), PowerHistoryTool(api, tz), AddRoomTool(api), RenameRoomTool(api), DeleteRoomTool(api, devices),
             UpdateDeviceTool(api, devices), ListPeopleTool(api), InvitePersonTool(api, public_url),
-            UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api)]
+            UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api),
+            CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices)]
 
 
 # ------------------------------------------------------------------ the console (staff, read only)

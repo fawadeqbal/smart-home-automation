@@ -11,6 +11,7 @@ import '../../data/models/device.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../state/automation.dart';
 import '../../state/devices.dart';
+import '../../state/session.dart';
 import '../../state/toast.dart';
 import 'device_kinds.dart';
 import 'device_sheet.dart';
@@ -65,6 +66,10 @@ Future<void> toggleDevice(
     toast.show(
       'You can see the ${device.name.toLowerCase()}, but not switch it.',
     );
+    return;
+  }
+  if (device.childLock && !(ref.read(meProvider).home?.manages ?? false)) {
+    toast.show('The ${device.name.toLowerCase()} has child lock on. Ask the home owner.');
     return;
   }
   if (ref.read(pendingDevicesProvider).contains(device.id)) return;

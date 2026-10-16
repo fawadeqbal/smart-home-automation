@@ -8,7 +8,9 @@ import { AutomationService } from './automation.service';
 const action = z.object({ deviceId: z.string().min(1), on: z.boolean() });
 const schedule = z.object({
   name: z.string().trim().max(80).optional(),
-  kind: z.enum(['ONCE', 'DAILY']),
+  kind: z.enum(['ONCE', 'DAILY', 'SUN']),
+  sunEvent: z.enum(['SUNRISE', 'SUNSET']).optional(),
+  offsetMin: z.number().int().min(-180).max(180).optional(),
   runAt: z.string().datetime().optional(),
   inMinutes: z.number().min(1).max(60 * 24 * 365).optional(),
   time: z.string().regex(/^\d{1,2}:\d{2}$/).optional(),

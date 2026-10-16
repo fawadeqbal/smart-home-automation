@@ -111,6 +111,28 @@ class HomeApi:
     def delete_scene(self, scene_id: str) -> None:
         self._call("DELETE", f"/scenes/{scene_id}")
 
+    # rules ("when this happens, do that"), away mode, where the home is
+    def rules(self) -> List[Dict[str, Any]]:
+        return self._call("GET", "/rules")
+
+    def create_rule(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("POST", "/rules", body)
+
+    def update_rule(self, rule_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("PATCH", f"/rules/{rule_id}", body)
+
+    def delete_rule(self, rule_id: str) -> None:
+        self._call("DELETE", f"/rules/{rule_id}")
+
+    def away(self) -> Dict[str, Any]:
+        return self._call("GET", "/home/away")
+
+    def set_away(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("PUT", "/home/away", body)
+
+    def location(self) -> Dict[str, Any]:
+        return self._call("GET", "/home/location")
+
     def outages(self, days: int = 7) -> Dict[str, Any]:
         """Power cuts, Wi-Fi/internet outages and board restarts in this home (everyone in the home may see them)."""
         return self._call("GET", f"/outages?days={days}")

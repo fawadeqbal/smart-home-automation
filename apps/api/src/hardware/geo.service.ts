@@ -95,6 +95,18 @@ export class GeoService implements OnModuleInit, OnModuleDestroy {
     return out;
   }
 
+  /** Rough coordinates of an internet address (the provider's city), or null. */
+  async coordinates(ip: string): Promise<[number, number] | null> {
+    if (isLocalIp(ip)) return null;
+    const readers = await this.open();
+    try {
+      const loc = readers.city?.get(ip)?.location;
+      return loc && typeof loc.latitude === 'number' && typeof loc.longitude === 'number' ? [loc.latitude, loc.longitude] : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Opens the databases when needed and closes them again after a quiet spell. */
   private async open() {
     if (this.updating) await this.updating;

@@ -83,3 +83,60 @@ final deviceTimerProvider = Provider.family<Schedule?, String>((ref, deviceId) {
         ..sort((a, b) => a.nextRunAt!.compareTo(b.nextRunAt!));
   return timers.firstOrNull;
 });
+
+/// Rules, kept live.
+class RulesController extends AsyncNotifier<List<Rule>> {
+  @override
+  Future<List<Rule>> build() async {
+    if (ref.watch(currentHomeIdProvider) == null) return const [];
+    reloadOnLive(ref, const ['schedules.changed']);
+    return ref.read(automationRepositoryProvider).rules();
+  }
+
+  Future<void> setEnabled(String id, bool enabled) async {
+    final before = state.value;
+    state = AsyncData([
+      for (final r in before ?? const <Rule>[])
+        if (r.id == id) r.copyWith(enabled: enabled) else r,
+    ]);
+    try {
+      await ref.read(automationRepositoryProvider).setRuleEnabled(id, enabled);
+    } catch (_) {
+      if (before != null) state = AsyncData(before);
+      rethrow;
+    }
+  }
+
+  Future<void> remove(String id) async {
+    final before = state.value;
+    state = AsyncData([...?before?.where((r) => r.id != id)]);
+    try {
+      await ref.read(automationRepositoryProvider).deleteRule(id);
+    } catch (_) {
+      if (before != null) state = AsyncData(before);
+      rethrow;
+    }
+  }
+}
+
+final rulesProvider = AsyncNotifierProvider<RulesController, List<Rule>>(RulesController.new);
+
+/// Away mode (off and not loaded when it can't be read).
+class AwayController extends AsyncNotifier<AwayState> {
+  @override
+  Future<AwayState> build() async {
+    if (ref.watch(currentHomeIdProvider) == null) return const AwayState();
+    reloadOnLive(ref, const ['devices.changed']);
+    try {
+      return await ref.read(automationRepositoryProvider).away();
+    } catch (_) {
+      return const AwayState();
+    }
+  }
+
+  Future<void> set(bool on) async {
+    state = AsyncData(await ref.read(automationRepositoryProvider).setAway(on));
+  }
+}
+
+final awayProvider = AsyncNotifierProvider<AwayController, AwayState>(AwayController.new);

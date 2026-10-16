@@ -21,6 +21,7 @@ const updateDevice = z.object({
   name: name.optional(), roomId: z.string().nullable().optional(), aliases: aliases.optional(),
   pin: z.number().int().optional(), activeLow: z.boolean().optional(),
   settings: z.record(z.unknown()).optional(), enabled: z.boolean().optional(),
+  childLock: z.boolean().optional(), autoOffMinutes: z.number().int().min(0).max(1440).nullable().optional(),
 });
 const adopt = z.object({ name, board: z.string() });
 const updateNode = z.object({ name: name.optional(), board: z.string().optional() });

@@ -58,6 +58,7 @@ async function until(what, fn, timeoutMs = 8000) {
 
 before(async () => {
   process.env.COMMAND_TIMEOUT_MS = '2000';
+  process.env.RULES_TICK_MS = '1000'; // auto-off checks every second in tests
   process.env.ALLOW_SIGNUP = 'true'; // the SaaS test signs up a second organization
   process.env.PUBLIC_API_URL = 'http://127.0.0.1:4555'; // where the fake board downloads firmware
   process.env.HELP_DIR = path.join(__dirname, 'help-fixture'); // three small starter articles
@@ -80,7 +81,7 @@ after(async () => {
   const mqtt = require('mqtt');
   const client = await mqtt.connectAsync(process.env.MQTT_URL ?? 'mqtt://localhost:1883',
     { username: 'api', password: process.env.MQTT_API_PASSWORD });
-  for (const t of ['announce', 'status', 'config', 'devices/bulb/state', 'devices/room_climate/state']) {
+  for (const t of ['announce', 'status', 'config', 'devices/bulb/state', 'devices/room_climate/state', 'devices/front_door/state', 'devices/kitchen_leak/state']) {
     await client.publishAsync(`home/v1/nodes/${NODE_ID}/${t}`, '', { retain: true, qos: 1 });
   }
   await client.endAsync();
@@ -369,6 +370,90 @@ test('a water leak notifies the people of that room; health reports are kept for
   const hist = await owner.get(`/nodes/${NODE_ID}/health-history?hours=1`);
   assert.equal(hist.status, 200);
   assert.ok(hist.body.length >= 1 && hist.body[0].vcc > 3000);
+});
+
+test('rules, safety auto-off, child lock, away mode and sunset timers', async () => {
+  const door = await owner.post(`/nodes/${NODE_ID}/devices`, { name: 'Front door', type: 'contact', pin: 13, activeLow: true, roomId: state.livingRoom, settings: { kind: 'door' } });
+  assert.equal(door.status, 201, JSON.stringify(door.body));
+  await until('door reported', async () => (await owner.get(`/devices/${door.body.id}`)).body.state?.active === false, 10000);
+  await owner.post(`/devices/${state.bulb}/commands`, { on: false });
+
+  // what a device can start a rule with is checked; a member can't make a rule switch what they only see
+  const wrong = await owner.post('/rules', { trigger: { deviceId: door.body.id, event: 'above', value: 3 }, actions: [{ type: 'notify', to: 'me' }] });
+  assert.equal(wrong.status, 400);
+  assert.match(wrong.body.message, /opens, closes/);
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  assert.equal((await kid.post('/rules', { trigger: { deviceId: door.body.id, event: 'opens' }, actions: [{ type: 'device', deviceId: state.bulb, on: true }] })).status, 403);
+  assert.equal((await kid.post('/rules', { trigger: { deviceId: door.body.id, event: 'opens' }, actions: [{ type: 'notify', to: 'everyone' }] })).status, 403);
+
+  // when the door opens: the bulb on for a minute, and tell me
+  const rule = await owner.post('/rules', {
+    trigger: { deviceId: door.body.id, event: 'opens' },
+    actions: [{ type: 'device', deviceId: state.bulb, on: true, forMinutes: 1 }, { type: 'notify', to: 'me' }],
+  });
+  assert.equal(rule.status, 201, JSON.stringify(rule.body));
+  assert.equal(rule.body.name, 'When Front door opens: Bulb on for 1 min, tell me');
+  fake.stdin.write('trip front_door\n');
+  const fired = await until('rule ran', async () => (await owner.get('/rules')).body.find((r) => r.id === rule.body.id && r.lastResult), 10000);
+  assert.match(fired.lastResult, /Done: Bulb on for 1 min, told its creator/);
+  const bulb = (await owner.get(`/devices/${state.bulb}`)).body;
+  assert.equal(bulb.state.on, true);
+  assert.ok(new Date(bulb.autoOffAt).getTime() > Date.now() + 30000);
+  assert.ok((await owner.get('/notifications')).body.items.some((n) => n.kind === 'automation' && n.title === rule.body.name));
+  assert.equal((await prisma.command.findFirst({ where: { deviceId: state.bulb }, orderBy: { createdAt: 'desc' } })).channel, 'automation');
+
+  // safety auto-off: when its time comes, it switches itself off
+  assert.equal((await kid.patch(`/devices/${state.bulb}`, { autoOffMinutes: 5 })).status, 403);
+  await prisma.device.update({ where: { id: state.bulb }, data: { autoOffAt: new Date(Date.now() - 1000) } });
+  await until('bulb switched itself off', async () => (await owner.get(`/devices/${state.bulb}`)).body.state.on === false, 10000);
+  const safety = await owner.patch(`/devices/${state.bulb}`, { autoOffMinutes: 90 });
+  assert.equal(safety.status, 200, JSON.stringify(safety.body));
+  assert.equal(safety.body.autoOffMinutes, 90);
+
+  // child lock: a member with control can't switch it; the owner can
+  await owner.put(`/users/${(await kid.get('/auth/me')).body.id}/rooms`, { rooms: [{ roomId: state.livingRoom, access: 'CONTROL' }] });
+  assert.equal((await kid.post(`/devices/${state.bulb}/commands`, { on: true })).status, 200);
+  assert.equal((await owner.patch(`/devices/${state.bulb}`, { childLock: true })).body.childLock, true);
+  const locked = await kid.post(`/devices/${state.bulb}/commands`, { on: false });
+  assert.equal(locked.status, 403);
+  assert.match(locked.body.message, /child lock/);
+  assert.equal((await owner.post(`/devices/${state.bulb}/commands`, { on: false })).status, 200);
+  await owner.patch(`/devices/${state.bulb}`, { childLock: false, autoOffMinutes: null });
+  await owner.put(`/users/${(await kid.get('/auth/me')).body.id}/rooms`, { rooms: [{ roomId: state.livingRoom, access: 'VIEW' }] });
+
+  // away mode: the door opening is an alert at any hour; everyone else is told it was turned on
+  const away = await owner.put('/home/away', { on: true, lights: [state.bulb, door.body.id] });
+  assert.equal(away.status, 200, JSON.stringify(away.body));
+  assert.equal(away.body.on, true);
+  assert.deepEqual(away.body.lights, [state.bulb]); // only switches
+  assert.ok((await kid.get('/notifications')).body.items.some((n) => n.title === 'Away mode is on'));
+  assert.equal((await kid.put('/home/away', { lights: [] })).status, 403);
+  fake.stdin.write('trip front_door\n'); // closes
+  fake.stdin.write('trip front_door\n'); // opens again
+  const alert = await until('away alert', async () => (await owner.get('/notifications')).body.items.find((n) => n.kind === 'awayAlert' && n.severity === 'ALERT'), 10000);
+  assert.match(alert.title, /Front door opened while you're away/);
+  assert.equal((await kid.put('/home/away', { on: false })).body.on, false);
+
+  // where the home is decides sunrise and sunset; sunset timers follow
+  const where = (await owner.get('/home/location')).body;
+  assert.ok(where.cities.includes('Lahore') && new Date(where.sunrise) < new Date(where.sunset));
+  assert.equal((await owner.put('/home/location', { city: 'Atlantis' })).status, 400);
+  assert.equal((await kid.put('/home/location', { city: 'Lahore' })).status, 403);
+  const set = await owner.put('/home/location', { city: 'lahore' });
+  assert.equal(set.status, 200);
+  assert.equal(set.body.source, 'set');
+  assert.equal(set.body.label, 'Lahore');
+  const sun = await owner.post('/schedules', { kind: 'SUN', sunEvent: 'SUNSET', offsetMin: -10, actions: [{ deviceId: state.bulb, on: true }] });
+  assert.equal(sun.status, 201, JSON.stringify(sun.body));
+  const next = new Date(sun.body.nextRunAt).getTime();
+  assert.ok(next > Date.now() && next < Date.now() + 25 * 3600_000);
+  assert.equal((await owner.del(`/schedules/${sun.body.id}`)).status, 204);
+
+  // rules can be paused and removed
+  assert.equal((await owner.patch(`/rules/${rule.body.id}`, { enabled: false })).body.enabled, false);
+  assert.equal((await owner.del(`/rules/${rule.body.id}`)).status, 204);
+  assert.equal((await owner.get('/rules')).body.length, 0);
 });
 
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {

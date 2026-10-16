@@ -17,6 +17,8 @@ export const NOTICE_KINDS = {
   boardHealth: { label: 'A board has low voltage or weak Wi‑Fi', default: true, adminsOnly: true },
   powerCut: { label: 'A power cut at home (when the power is back)', default: true, adminsOnly: false },
   boardDown: { label: 'A board has been offline for an hour, or an area power cut (staff)', default: true, adminsOnly: true },
+  awayAlert: { label: 'A door, window or motion sensor while the home is in away mode', default: true, adminsOnly: false },
+  automation: { label: 'My rules ("when this happens, tell me")', default: true, adminsOnly: false },
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
@@ -58,7 +60,15 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
 
     if (device.type === 'contact' && now.active === true && before?.active !== true) {
       const kind = settings.kind ?? 'generic';
-      if (kind === 'leak') {
+      const away = kind === 'door' || kind === 'window' || kind === 'motion'
+        ? (await this.prisma.home.findUnique({ where: { id: homeId }, select: { awayMode: true } }))?.awayMode === true : false;
+      if (away) {
+        const what = kind === 'motion' ? `Movement${where}` : `${device.name} opened`;
+        await this.toRoom(homeId, device.roomId, {
+          kind: 'awayAlert', severity: 'ALERT', title: `${what} while you're away`,
+          body: kind === 'motion' ? `${device.name} saw movement and the home is in away mode.` : `The ${kind}${where} was opened and the home is in away mode.`, link,
+        }, `away:${device.id}`, 60000);
+      } else if (kind === 'leak') {
         await this.toRoom(homeId, device.roomId, { kind: 'leak', severity: 'ALERT', title: `Water leak${where}!`, body: `${device.name} detected water. Check it now.`, link }, `leak:${device.id}`, 10 * 60000);
       } else if ((kind === 'door' || kind === 'window') && (await this.isNight(homeId))) {
         await this.toRoom(homeId, device.roomId, { kind: 'doorAtNight', severity: 'WARN', title: `${device.name} opened`, body: `The ${kind}${where} was opened at night.`, link }, `door:${device.id}`, 60000);

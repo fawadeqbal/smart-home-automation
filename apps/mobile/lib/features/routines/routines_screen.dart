@@ -28,6 +28,7 @@ class RoutinesScreen extends ConsumerWidget {
     final c = context.sb;
     final scenes = ref.watch(scenesProvider);
     final schedules = ref.watch(schedulesProvider);
+    final rules = ref.watch(rulesProvider);
     final canMake = (ref.watch(devicesProvider).value ?? const []).any(
       (d) => d.canControl,
     );
@@ -35,6 +36,7 @@ class RoutinesScreen extends ConsumerWidget {
       onRefresh: () async {
         ref.invalidate(scenesProvider);
         ref.invalidate(schedulesProvider);
+        ref.invalidate(rulesProvider);
       },
       child: ListView(
         padding: EdgeInsets.fromLTRB(
@@ -123,6 +125,29 @@ class RoutinesScreen extends ConsumerWidget {
                     children: [for (final s in list) _ScheduleRow(schedule: s)],
                   ),
           ),
+          const SizedBox(height: 22),
+          const SectionHeader(
+            'Rules',
+            subtitle: 'When this happens, do that',
+          ),
+          const SizedBox(height: 10),
+          rules.when(
+            loading: () => const LoadingView(),
+            error: (e, _) => ErrorView(
+              error: e,
+              onRetry: () => ref.invalidate(rulesProvider),
+            ),
+            data: (list) => list.isEmpty
+                ? const EmptyView(
+                    icon: SbIcons.zap,
+                    title: 'No rules yet',
+                    text: 'Ask the assistant: “when the gate opens at night, turn the porch light on for 5 minutes and tell me”.',
+                  )
+                : GroupCard(
+                    radius: 22,
+                    children: [for (final r in list) _RuleRow(rule: r)],
+                  ),
+          ),
         ],
       ),
     );
@@ -146,7 +171,9 @@ class _ScheduleRow extends ConsumerWidget {
         : device != null
         ? DeviceKinds.of(device).icon(device)
         : SbIcons.clock;
-    final when = s.kind == ScheduleKind.daily
+    final when = s.kind == ScheduleKind.sun
+        ? '${Fmt.days(s.days)} ${s.sunText}'
+        : s.kind == ScheduleKind.daily
         ? '${Fmt.days(s.days)} at ${s.time}'
         : s.runAt != null
         ? 'Once, ${Fmt.when(s.runAt!).toLowerCase()}'
@@ -258,6 +285,99 @@ class _ScheduleRow extends ConsumerWidget {
     if (ok != true) return;
     try {
       await ref.read(schedulesProvider.notifier).remove(schedule.id);
+      ref.read(toastProvider.notifier).show('Deleted');
+    } catch (e) {
+      ref.read(toastProvider.notifier).show(ApiException.from(e).message, error: true);
+    }
+  }
+}
+
+class _RuleRow extends ConsumerWidget {
+  const _RuleRow({required this.rule});
+  final Rule rule;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final r = rule;
+    final me = ref.watch(meProvider);
+    final mine = me.home!.manages || r.createdById == me.id;
+    final last = r.lastFiredAt != null ? 'Last ran ${Fmt.when(r.lastFiredAt!).toLowerCase()}' : 'Hasn’t run yet';
+    return Opacity(
+      opacity: r.enabled ? 1 : .55,
+      child: InkWell(
+        onLongPress: mine ? () => _confirmDelete(context, ref) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: c.sf2, borderRadius: BorderRadius.circular(12)),
+                child: Center(child: SbIcon(SbIcons.zap, size: 18, color: c.tx)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(r.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
+                    if (r.summary.isNotEmpty && r.summary != r.name)
+                      Text(r.summary, style: TextStyle(fontSize: 13, color: c.mu)),
+                    Text(
+                      last,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: r.enabled ? c.okText : c.mu),
+                    ),
+                  ],
+                ),
+              ),
+              if (mine)
+                SbSwitch(
+                  value: r.enabled,
+                  semanticLabel: '${r.name} on or off',
+                  onChanged: (v) async {
+                    try {
+                      await ref.read(rulesProvider.notifier).setEnabled(r.id, v);
+                    } catch (e) {
+                      ref.read(toastProvider.notifier).show(ApiException.from(e).message, error: true);
+                    }
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final ok = await showSbSheet<bool>(
+      context,
+      builder: (ctx) {
+        final c = ctx.sb;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Delete “${rule.name}”?', style: SbText.title.copyWith(color: c.tx)),
+            const SizedBox(height: 6),
+            Text('It won’t run again.', style: TextStyle(fontSize: 15, color: c.mu)),
+            const SizedBox(height: 20),
+            BigButton(label: 'Delete', color: c.bad, foreground: Colors.white, onTap: () => Navigator.of(ctx).pop(true)),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('Keep it', style: TextStyle(color: c.tx)),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(rulesProvider.notifier).remove(rule.id);
       ref.read(toastProvider.notifier).show('Deleted');
     } catch (e) {
       ref.read(toastProvider.notifier).show(ApiException.from(e).message, error: true);

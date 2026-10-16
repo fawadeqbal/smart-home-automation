@@ -153,6 +153,9 @@ export interface Device {
   activeLow: boolean;
   settings: Record<string, unknown>;
   enabled: boolean;
+  childLock?: boolean;
+  autoOffMinutes?: number | null;
+  autoOffAt?: string | null;
   state: Record<string, unknown> | null;
   source: string | null;
   updatedAt: string | null;
@@ -261,7 +264,9 @@ export interface ScheduleAction { deviceId: string; on: boolean; deviceName: str
 export interface Schedule {
   id: string;
   name: string;
-  kind: 'ONCE' | 'DAILY';
+  kind: 'ONCE' | 'DAILY' | 'SUN';
+  sunEvent?: 'SUNRISE' | 'SUNSET' | null;
+  offsetMin?: number;
   runAt: string | null;
   time: string | null;
   days: number[];
@@ -341,4 +346,46 @@ export interface StaffOutages {
   areas: { place: string; startedAt: string; endedAt: string; seconds: number; homes: string[] }[];
   down: { boardId: string; board: string; homeId: string; home: string; place: string | null; since: string | null }[];
   outages: (Outage & { home: string; homeId: string })[];
+}
+
+// rules ("when this happens, do that"), away mode, where the home is
+export type RuleEvent = 'on' | 'off' | 'opens' | 'closes' | 'above' | 'below';
+export interface RuleTrigger { deviceId: string; deviceName: string; event: RuleEvent; value?: number; field?: 'temperature' | 'humidity' | 'level' }
+export interface RuleConditions { from?: string; to?: string; days?: number[]; away?: boolean }
+export type RuleAction =
+  | { type: 'device'; deviceId: string; deviceName?: string; on: boolean; forMinutes?: number }
+  | { type: 'scene'; sceneId: string; sceneName?: string }
+  | { type: 'notify'; to: 'me' | 'admins' | 'everyone'; message?: string };
+export interface Rule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  trigger: RuleTrigger;
+  conditions: RuleConditions;
+  actions: RuleAction[];
+  cooldownSec: number;
+  lastFiredAt: string | null;
+  lastResult: string | null;
+  createdBy: string;
+  createdById: string;
+  summary: string;
+}
+export interface AwayState {
+  on: boolean;
+  since: string | null;
+  by: string | null;
+  lights: string[];
+  switches: { id: string; name: string; room: string | null }[];
+  eveningFrom: string | null;
+  eveningTo: string;
+}
+export interface HomeLocation {
+  lat: number;
+  lon: number;
+  source: 'set' | 'city' | 'board' | 'default';
+  label: string;
+  sunrise: string | null;
+  sunset: string | null;
+  timezone: string;
+  cities: string[];
 }

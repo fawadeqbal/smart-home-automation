@@ -1,7 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
+import { Icon } from '@/components/Icon';
+import { useAction } from '@/components/ui';
+import { patch } from '@/lib/api';
 import { useLoad } from '@/lib/hooks';
+import { useSession } from '@/lib/session';
 import { useLive } from '@/lib/live';
 import type { Device, HistoryEntry } from '@/lib/types';
 import { Loader } from '@/components/Loader';
@@ -37,7 +42,39 @@ function Sparkline({ entries, field, label, unit }: { entries: HistoryEntry[]; f
   );
 }
 
+const AUTO_OFF = [0, 15, 30, 60, 90, 120, 180, 240];
+
+/** Owners and admins: child lock and safety auto-off for a switch. */
+function Safety({ device, onSaved }: { device: Device; onSaved: () => void }) {
+  const { busy, error, run } = useAction();
+  const [mins, setMins] = useState(device.autoOffMinutes ?? 0);
+  const save = (body: Record<string, unknown>) => run(async () => { await patch(`/devices/${device.id}`, body); onSaved(); });
+  const options = AUTO_OFF.includes(mins) ? AUTO_OFF : [...AUTO_OFF, mins].sort((a, b) => a - b);
+  return (
+    <section className="section card card-pad">
+      <h2 style={{ marginBottom: 6 }}>Safety</h2>
+      <div className="safety-row">
+        <Icon name="lock" size={16} />
+        <span className="grow stack-tight"><b>Child lock</b><span className="small muted">Only the owner and admins can switch it — from the app, the assistant or a rule. The wall switch still works.</span></span>
+        <label className="switch-input" title="Child lock">
+          <input type="checkbox" checked={!!device.childLock} disabled={busy} onChange={(e) => void save({ childLock: e.target.checked })} />
+          <span />
+        </label>
+      </div>
+      <div className="safety-row">
+        <Icon name="clock" size={16} />
+        <span className="grow stack-tight"><b>Switch off by itself</b><span className="small muted">For a geyser, iron or motor: it goes off this long after it was turned on, whoever turned it on.{device.autoOffAt ? ` Next: ${new Date(device.autoOffAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ''}</span></span>
+        <select value={mins} disabled={busy} onChange={(e) => { const m = Number(e.target.value); setMins(m); void save({ autoOffMinutes: m || null }); }} aria-label="Auto-off">
+          {options.map((m) => <option key={m} value={m}>{m === 0 ? 'Never' : m < 60 ? `After ${m} min` : `After ${m / 60} h`}</option>)}
+        </select>
+      </div>
+      {error && <div className="alert">{error}</div>}
+    </section>
+  );
+}
+
 export default function DevicePage() {
+  const { isAdmin, home } = useSession();
   const { id } = useParams<{ id: string }>();
   const device = useLoad<Device>(`/devices/${id}`);
   const history = useLoad<HistoryEntry[]>(`/devices/${id}/history?limit=200`);
@@ -57,8 +94,13 @@ export default function DevicePage() {
           <h1 style={{ marginTop: 6 }}>{d.name}</h1>
           <p className="muted">{d.roomName ?? 'No room'} · {d.typeLabel} · {d.pinLabel} on {d.nodeName}</p>
         </div>
-        <span className={`badge ${d.online ? 'ok' : 'bad'}`}>{d.online ? 'Online' : 'Offline'}</span>
+        <span className="row" style={{ gap: 6 }}>
+          {d.childLock && <span className="badge"><Icon name="lock" size={12} /> Child lock</span>}
+          <span className={`badge ${d.online ? 'ok' : 'bad'}`}>{d.online ? 'Online' : 'Offline'}</span>
+        </span>
       </div>
+
+      {d.controllable && isAdmin && !home?.readOnly && <Safety device={d} onSaved={() => void device.reload()} />}
 
       {!d.controllable && history.data && (
         <div className="card card-pad stack">
