@@ -25,7 +25,7 @@ Open `home_node/home_node.ino`, plug the board in by USB, choose its COM port, *
 
 ## 3. Connect it to your server (the setup page)
 
-The first time (or whenever you hold the **FLASH** button during the first 3 seconds after power‑on, while the LED blinks fast):
+The first time, or whenever you hold the **FLASH** button for **5 seconds** while the board runs (firmware 2.3.0+: the LED blinks fast while you hold, then stays on), or hold it during the first 3 seconds after power‑on while the LED blinks fast — press it *after* releasing RST: FLASH held while the board resets starts the chip's programming mode instead:
 
 1. On your phone, join the Wi‑Fi **`HomeNode-xxxxxx`**. The setup page opens (or browse to `http://192.168.4.1`).
 2. **Configure WiFi** → pick your home Wi‑Fi (2.4 GHz) and type its password.
@@ -71,6 +71,7 @@ The board appears under **New boards** within seconds. **Adopt** it, then **Add 
 | Built‑in LED | Meaning |
 |---|---|
 | fast blink, first 3 s | setup window: hold FLASH now to open the setup page |
+| fast blink while you hold FLASH, then on | 5‑second press: let go, the setup hotspot opens (2.3.0+) |
 | fast blink | no Wi‑Fi |
 | slow blink | Wi‑Fi OK, server not reachable (check address, password, firewall) |
 | off | connected |

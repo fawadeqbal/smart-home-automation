@@ -123,12 +123,33 @@ export class HelpService implements OnApplicationBootstrap {
   // ---------------------------------------------------------------- starter articles
   async ensureSeeded(orgId: string) {
     if (this.seeded.has(orgId)) return;
-    const have = new Set((await this.prisma.helpArticle.findMany({ where: { orgId }, select: { slug: true } })).map((a) => a.slug));
-    const missing = this.loadStarters().filter((s) => !have.has(s.slug));
+    const rows = await this.prisma.helpArticle.findMany({
+      where: { orgId },
+      select: { id: true, slug: true, title: true, category: true, audience: true, tags: true, body: true, updatedById: true, archivedAt: true },
+    });
+    const have = new Set(rows.map((a) => a.slug));
+    const starters = this.loadStarters();
+    const missing = starters.filter((s) => !have.has(s.slug));
     if (missing.length) {
       await this.prisma.helpArticle.createMany({ data: missing.map((s) => ({ ...s, orgId })), skipDuplicates: true });
       this.log.log(`Added ${missing.length} starter article${missing.length === 1 ? '' : 's'} for ${orgId}`);
     }
+    // Starter articles nobody in the company has ever edited (or removed) follow the shipped text, so a
+    // corrected article reaches everyone. Anything a person touched stays exactly as they left it.
+    const shipped = new Map(starters.map((s) => [s.slug, s]));
+    let refreshed = 0;
+    for (const a of rows) {
+      const s = shipped.get(a.slug);
+      if (!s || a.updatedById || a.archivedAt) continue;
+      if (a.title === s.title && a.body === s.body && a.category === s.category && a.audience === s.audience
+        && JSON.stringify(a.tags) === JSON.stringify(s.tags)) continue;
+      await this.prisma.helpArticle.update({
+        where: { id: a.id },
+        data: { title: s.title, body: s.body, category: s.category, audience: s.audience, tags: s.tags },
+      });
+      refreshed += 1;
+    }
+    if (refreshed) this.log.log(`Updated ${refreshed} unedited starter article${refreshed === 1 ? '' : 's'} for ${orgId}`);
     this.seeded.add(orgId);
   }
 

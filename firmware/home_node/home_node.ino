@@ -82,6 +82,30 @@ bool setupRequested() {
   return false;
 }
 
+/**
+ * FLASH held for SETUP_HOLD_MS while the board runs: open the setup page, no RST timing needed.
+ * While it is held the LED blinks fast ("keep holding"); at 5 s it stays on and the hotspot opens.
+ * Returns true while the button is being held, so the normal status blink stays out of the way.
+ * Off when a wall button uses GPIO 0 (someone holding that button must not open the setup page).
+ */
+bool checkSetupHold() {
+  static uint32_t downSince = 0;
+  static bool pulled = false;
+  if (config.pinInUse(SETUP_BUTTON_PIN)) { downSince = 0; pulled = false; return false; }
+  if (!pulled) { pinMode(SETUP_BUTTON_PIN, INPUT_PULLUP); pulled = true; }
+  if (digitalRead(SETUP_BUTTON_PIN) == HIGH) { downSince = 0; return false; }
+  const uint32_t now = millis();
+  if (downSince == 0) { downSince = now | 1; return true; }
+  const uint32_t held = now - downSince;
+  if (held < 600) return true;                  // a tap does nothing
+  if (held < SETUP_HOLD_MS) { led((now / 80) % 2); return true; }
+  led(true);
+  LOG_INFO("FLASH held for %lu s: opening the setup page", (unsigned long)(SETUP_HOLD_MS / 1000));
+  settings.runSetupPortal();                    // blocks until saved or it times out (then it restarts)
+  ESP.restart();                                // start cleanly with the new settings
+  return true;
+}
+
 void setup() {
 #if LOG_ENABLED
   Serial.begin(SERIAL_BAUD, SERIAL_8N1, SERIAL_TX_ONLY);   // RX (GPIO 3) stays free for a sensor or button
@@ -120,5 +144,5 @@ void loop() {
   registry.loopAll();
   states.loop();
   bridge.loop();
-  blinkStatus();
+  if (!checkSetupHold()) blinkStatus();
 }

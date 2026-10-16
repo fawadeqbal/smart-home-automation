@@ -8,17 +8,22 @@
 // Raise this for every build you upload in the web app (Board → Firmware). It is stamped into the
 // .bin, the web app reads it from the file, and the board reports it after installing — so a build
 // with the same number as the old one looks like "nothing changed".
-#define FIRMWARE_VERSION      "2.2.1"
+#define FIRMWARE_VERSION      "2.3.0"
 
 // The board type reported to the server. Must match packages/contracts/src/boards.ts:
 //   "NODEMCU_V2"  or  "WEMOS_D1_MINI"  (both have the same usable pins)
 #define BOARD_TYPE            "NODEMCU_V3"   // NODEMCU_V3 (black LoLin), NODEMCU_V2 (Amica) or WEMOS_D1_MINI
 
 // ---------- Setup page
-// Hold the FLASH button (GPIO 0) during the first 3 seconds after power-on to open the
-// setup page (Wi-Fi + server). It also opens by itself when nothing is configured yet.
+// Opens the setup page (Wi-Fi + server) as the hotspot HomeNode-xxxxxx:
+//   * hold the FLASH button (GPIO 0) for SETUP_HOLD_MS at any time while the board runs (2.3.0+), or
+//   * hold it during the first 3 seconds after power-on (press it AFTER releasing RST: FLASH held
+//     while the board resets starts the chip's programming mode instead), or
+//   * by itself when nothing is configured yet.
+// The long press is off when a wall button is wired to D3 (GPIO 0).
 #define SETUP_BUTTON_PIN      0
 #define SETUP_WINDOW_MS       3000UL
+#define SETUP_HOLD_MS         5000UL   // long press while running
 #define SETUP_PORTAL_TIMEOUT  300      // seconds, then the board restarts
 #define SETUP_AP_PREFIX       "HomeNode-"
 

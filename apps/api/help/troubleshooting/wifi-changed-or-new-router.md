@@ -25,7 +25,9 @@ So if you're planning to change the Wi-Fi, tell your installer **before** you do
 ## The board is already offline (done at the board)
 
 The board has to be given the new Wi-Fi through its own setup page. This is normally done by your installer, because the board sits behind a switchboard:
-1. Restart the board (switch its power off and on, or press **RST**). Then hold the **FLASH** button during the first 3 seconds while the light blinks fast.
+1. Open the board's setup hotspot:
+   - **Firmware 2.3.0 or newer:** hold the **FLASH** button for 5 seconds. The blue light blinks fast, then stays on. Let go.
+   - **Older firmware:** press and release **RST**. When the blue light starts blinking fast, press and hold **FLASH** until it stops (within 3 seconds). Don't press FLASH at the same time as RST: the board then starts in programming mode and does nothing. Press RST again to get out of it.
 2. On a phone, join the Wi-Fi called **HomeNode-xxxxxx** (no password). The setup page opens, or browse to http://192.168.4.1.
 3. Tap **Configure WiFi**, pick the new network and type its password. Leave the server fields as they are.
 4. Press **Save**. The light goes off once the board is connected.

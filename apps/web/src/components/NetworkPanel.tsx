@@ -4,6 +4,7 @@ import { errorText, get, post } from '@/lib/api';
 import { timeAgo, useNow } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
 import type { BoardNode } from '@/lib/types';
+import { isBehind } from '@/lib/version';
 import { Tip } from './Help';
 import { Icon } from './Icon';
 import { Loader, Spinner } from './Loader';
@@ -367,7 +368,9 @@ export function NetworkPanel({ node }: { node: BoardNode }) {
           <b>Start Wi‑Fi setup again</b>
           <span className="small muted">
             For a new router or a changed Wi‑Fi password the board can’t see. It forgets its Wi‑Fi and opens its own hotspot <span className="mono net-chip">HomeNode‑{node.id.replace('esp-', '')}</span> — finish setup from a phone next to the board.
-            {' '}No app? Press <b>RST</b> on the board, then hold <b>FLASH</b> for 3 seconds.
+            {' '}No app, or the board is offline? {isBehind(node.firmware, '2.3.0')
+              ? <>Press and release <b>RST</b>. When the blue light starts blinking fast, press and hold <b>FLASH</b> until it stops (you have 3 seconds). Don’t hold FLASH while pressing RST: that starts the chip’s programming mode — press RST again to get out. (Firmware 2.3.0 makes this a simple 5‑second press.)</>
+              : <>Hold the board’s <b>FLASH</b> button for 5 seconds: the blue light blinks fast, then stays on. Let go — the hotspot opens.</>}
           </span>
         </span>
         <button className="btn btn-danger" onClick={() => setResetting(true)} disabled={!node.online}>Forget Wi‑Fi…</button>
