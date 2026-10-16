@@ -23,7 +23,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional, TypedDict
+from typing import Any, Callable, List, Optional, TypedDict, Union
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -49,10 +49,8 @@ class Turn(TypedDict, total=False):
     """What flows through the graph for one question."""
     text: str
     user_name: str
-    system: str
     console: bool
     followup: bool          # there is an earlier exchange in this conversation
-    vocab: List[str]        # names in this home / fleet (devices, rooms, scenes, boards, homes)
     lang: str
     docs: List[Document]
     calls: List[ToolCall]   # tool calls the AI just asked for
@@ -71,6 +69,10 @@ class TurnContext:
     retriever: Optional[BaseRetriever] = None
     guard: Optional[ScopeGuard] = None
     started: float = field(default_factory=time.monotonic)
+    # made only when needed (an instant command needs neither): the AI's instructions with the home's
+    # state, and the names in the home for the guard
+    system: Callable[[], str] = lambda: ""
+    vocab: Callable[[], List[str]] = lambda: []
 
 
 def _ctx(config: RunnableConfig) -> TurnContext:
@@ -100,12 +102,15 @@ class AnswerGraph:
         self.graph = g.compile()
 
     # ------------------------------------------------------------------ running it
-    def answer(self, ctx: TurnContext, *, text: str, user_name: str, system: str, console: bool = False,
-               followup: bool = False, vocab: Optional[List[str]] = None) -> str:
+    def answer(self, ctx: TurnContext, *, text: str, user_name: str, system: Union[str, Callable[[], str]],
+               console: bool = False, followup: bool = False,
+               vocab: Union[None, List[str], Callable[[], List[str]]] = None) -> str:
         ctx.started = self._clock()
+        ctx.system = _once(system)
+        ctx.vocab = _once(vocab or [])
         out = self.graph.invoke(
-            {"text": text, "user_name": user_name, "system": system, "console": console, "followup": followup,
-             "vocab": vocab or [], "lang": language(text), "docs": [], "calls": [], "rounds": 0, "timings": []},
+            {"text": text, "user_name": user_name, "console": console, "followup": followup,
+             "lang": language(text), "docs": [], "calls": [], "rounds": 0, "timings": []},
             config={"configurable": {"ctx": ctx}, "recursion_limit": 4 + 2 * self._max_rounds + 2},
         )
         log.info("%s: %r -> %s [%s] (%s)", user_name, text, out.get("route", "?"),
@@ -150,7 +155,7 @@ class AnswerGraph:
     def guard(self, s: Turn, ctx: TurnContext) -> dict:
         if ctx.guard is None:
             return {"route": AGENT}
-        d = ctx.guard.decide(s["text"], followup=s.get("followup", False), vocab=s.get("vocab", []), docs=s.get("docs", []))
+        d = ctx.guard.decide(s["text"], followup=s.get("followup", False), vocab=ctx.vocab(), docs=s.get("docs", []))
         lang, console = s.get("lang", "en"), s.get("console", False)
         fixed = {
             GREET: lambda: greet_text(s["text"], lang, s.get("user_name", ""), console),
@@ -170,7 +175,7 @@ class AnswerGraph:
             log.warning("Answer budget (%ss) spent after %d rounds", self._budget, rounds)
             ctx.history.append(ChatMessage(Role.ASSISTANT, TOO_SLOW))
             return {"reply": TOO_SLOW, "calls": [], "route": "too_slow"}
-        reply = self._llm.chat(self._system(s), ctx.history, ctx.tools.specs())
+        reply = self._llm.chat(self._system(s, ctx.system()), ctx.history, ctx.tools.specs())
         if reply.tool_calls:
             ctx.history.append(ChatMessage(Role.ASSISTANT, reply.text, tool_calls=list(reply.tool_calls)))
             return {"calls": list(reply.tool_calls), "rounds": rounds + 1}
@@ -198,16 +203,29 @@ class AnswerGraph:
         return {"calls": []}
 
     @staticmethod
-    def _system(s: Turn) -> str:
+    def _system(s: Turn, system: str) -> str:
         docs = s.get("docs") or []
         if not docs:
-            return s["system"]
-        return (f"{s['system']}\n\n# Help Center excerpts for this question\n\n"
+            return system
+        return (f"{system}\n\n# Help Center excerpts for this question\n\n"
                 "The company's own articles that match what was asked, best first. For anything about using "
                 "Switchboard, fixing problems, visits, installation, warranty, charges, refunds or privacy, answer "
                 "only from these (or call search_help for another search). Ignore excerpts that are not about the "
                 "question. If none of them answers it, say you don't have that information.\n\n"
                 f"{format_excerpts(docs)}")
+
+
+def _once(value: Any) -> Callable[[], Any]:
+    """A value, or a function made into one that runs at most once."""
+    if not callable(value):
+        return lambda: value
+    cache: list = []
+
+    def get() -> Any:
+        if not cache:
+            cache.append(value())
+        return cache[0]
+    return get
 
 
 def merge_names(*texts: Any) -> List[str]:

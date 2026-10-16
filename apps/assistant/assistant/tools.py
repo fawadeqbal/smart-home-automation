@@ -462,7 +462,8 @@ class DiagnoseHomeTool(Tool):
 
 
 def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]], tz: Optional[tzinfo] = None,
-                clock: Optional[Callable[[], datetime]] = None, knowledge: Optional[KnowledgeBase] = None) -> ToolRegistry:
+                clock: Optional[Callable[[], datetime]] = None, knowledge: Optional[KnowledgeBase] = None,
+                me: str = "", public_url: str = "") -> ToolRegistry:
     if api is None:
         return ToolRegistry()
     try:
@@ -470,11 +471,13 @@ def build_tools(api: Optional[HomeApi], devices: List[Dict[str, Any]], tz: Optio
     except Exception:  # noqa: BLE001 - no scenes is fine
         scenes = []
     from .connections import BoardConnectionsTool  # here: connections.py builds on this module
+    from .manage import management_tools
     return ToolRegistry([
         SetDeviceTool(api, devices), GetDevicesTool(devices), ReadSensorsTool(devices),
         ScheduleDeviceTool(api, devices, tz, clock), ListSchedulesTool(api, tz), CancelScheduleTool(api, tz),
         RunSceneTool(api, scenes), DiagnoseHomeTool(api, devices, tz), BoardConnectionsTool(api, tz),
         *([SearchHelpTool(api, knowledge)] if knowledge is not None else []),
+        *management_tools(api, devices, me, public_url),
     ])
 
 
@@ -485,8 +488,9 @@ def build_console_tools(api: Optional[HomeApi], tz: Optional[tzinfo] = None,
     if api is None:
         return ToolRegistry()
     from .connections import BoardConnectionsTool, FleetStatusTool
+    from .manage import HomeDetailsTool
     return ToolRegistry([
-        FleetStatusTool(api, tz), BoardConnectionsTool(api, tz, console=True),
+        FleetStatusTool(api, tz), BoardConnectionsTool(api, tz, console=True), HomeDetailsTool(api),
         *([SearchHelpTool(api, knowledge, customer_view=False)] if knowledge is not None else []),
     ])
 

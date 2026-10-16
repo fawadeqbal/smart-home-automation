@@ -15,7 +15,7 @@ import threading
 import time
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from langchain_core.retrievers import BaseRetriever
 
@@ -93,7 +93,7 @@ class ConversationService:
 
     def ask(self, user_id: str, user_name: str, text: str, tools: ToolRegistry,
             quick: Optional[QuickCommands] = None, *, home_id: str = "", home_name: str = "",
-            fresh: bool = False, tz: Optional[tzinfo] = None, home_state: str = "",
+            fresh: bool = False, tz: Optional[tzinfo] = None, home_state: Union[str, Callable[[], str]] = "",
             prompt: Optional["PromptBuilder"] = None, retriever: Optional[BaseRetriever] = None,
             console: bool = False) -> str:
         key = (user_id, home_id)
@@ -103,11 +103,18 @@ class ConversationService:
             followup = any(m.role == Role.ASSISTANT for m in history)
             history.append(ChatMessage(Role.USER, text))
             ctx = TurnContext(history=history, tools=tools, quick=quick, retriever=retriever, guard=self._scope)
+            # the home's state is loaded once, and only if the question gets past the instant commands
+            state_cache: List[str] = []
+
+            def state() -> str:
+                if not state_cache:
+                    state_cache.append(home_state() if callable(home_state) else home_state)
+                return state_cache[0]
             try:
                 reply = self._graph.answer(
                     ctx, text=text, user_name=user_name, console=console, followup=followup,
-                    system=(prompt or self._prompt).build(user_name, home_name, tz, home_state),
-                    vocab=merge_names(home_state, home_name) if self._scope else [])
+                    system=lambda: (prompt or self._prompt).build(user_name, home_name, tz, state()),
+                    vocab=(lambda: merge_names(state(), home_name)) if self._scope else [])
             except LLMError as exc:
                 del history[checkpoint:]                # forget the failed exchange
                 return str(exc)

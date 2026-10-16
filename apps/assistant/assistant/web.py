@@ -22,6 +22,7 @@ from .quick import QuickCommands
 from .knowledge import KnowledgeBase, local_embedder
 from .retrieval import retriever_for
 from .connections import fleet_summary, role_text
+from .manage import home_facts
 from .tools import SearchHelpTool, build_console_tools, build_tools, describe_home, home_zone
 
 log = logging.getLogger(__name__)
@@ -146,12 +147,13 @@ def create_app(settings: Settings, *, llm: Optional[LLMProvider] = None, stt: Op
             return speak_reply(text, reply, speak)
         devices = load_devices(api, who) if devices is None else devices
         clock = lambda: datetime.now(tz)                # noqa: E731 - the home's clock, shared by both
-        tools = build_tools(api, devices, tz, clock, knowledge)
+        tools = build_tools(api, devices, tz, clock, knowledge, me=who.user_id, public_url=settings.public_url)
         quick = QuickCommands(api, devices, tools, clock=clock) if settings.quick_commands else None
         scenes = getattr(tools.get("run_scene"), "_scenes", [])
         reply = conversation.ask(who.user_id, who.user_name, text, tools, quick,
                                  home_id=who.home_id, home_name=who.home_name, fresh=fresh,
-                                 tz=tz, home_state=describe_home(devices, scenes),
+                                 tz=tz, home_state=lambda: describe_home(devices, scenes) + "\n\n# The whole home\n\n"
+                                 + home_facts(api, devices, who.user_id),
                                  retriever=retriever_for(tools.get("search_help")))
         return speak_reply(text, reply, speak)
 

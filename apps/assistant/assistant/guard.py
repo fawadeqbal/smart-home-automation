@@ -45,6 +45,8 @@ wife husband kids kid children child son daughter brother sister mother father m
 servant naukar biwi bachay bachon bacha beta beti ammi abbu bhai behan tenant tenants
 slow slowly fast delay late respond responding response camera cameras cctv lost stolen hack hacked safe secure
 security privacy private data
+rename renamed delete deleted remove removed create move moved people person user users role roles access
+permission permissions manage summary overview count rooms
 """.split())
 
 # money and promises: never answered without a published article that covers them

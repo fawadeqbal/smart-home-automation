@@ -20,6 +20,8 @@ class Settings:
     # The platform API the device tools call, and the secret the API sends us
     api_url: str = "http://localhost:4000"
     shared_secret: str = ""
+    # the site people open (invite links the assistant gives out start with it)
+    public_url: str = ""
 
     # Brain
     llm_provider: str = "ollama"
@@ -73,6 +75,7 @@ class Settings:
         return cls(
             api_url=env("API_URL", "http://localhost:4000").rstrip("/"),
             shared_secret=env("ASSISTANT_SHARED_SECRET", ""),
+            public_url=(env("PUBLIC_URL") or "").rstrip("/"),
             llm_provider=env("LLM_PROVIDER", "ollama").strip().lower(),
             ollama_url=env("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
             ollama_model=env("OLLAMA_MODEL", "qwen2.5:3b"),

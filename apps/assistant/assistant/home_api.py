@@ -71,6 +71,53 @@ class HomeApi:
         """One board of the current home: its public IP, place, provider and recent connections (owners, admins)."""
         return self._call("GET", f"/nodes/{node_id}/connections")
 
+    # managing the home (the API allows each only to the roles that may do it in the app)
+    def rooms(self) -> List[Dict[str, Any]]:
+        return self._call("GET", "/rooms")
+
+    def create_room(self, name: str) -> Dict[str, Any]:
+        return self._call("POST", "/rooms", {"name": name})
+
+    def update_room(self, room_id: str, name: str) -> Dict[str, Any]:
+        return self._call("PATCH", f"/rooms/{room_id}", {"name": name})
+
+    def delete_room(self, room_id: str) -> None:
+        self._call("DELETE", f"/rooms/{room_id}")
+
+    def update_device(self, device_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("PATCH", f"/devices/{device_id}", body)
+
+    def users(self) -> List[Dict[str, Any]]:
+        return self._call("GET", "/users")
+
+    def invites(self) -> List[Dict[str, Any]]:
+        return self._call("GET", "/invites")
+
+    def invite(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("POST", "/invites", body)
+
+    def update_user(self, user_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("PATCH", f"/users/{user_id}", body)
+
+    def set_user_rooms(self, user_id: str, rooms: List[Dict[str, str]]) -> Any:
+        return self._call("PUT", f"/users/{user_id}/rooms", {"rooms": rooms})
+
+    def remove_user(self, user_id: str) -> None:
+        self._call("DELETE", f"/users/{user_id}")
+
+    def create_scene(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("POST", "/scenes", body)
+
+    def delete_scene(self, scene_id: str) -> None:
+        self._call("DELETE", f"/scenes/{scene_id}")
+
+    # the console (staff): the homes they look after, and one home's rooms, boards and people
+    def platform_homes(self) -> List[Dict[str, Any]]:
+        return self._call("GET", "/platform/homes")
+
+    def platform_home(self, home_id: str) -> Dict[str, Any]:
+        return self._call("GET", f"/platform/homes/{home_id}")
+
     # the console (staff): every board in the homes this person looks after; their role decides which
     def connectivity(self) -> Dict[str, Any]:
         return self._call("GET", "/platform/connectivity")

@@ -129,7 +129,7 @@ def test_a_family_member_is_told_to_ask_the_owner():
 
 def test_console_tools_are_read_only():
     names = {s.name for s in build_console_tools(StaffApi("t"), knowledge=KnowledgeBase(None)).specs()}
-    assert names == {"fleet_status", "board_connections", "search_help"}
+    assert names == {"fleet_status", "board_connections", "home_details", "search_help"}
     home = {s.name for s in build_tools(StaffApi("t"), []).specs()}
     assert "board_connections" in home and "diagnose_home" in home and "fleet_status" not in home
 
@@ -177,7 +177,7 @@ def test_a_console_chat_gets_the_role_the_summary_and_only_read_only_tools():
     assert "do not exist for them" in first["system"]
     assert "2 boards in 2 homes" in first["system"]
     assert "the company's console" in first["system"]           # the console instructions, not the home ones
-    assert {t.name for t in first["tools"]} == {"fleet_status", "board_connections", "search_help"}
+    assert {t.name for t in first["tools"]} == {"fleet_status", "board_connections", "home_details", "search_help"}
     assert apis[0].token == "tok-ravi"                           # always the person's own rights
 
 

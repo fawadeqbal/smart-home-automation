@@ -121,6 +121,7 @@ services:
     restart: unless-stopped
     environment:
       API_URL: http://home-api:4000
+      PUBLIC_URL: https://${DOMAIN}
       ASSISTANT_SHARED_SECRET: ${ASSISTANT_SHARED_SECRET}
       LLM_PROVIDER: claude
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
