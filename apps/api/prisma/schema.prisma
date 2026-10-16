@@ -236,6 +236,8 @@ model Home {
   awaySince   DateTime?
   awayById    String?
   awayLights  String[]     @default([])
+  /// what one unit (kWh) costs here, for electricity estimates (null: the default)
+  tariff      Float?
 }
 
 model Room {
@@ -366,6 +368,8 @@ model Device {
   autoOffMinutes Int?
   /// when it goes off by itself next (set when it goes on: by auto-off, away mode, or "for 10 minutes" in a rule)
   autoOffAt DateTime?
+  /// how much power it draws when on, in watts (null: guessed from its name)
+  watts     Int?
   state     DeviceState?
   history   StateEvent[]
   commands  Command[]

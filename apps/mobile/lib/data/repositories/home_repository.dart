@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/api_client.dart';
+import '../models/energy.dart';
 import '../models/json.dart';
 import '../models/outages.dart';
 import '../models/people.dart';
@@ -11,6 +12,9 @@ class HomeRepository {
   final ApiClient _api;
 
   Future<HomeWelcome> welcome() async => HomeWelcome.fromJson(asJson(await _api.get<Object?>('/home/welcome')));
+
+  /// Electricity estimates for the switches this person can see.
+  Future<Energy> energy({int days = 7}) async => Energy.fromJson(asJson(await _api.get<Object?>('/energy?days=$days')));
 
   /// Power cuts and internet outages in this home (everyone in the home may see them).
   Future<HomeOutages> outages({int days = 7}) async =>

@@ -118,6 +118,7 @@ export function Shell({ children }: { children: ReactNode }) {
     if (!home) return [{ href: '/', label: 'Home', icon: 'house', exact: true }];
     const items: NavItem[] = [{ href: '/', label: 'Home', icon: 'house', exact: true }];
     if (!home.readOnly) items.push({ href: '/automations', label: 'Automations', icon: 'clock' });
+    items.push({ href: '/energy', label: 'Electricity', icon: 'zap' });
     if (isAdmin) {
       items.push(
         { href: '/rooms', label: 'Rooms', icon: 'door-open' },
@@ -186,7 +187,7 @@ export function Shell({ children }: { children: ReactNode }) {
     </Dropdown>
   );
 
-  const PAGE: Record<string, string> = { '/automations': 'Automations', '/notifications': 'Notifications', '/help': 'Help' };
+  const PAGE: Record<string, string> = { '/automations': 'Automations', '/energy': 'Electricity', '/notifications': 'Notifications', '/help': 'Help' };
   const fallback = PAGE[path] ?? (path.startsWith('/devices/') ? 'Device' : null);
   const shownCrumbs: Crumb[] = crumbs.length ? crumbs
     : platform ? [{ label: 'Platform' }]

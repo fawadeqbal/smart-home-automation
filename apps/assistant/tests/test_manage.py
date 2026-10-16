@@ -350,3 +350,21 @@ def test_sunset_schedules():
     from assistant.tools import _when_text
     assert _when_text(api._schedules[-1]) == "every day 15 minutes after sunset"
     assert out.startswith("Scheduled")
+
+
+def test_energy_usage_in_words():
+    from assistant.manage import EnergyUsageTool
+
+    class EnergyApi(OwnerApi):
+        def energy(self, days=7):
+            return {"days": days, "tariff": 60, "tariffSet": False, "total": {"kwh": 41.25, "cost": 2475},
+                    "month": {"kwh": 177, "cost": 10610}, "unknown": 1,
+                    "devices": [{"name": "Geyser", "hours": 14.5, "kwh": 29.0, "cost": 1740, "wattsSource": "guessed"},
+                                {"name": "Fan", "hours": 60, "kwh": 4.5, "cost": 270, "wattsSource": "set"},
+                                {"name": "Socket", "hours": 3, "kwh": 0, "cost": 0, "wattsSource": "unknown"}]}
+
+    out = EnergyUsageTool(EnergyApi()).run({"days": 7})
+    assert out.startswith("Estimate for the last 7 days: about 41.2 units (kWh), Rs 2,475 at Rs 60 a unit (a typical rate")
+    assert "a month is about 177 units, Rs 10,610" in out
+    assert "Geyser: 14.5 h on, 29.0 units, Rs 1,740 (power guessed from its name)" in out
+    assert "1 switches have no power set" in out and out.endswith("not a meter reading.")

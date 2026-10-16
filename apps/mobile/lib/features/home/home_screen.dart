@@ -8,16 +8,19 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
 import '../../core/util/format.dart';
+import '../../data/models/energy.dart';
 import '../../data/models/session.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../shared/widgets/sb_switch.dart';
+import '../../shared/widgets/sheet.dart';
 import '../../state/activity.dart';
 import '../../state/automation.dart';
 import '../../state/clock.dart';
 import '../../state/devices.dart';
 import '../../state/favourites.dart';
 import '../../state/home_overview.dart';
+import '../../state/people.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
 import '../activity/activity_row.dart';
@@ -68,6 +71,7 @@ class HomeScreen extends ConsumerWidget {
           SizedBox(height: 22),
           _StatusPill(),
           _Away(),
+          _EnergyCard(),
           _Scenes(),
           _Favourites(),
           _Rooms(),
@@ -402,6 +406,106 @@ class _Away extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// This week's electricity, roughly; tap for the devices that used the most.
+class _EnergyCard extends ConsumerWidget {
+  const _EnergyCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final e = ref.watch(homeEnergyProvider).value;
+    if (e == null || !e.loaded || e.kwh < 0.05) return const SizedBox.shrink();
+    final top = e.devices.where((d) => d.kwh > 0).firstOrNull;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: GroupCard(
+        radius: 22,
+        children: [
+          InkWell(
+            onTap: () => _showEnergy(context, e),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(color: c.sf2, borderRadius: BorderRadius.circular(12)),
+                    child: Center(child: SbIcon(SbIcons.zap, size: 18, color: c.tx)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'This week: ~${Energy.units(e.kwh)} units · ${Energy.rupees(e.cost)}',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx),
+                        ),
+                        Text(
+                          '${top != null ? 'Most from ${top.name} · ' : ''}a month ≈ ${Energy.rupees(e.monthCost)}',
+                          style: TextStyle(fontSize: 13, color: c.mu),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SbIcon(SbIcons.caretRight, size: 16, color: c.mu),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEnergy(BuildContext context, Energy e) {
+    showSbSheet<void>(
+      context,
+      builder: (ctx) {
+        final c = ctx.sb;
+        final rows = e.devices.where((d) => d.hours > 0).toList();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Electricity this week', style: SbText.title.copyWith(color: c.tx)),
+            const SizedBox(height: 6),
+            Text(
+              'About ${Energy.units(e.kwh)} units, ${Energy.rupees(e.cost)} at Rs ${e.tariff.toStringAsFixed(0)} a unit. '
+              'An estimate from how long each switch was on — your meter is the real number.',
+              style: TextStyle(fontSize: 14, color: c.mu),
+            ),
+            const SizedBox(height: 14),
+            for (final d in rows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(d.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
+                          Text(
+                            '${d.hours < 1 ? '${(d.hours * 60).round()} min' : '${d.hours.toStringAsFixed(1)} h'} on · ${Energy.units(d.kwh)} units'
+                            '${d.wattsSource == 'unknown' ? ' · power not set' : ''}',
+                            style: TextStyle(fontSize: 13, color: c.mu),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(Energy.rupees(d.cost), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
+                  ],
+                ),
+              ),
+            if (rows.isEmpty) Text('Nothing was on this week.', style: TextStyle(color: c.mu)),
+          ],
+        );
+      },
     );
   }
 }

@@ -133,6 +133,10 @@ class HomeApi:
     def location(self) -> Dict[str, Any]:
         return self._call("GET", "/home/location")
 
+    def energy(self, days: int = 7) -> Dict[str, Any]:
+        """Electricity estimates for the switches this person can see."""
+        return self._call("GET", f"/energy?days={days}")
+
     def outages(self, days: int = 7) -> Dict[str, Any]:
         """Power cuts, Wi-Fi/internet outages and board restarts in this home (everyone in the home may see them)."""
         return self._call("GET", f"/outages?days={days}")

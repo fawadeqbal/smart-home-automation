@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:switchboard_home/data/models/automation.dart';
 import 'package:switchboard_home/data/models/device.dart';
+import 'package:switchboard_home/data/models/energy.dart';
 
 void main() {
   test('a sunset schedule reads as words', () {
@@ -29,5 +30,18 @@ void main() {
     final d = Device.fromJson({'id': 'd1', 'key': 'k', 'name': 'Iron', 'type': 'switch', 'childLock': true});
     expect(d.childLock, isTrue);
     expect(d.copyWith(online: true).childLock, isTrue);
+  });
+
+  test('electricity estimates read as units and rupees', () {
+    final e = Energy.fromJson({
+      'days': 7, 'tariff': 60, 'total': {'kwh': 41.25, 'cost': 2475}, 'month': {'kwh': 177, 'cost': 10610},
+      'devices': [{'name': 'Geyser', 'hours': 14.5, 'kwh': 29, 'cost': 1740, 'watts': 2000, 'wattsSource': 'guessed'}],
+    });
+    expect(e.loaded, isTrue);
+    expect(Energy.units(e.kwh), '41');
+    expect(Energy.units(4.25), '4.3');
+    expect(Energy.rupees(e.monthCost), 'Rs 10,610');
+    expect(Energy.rupees(980), 'Rs 980');
+    expect(e.devices.single.kwh, 29.0);
   });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/models/energy.dart';
 import '../data/models/outages.dart';
 import '../data/models/people.dart';
 import '../data/repositories/home_repository.dart';
@@ -48,6 +49,16 @@ final homeOutagesProvider = FutureProvider<HomeOutages>((ref) async {
     return await ref.read(homeRepositoryProvider).outages(days: 7);
   } catch (_) {
     return const HomeOutages();
+  }
+});
+
+/// This week's electricity estimate (not loaded when it can't be read).
+final homeEnergyProvider = FutureProvider<Energy>((ref) async {
+  if (ref.watch(currentHomeIdProvider) == null) return const Energy();
+  try {
+    return await ref.read(homeRepositoryProvider).energy(days: 7);
+  } catch (_) {
+    return const Energy();
   }
 });
 

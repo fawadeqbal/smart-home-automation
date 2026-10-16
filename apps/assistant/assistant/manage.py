@@ -73,7 +73,7 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
     """Rooms (with empty ones), boards, people and invites, timers: what the AI is told on top of the
     devices. Parts this person may not see (people and boards are for owners and admins) are left out
     and their role says why."""
-    names = ("rooms", "nodes", "users", "invites", "schedules", "outages", "rules", "away")
+    names = ("rooms", "nodes", "users", "invites", "schedules", "outages", "rules", "away", "energy")
     calls = [getattr(api, n, None) for n in names]
     got = dict(zip(names, _POOL.map(lambda f: _safe(f) if callable(f) else None, calls)))
     lines: List[str] = []
@@ -141,6 +141,11 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
     if isinstance(rules, list):
         on = [r for r in rules if r.get("enabled")]
         lines.append(f"Rules (when this happens, do that): {len(on)} active" + (" (list_rules shows them)" if on else "."))
+    energy = got["energy"]
+    if isinstance(energy, dict) and energy.get("devices"):
+        top = [d for d in energy["devices"] if d.get("kwh")][:2]
+        lines.append(f"Electricity this week (estimate): about {energy['total']['kwh']:.0f} units, Rs {energy['total']['cost']:,}"
+                     + (f"; most from {', '.join(d['name'] for d in top)}" if top else "") + " (energy_usage has the details).")
     away = got["away"]
     if isinstance(away, dict):
         lines.append("Away mode: " + (f"ON since {_local(away['since'], tz)}" + (f", turned on by {away['by']}" if away.get("by") else "")
@@ -698,11 +703,45 @@ class DeviceSafetyTool(Tool):
         return f"{_describe(found[0])}: " + ", ".join(said) + "."
 
 
+# ------------------------------------------------------------------ electricity
+def energy_text(e: Dict[str, Any], limit: int = 6) -> str:
+    t = e.get("total") or {}
+    days = e.get("days", 7)
+    head = (f"Estimate for the last {days} days: about {t.get('kwh', 0):.1f} units (kWh), Rs {t.get('cost', 0):,} "
+            f"at Rs {e.get('tariff')} a unit{'' if e.get('tariffSet') else ' (a typical rate; the owner can set theirs)'}. "
+            f"At this pace a month is about {e.get('month', {}).get('kwh', 0)} units, Rs {e.get('month', {}).get('cost', 0):,}.")
+    rows = [d for d in e.get("devices", []) if d.get("hours")][:limit]
+    if rows:
+        head += " Biggest users: " + "; ".join(
+            f"{d['name']}: {d['hours']} h on, {d['kwh']:.1f} units, Rs {d['cost']:,}"
+            + (" (power guessed from its name)" if d.get("wattsSource") == "guessed" else " (power unknown)" if d.get("wattsSource") == "unknown" else "")
+            for d in rows) + "."
+    if e.get("unknown"):
+        head += f" {e['unknown']} switches have no power set, so they count as 0: the owner can set their watts on the Energy page."
+    return head + " These are estimates from on-time, not a meter reading."
+
+
+class EnergyUsageTool(Tool):
+    name = "energy_usage"
+    description = ("Electricity used by the switches (estimate from how long each was on and how much power it draws), "
+                   "the cost at the home's price per unit, a month at this pace, and the biggest users.")
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"days": {"type": "integer", "description": "1 = today, 7 = this week (default), 30 = this month"}}}
+
+    def run(self, args: dict) -> str:
+        return energy_text(self._api.energy(int(args.get("days") or 7)))
+
+
 def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public_url: str = "", tz=None) -> List[Tool]:
     return [HomeOverviewTool(api, me, tz), PowerHistoryTool(api, tz), AddRoomTool(api), RenameRoomTool(api), DeleteRoomTool(api, devices),
             UpdateDeviceTool(api, devices), ListPeopleTool(api), InvitePersonTool(api, public_url),
             UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api),
-            CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices)]
+            CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices), EnergyUsageTool(api)]
 
 
 # ------------------------------------------------------------------ the console (staff, read only)

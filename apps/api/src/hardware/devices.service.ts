@@ -42,6 +42,8 @@ export interface DeviceUpdate {
   childLock?: boolean;
   /** it switches itself off this long after going on (null = never) */
   autoOffMinutes?: number | null;
+  /** power when on, for electricity estimates (null: guessed from its name) */
+  watts?: number | null;
 }
 
 export type StateListener = (
@@ -99,7 +101,7 @@ export class DevicesService implements OnModuleInit {
       nodeId: d.nodeId, nodeName: d.node.name, online: d.node.online,
       roomId: d.roomId, roomName: d.room?.name ?? null,
       pin: d.pin, pinLabel: pinLabel(d.node.board, d.pin), activeLow: d.activeLow, settings: d.settings, enabled: d.enabled,
-      childLock: d.childLock, autoOffMinutes: d.autoOffMinutes, autoOffAt: d.autoOffAt,
+      childLock: d.childLock, autoOffMinutes: d.autoOffMinutes, autoOffAt: d.autoOffAt, watts: d.watts,
       state: (d.state?.state as Record<string, unknown> | undefined) ?? null,
       source: d.state?.source ?? null, updatedAt: d.state?.updatedAt ?? null,
       access: level,
@@ -242,6 +244,7 @@ export class DevicesService implements OnModuleInit {
     if (input.roomId !== undefined) data.room = input.roomId ? { connect: { id: input.roomId } } : { disconnect: true };
     if (input.enabled !== undefined) data.enabled = input.enabled;
     if (input.childLock !== undefined) data.childLock = input.childLock;
+    if (input.watts !== undefined) data.watts = input.watts || null;
     if (input.autoOffMinutes !== undefined) {
       const m = input.autoOffMinutes ? Math.max(1, Math.min(24 * 60, Math.round(input.autoOffMinutes))) : null;
       data.autoOffMinutes = m;

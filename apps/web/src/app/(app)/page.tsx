@@ -6,6 +6,7 @@ import { AskBar } from '@/components/assistant/Assistant';
 import { DeviceCard } from '@/components/DeviceCard';
 import { Icon } from '@/components/Icon';
 import { AwayCard } from '@/components/home/AwayCard';
+import { EnergyCard } from '@/components/home/EnergyCard';
 import { PowerCard } from '@/components/home/OutagesPanel';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
@@ -94,6 +95,7 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
 
       <AwayCard isAdmin={isAdmin} readOnly={readOnly} />
       <PowerCard link={isAdmin} />
+      <EnergyCard />
 
       {runnable.length > 0 && (
         <div className="scenes" role="group" aria-label="Scenes">

@@ -456,6 +456,37 @@ test('rules, safety auto-off, child lock, away mode and sunset timers', async ()
   assert.equal((await owner.get('/rules')).body.length, 0);
 });
 
+test('electricity estimates: on-time from the history, the power each draws, the price of a unit', async () => {
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  await owner.post(`/devices/${state.bulb}/commands`, { on: true });
+  await new Promise((r) => setTimeout(r, 1200));
+  await owner.post(`/devices/${state.bulb}/commands`, { on: false });
+
+  const first = await owner.get('/energy?days=7');
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.perDay.length, 7);
+  assert.equal(first.body.tariff, 60);
+  const bulb = first.body.devices.find((d) => d.id === state.bulb);
+  assert.equal(bulb.wattsSource, 'guessed');
+  assert.equal(bulb.watts, 15);
+  assert.ok(bulb.hours >= 0);
+  assert.ok(!first.body.devices.some((d) => d.id === state.sensor)); // only switches
+
+  assert.equal((await kid.put('/home/tariff', { tariff: 45 })).status, 403);
+  assert.equal((await owner.put('/home/tariff', { tariff: 45 })).status, 204);
+  assert.equal((await owner.patch(`/devices/${state.bulb}`, { watts: 2000 })).body.watts, 2000);
+  const after = (await owner.get('/energy?days=30')).body;
+  assert.equal(after.tariff, 45);
+  assert.equal(after.perDay.length, 30);
+  const b2 = after.devices.find((d) => d.id === state.bulb);
+  assert.equal(b2.wattsSource, 'set');
+  assert.equal(b2.cost, Math.round(b2.kwh * 45));
+  // a member sees the switches in their rooms
+  assert.ok((await kid.get('/energy')).body.devices.some((d) => d.id === state.bulb));
+  await owner.patch(`/devices/${state.bulb}`, { watts: null });
+});
+
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
   const bad = new FormData();
   bad.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.bin');

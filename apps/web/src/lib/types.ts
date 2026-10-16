@@ -156,6 +156,7 @@ export interface Device {
   childLock?: boolean;
   autoOffMinutes?: number | null;
   autoOffAt?: string | null;
+  watts?: number | null;
   state: Record<string, unknown> | null;
   source: string | null;
   updatedAt: string | null;
@@ -388,4 +389,19 @@ export interface HomeLocation {
   sunset: string | null;
   timezone: string;
   cities: string[];
+}
+
+export interface EnergyDevice { id: string; name: string; room: string | null; watts: number; wattsSource: 'set' | 'guessed' | 'unknown'; hours: number; kwh: number; cost: number; onNow: boolean }
+export interface Energy {
+  days: number;
+  timezone: string;
+  tariff: number;
+  tariffSet: boolean;
+  currency: string;
+  total: { kwh: number; cost: number; hours: number };
+  month: { kwh: number; cost: number };
+  perDay: { day: string; kwh: number; cost: number }[];
+  devices: EnergyDevice[];
+  unknown: number;
+  powerCuts: number;
 }
