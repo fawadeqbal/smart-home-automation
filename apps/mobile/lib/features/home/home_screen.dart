@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/routing/routes.dart';
@@ -472,6 +473,7 @@ class _EnergyCard extends ConsumerWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const _WeekSummary(),
             Text('Electricity this week', style: SbText.title.copyWith(color: c.tx)),
             const SizedBox(height: 6),
             Text(
@@ -506,6 +508,40 @@ class _EnergyCard extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// The week in a few lines, with a button to send it to the family (WhatsApp or anything else).
+class _WeekSummary extends ConsumerWidget {
+  const _WeekSummary();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final s = ref.watch(homeSummaryProvider).value;
+    if (s == null || !s.loaded) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('This week', style: SbText.title.copyWith(color: c.tx)),
+          Text(s.range, style: TextStyle(fontSize: 13, color: c.mu)),
+          const SizedBox(height: 10),
+          for (final l in s.lines)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Text('• $l', style: TextStyle(fontSize: 14.5, color: c.tx, height: 1.35)),
+            ),
+          const SizedBox(height: 12),
+          BigButton(
+            label: 'Send to the family',
+            icon: SbIcons.share,
+            onTap: () => SharePlus.instance.share(ShareParams(text: s.text)),
+          ),
+        ],
+      ),
     );
   }
 }

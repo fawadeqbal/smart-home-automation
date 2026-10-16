@@ -84,7 +84,7 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
 
       <div className="ph-text mb20">
         <h1>{greeting}</h1>
-        <p>{onNow} on{offline.length ? ` · ${offline.length} offline` : ''}</p>
+        <p>{onNow} on{offline.length ? ` · ${offline.length} offline` : ''} · <Link href="/summary">This week in short</Link></p>
       </div>
 
       <div className="kpis k3">

@@ -16,6 +16,10 @@ class HomeRepository {
   /// Electricity estimates for the switches this person can see.
   Future<Energy> energy({int days = 7}) async => Energy.fromJson(asJson(await _api.get<Object?>('/energy?days=$days')));
 
+  /// How the home did this week (or today), with text to share.
+  Future<HomeSummary> summary({String period = 'week'}) async =>
+      HomeSummary.fromJson(asJson(await _api.get<Object?>('/home/summary?period=$period')));
+
   /// Power cuts and internet outages in this home (everyone in the home may see them).
   Future<HomeOutages> outages({int days = 7}) async =>
       HomeOutages.fromJson(asJson(await _api.get<Object?>('/outages?days=$days')));

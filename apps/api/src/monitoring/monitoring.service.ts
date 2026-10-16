@@ -19,6 +19,9 @@ export const NOTICE_KINDS = {
   boardDown: { label: 'A board has been offline for an hour, or an area power cut (staff)', default: true, adminsOnly: true },
   awayAlert: { label: 'A door, window or motion sensor while the home is in away mode', default: true, adminsOnly: false },
   automation: { label: 'My rules ("when this happens, tell me")', default: true, adminsOnly: false },
+  weeklySummary: { label: 'A summary of the week, on Sunday evening', default: true, adminsOnly: true },
+  dailySummary: { label: 'A summary of the day, every evening at 9 pm', default: false, adminsOnly: true },
+  summaryEmail: { label: 'Also email me the weekly summary', default: true, adminsOnly: true },
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;

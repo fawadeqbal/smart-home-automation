@@ -1,17 +1,44 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Put, Query, ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser, NoHome, Roles } from '../auth/decorators';
 import { ZodPipe } from '../common/zod';
+import { MailService } from '../mail/mail.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { MonitoringService } from './monitoring.service';
 import { OutagesService } from './outages.service';
 import { PushService } from './push.service';
+import { SummaryService } from './summary.service';
 
 const subscription = z.object({ endpoint: z.string().url().max(1000), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) });
 
 @Controller()
 export class MonitoringController {
-  constructor(private readonly monitoring: MonitoringService, private readonly push: PushService, private readonly outages: OutagesService) {}
+  constructor(
+    private readonly monitoring: MonitoringService, private readonly push: PushService, private readonly outages: OutagesService,
+    private readonly summary: SummaryService, private readonly mail: MailService, private readonly prisma: PrismaService,
+  ) {}
+
+  /** How the home did today or this week, as lines and as text to share on WhatsApp. */
+  @Get('home/summary')
+  async homeSummary(@CurrentUser() user: AuthUser, @Query('period') period?: string) {
+    return { ...(await this.summary.build(user, period === 'day' ? 'day' : 'week')), mail: this.mail.enabled };
+  }
+
+  /** The same, to this person's email now. */
+  @Post('home/summary/email')
+  @HttpCode(200)
+  async emailSummary(@CurrentUser() user: AuthUser, @Query('period') period?: string) {
+    const p = period === 'day' ? 'day' : 'week';
+    const s = await this.summary.build(user, p);
+    const me = await this.prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { email: true } });
+    const sent = await this.mail.send({
+      to: me.email, subject: `${s.home}: ${p === 'day' ? 'today' : 'your week'} (${s.range})`,
+      text: `${s.lines.map((l) => `• ${l}`).join('\n')}`, button: { label: 'Open the summary', url: `${s.link}?period=${p}&home=${user.homeId}` },
+    });
+    if (!sent) throw new ServiceUnavailableException('Email is not set up on this server yet.');
+    return { sent: true, to: me.email };
+  }
 
   /** Power cuts, internet outages and board restarts in this home (everyone in the home may see them). */
   @Get('outages')

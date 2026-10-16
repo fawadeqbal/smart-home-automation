@@ -487,6 +487,39 @@ test('electricity estimates: on-time from the history, the power each draws, the
   await owner.patch(`/devices/${state.bulb}`, { watts: null });
 });
 
+test('summaries: the week in lines to share; sent on Sunday evening as a notice; the assistant remembers things per person', async () => {
+  const week = await owner.get('/home/summary?period=week');
+  assert.equal(week.status, 200, JSON.stringify(week.body));
+  assert.ok(week.body.lines.some((l) => l.startsWith('Power:')));
+  assert.ok(week.body.lines.some((l) => /^Alerts: .*water leak/.test(l)), week.body.lines.join(' | '));
+  assert.ok(week.body.lines.some((l) => /^Automations: \d+ switch/.test(l)));
+  assert.match(week.body.text, /^\*Test home — this week\* \(/);
+  assert.equal(week.body.mail, false);
+  assert.equal((await owner.post('/home/summary/email?period=week')).status, 503); // no email set up in tests
+  assert.match((await owner.get('/home/summary?period=day')).body.text, /— today\*/);
+
+  // the weekly one goes out as a notice to owners and admins who want it
+  const { SummaryService } = require('../../dist/monitoring/summary.service.js');
+  await app.get(SummaryService).send(state.homeId, 'week');
+  const notice = (await owner.get('/notifications')).body.items.find((n) => n.kind === 'weeklySummary');
+  assert.ok(notice, 'weekly summary notice');
+  assert.match(notice.body, /Power:/);
+  // the daily one is off unless switched on
+  await app.get(SummaryService).send(state.homeId, 'day');
+  assert.ok(!(await owner.get('/notifications')).body.items.some((n) => n.kind === 'dailySummary'));
+
+  // memory: each person's own, no duplicates
+  const kid = new Client();
+  await kid.post('/auth/login', { email: 'kid@example.com', password: 'kidpass123' });
+  const m = await owner.post('/assistant/memory', { text: 'The store room light is the one by the stairs' });
+  assert.equal(m.status, 201);
+  assert.equal((await owner.post('/assistant/memory', { text: 'the store room light is the one by the stairs' })).body.id, m.body.id);
+  assert.equal((await owner.get('/assistant/memory')).body.length, 1);
+  assert.equal((await kid.get('/assistant/memory')).body.length, 0);
+  assert.equal((await kid.del(`/assistant/memory/${m.body.id}`)).status, 404);
+  assert.equal((await owner.del(`/assistant/memory/${m.body.id}`)).status, 204);
+});
+
 test('firmware: upload a build, send it to a board over Wi-Fi, the board verifies and runs it', async () => {
   const bad = new FormData();
   bad.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.bin');

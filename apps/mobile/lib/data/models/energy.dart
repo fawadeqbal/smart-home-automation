@@ -67,3 +67,15 @@ class Energy {
     return 'Rs ${n < 0 ? '-' : ''}$out';
   }
 }
+
+/// How the home did today or this week, in a few lines, and as text to share (`/home/summary`).
+class HomeSummary {
+  const HomeSummary({this.range = '', this.lines = const [], this.text = '', this.loaded = false});
+
+  factory HomeSummary.fromJson(Json j) => HomeSummary(range: str(j['range']), lines: strList(j['lines']), text: str(j['text']), loaded: true);
+
+  final String range;
+  final List<String> lines;
+  final String text;
+  final bool loaded;
+}

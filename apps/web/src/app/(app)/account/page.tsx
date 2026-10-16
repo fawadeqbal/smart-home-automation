@@ -4,7 +4,8 @@ import { passwordRules, strongEnough, WEAK_PASSWORD } from '@/components/auth/pa
 import { Icon } from '@/components/Icon';
 import { useCrumbs } from '@/components/Shell';
 import { Avatar, ErrorBox, PageHead, useAction } from '@/components/ui';
-import { post } from '@/lib/api';
+import { del, post } from '@/lib/api';
+import { useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
 
 /** The signed-in person's own account: who they are, and their password. */
@@ -26,8 +27,38 @@ export default function AccountPage() {
           {where.length > 0 && <span className="small muted">{where.join(' · ')}</span>}
         </div>
       </section>
+      {home && !home.readOnly && <Memories />}
       <ChangePassword />
     </div>
+  );
+}
+
+/** What this person asked the assistant to remember in this home (theirs alone). */
+function Memories() {
+  const list = useLoad<{ id: string; text: string; createdAt: string }[]>('/assistant/memory');
+  const [text, setText] = useState('');
+  const { busy, error, run } = useAction();
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    if (await run(() => post('/assistant/memory', { text }))) { setText(''); void list.reload(); }
+  };
+  return (
+    <section className="card card-pad stack">
+      <div className="row" style={{ gap: 8 }}><Icon name="sparkles" size={17} /><b className="grow">What the assistant remembers</b></div>
+      <p className="small muted" style={{ margin: 0 }}>Things you asked it to remember in this home, like “the store light is the one by the stairs”. Only you see these. You can also say “forget that”.</p>
+      {list.data?.length === 0 && <p className="small muted" style={{ margin: 0 }}>Nothing yet. Say “remember that…” to the assistant, or add one here.</p>}
+      {list.data?.map((m) => (
+        <div key={m.id} className="row memory-row">
+          <span className="grow">{m.text}</span>
+          <button className="icon-btn" aria-label="Forget" title="Forget" onClick={() => void run(async () => { await del(`/assistant/memory/${m.id}`); await list.reload(); })}><Icon name="trash" size={14} /></button>
+        </div>
+      ))}
+      <form className="row" style={{ gap: 8 }} onSubmit={add}>
+        <input className="grow" value={text} onChange={(e) => setText(e.target.value)} maxLength={300} placeholder="e.g. Ali’s room is the upstairs bedroom" aria-label="Something to remember" />
+        <button className="btn" disabled={busy || text.trim().length < 2}>Add</button>
+      </form>
+      <ErrorBox error={error} />
+    </section>
   );
 }
 

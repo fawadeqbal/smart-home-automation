@@ -1535,3 +1535,9 @@ label.check input { width: 16px; height: 16px; accent-color: var(--ac); }
 .energy-meter > span { display: block; height: 100%; background: var(--on, #f5a524); border-radius: 99px; }
 .energy-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: var(--tx); }
 a.energy-card:hover { border-color: var(--ac); }
+
+/* summary, memory */
+.summary-lines { display: flex; flex-direction: column; gap: 10px; }
+.summary-line { display: flex; gap: 10px; align-items: flex-start; line-height: 1.45; }
+.summary-ic { width: 28px; height: 28px; flex: none; border-radius: 8px; background: var(--sf2); color: var(--tx); display: flex; align-items: center; justify-content: center; }
+.memory-row { gap: 8px; padding: 8px 0; border-top: 1px solid var(--ln); }

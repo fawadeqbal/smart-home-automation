@@ -2,7 +2,7 @@
 title: Talk to the assistant by voice or text in English or Roman Urdu
 category: usage
 audience: everyone
-tags: [assistant, voice, ask, microphone, mic, talk, Urdu, Roman Urdu, English, type, chat, bol kar, awaz, batti band karo, pankha chala do, kya on hai]
+tags: [remember, yaad rakhna, forget, memory, assistant, voice, ask, microphone, mic, talk, Urdu, Roman Urdu, English, type, chat, bol kar, awaz, batti band karo, pankha chala do, kya on hai]
 published: true
 ---
 The assistant switches things, sets timers, runs scenes and answers questions about your home. You can speak or type in English, in Urdu, or in a mix of both.
@@ -36,11 +36,18 @@ The assistant switches things, sets timers, runs scenes and answers questions ab
 - It can only do what **you** may do. Rooms you can only see are view-only for the assistant too.
 - In the web app, **New conversation** starts afresh. A conversation also starts afresh by itself after about 30 minutes of quiet.
 
+## Asking it to remember things
+
+Say "remember that…" and the assistant keeps it for your later chats in this home. For example: "remember that the store light is the one by the stairs", or "yaad rakhna Ali ka kamra upar wala bedroom hai". After that, "turn on the stairs light" switches the store light.
+
+- Only you see what it remembers for you. Other people in the home don't.
+- To see the list, or remove something, open **Your account** (click your name in the web app), under **What the assistant remembers**. You can also say "forget that the store light…".
+- It never stores passwords or card numbers, even if you ask.
+
 ## What it can't do
 
 - Send messages, call people, or set reminders or alarms that don't switch a device.
-- Change Wi-Fi, or add, rename or rewire devices. Your installer does that.
-- Set rules like "when the door opens, turn on the light". It does timers and schedules only.
+- Change Wi-Fi, or add or rewire devices. Your installer does that.
 - Dim lights, change fan speed or set an AC's temperature. Devices are on/off.
 - Control anything outside your home, or tell you news, outside weather or prices. It has no internet access.
 

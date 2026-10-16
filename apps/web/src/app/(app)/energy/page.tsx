@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
-import { FormModal, Kpi, PageHead, Seg } from '@/components/ui';
+import { FormModal, Kpi, PageHead, Seg, WhatsAppShare } from '@/components/ui';
 import { patch, put } from '@/lib/api';
 import { useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
@@ -54,6 +54,10 @@ export default function EnergyPage() {
             <Kpi label="Cost" value={rs(e.total.cost)} chip={{ icon: 'wallet', tone: 'ac' }}
                  sub={<>at {rs(e.tariff)} a unit{canEdit && <> · <button className="link-btn" onClick={() => setEditing('tariff')}>{e.tariffSet ? 'Change' : 'Set your rate'}</button></>}</>} />
             <Kpi label="A month at this pace" value={`~${e.month.kwh}`} unit="units" chip={{ icon: 'activity', tone: 'ok' }} sub={`about ${rs(e.month.cost)}`} />
+          </div>
+
+          <div className="row" style={{ marginBottom: 12 }}>
+            <WhatsAppShare small label="Share on WhatsApp" text={`*${home?.name ?? 'Home'} — electricity, ${days === '1' ? 'today' : `last ${days} days`}* (estimate)\nAbout ${units(e.total.kwh)} units, ${rs(e.total.cost)} at ${rs(e.tariff)} a unit.\nA month at this pace: ~${e.month.kwh} units, ${rs(e.month.cost)}.\n` + e.devices.filter((d) => d.kwh > 0).slice(0, 5).map((d) => `• ${d.name}: ${units(d.kwh)} units, ${rs(d.cost)}`).join('\n')} />
           </div>
 
           {days !== '1' && (

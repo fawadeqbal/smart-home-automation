@@ -44,4 +44,11 @@ void main() {
     expect(Energy.rupees(980), 'Rs 980');
     expect(e.devices.single.kwh, 29.0);
   });
+
+  test('the week in short, ready to share', () {
+    final s = HomeSummary.fromJson({'range': '8 Oct – 14 Oct', 'lines': ['Power: no power cuts', 'Alerts: none'], 'text': '*Home — this week*'});
+    expect(s.loaded, isTrue);
+    expect(s.lines, hasLength(2));
+    expect(const HomeSummary().loaded, isFalse);
+  });
 }

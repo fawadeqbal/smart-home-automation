@@ -86,6 +86,7 @@ model User {
   /// which notices this person wants: { "leak": true, "motionAtNight": false, ... }
   notifyPrefs       Json               @default("{}")
   createdAt         DateTime           @default(now())
+  memories      AssistantMemory[]
 }
 
 /// A person's place in one home. One OWNER per home; ADMIN, MEMBER and GUEST as many as needed.
@@ -238,6 +239,10 @@ model Home {
   awayLights  String[]     @default([])
   /// what one unit (kWh) costs here, for electricity estimates (null: the default)
   tariff      Float?
+  /// when the last daily and weekly summaries went out (so a restart doesn't send them twice)
+  summaryDayAt  DateTime?
+  summaryWeekAt DateTime?
+  memories      AssistantMemory[]
 }
 
 model Room {
@@ -639,4 +644,17 @@ model HelpArticle {
 
   @@unique([orgId, slug])
   @@index([orgId, published])
+}
+
+/// Something a person asked the assistant to remember in a home ("Ali's room is the upstairs bedroom").
+model AssistantMemory {
+  id        String   @id @default(cuid())
+  homeId    String
+  home      Home     @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([userId, homeId])
 }

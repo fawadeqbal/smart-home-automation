@@ -10,6 +10,7 @@ rooms, boards, device counts and people.
 from __future__ import annotations
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -73,7 +74,7 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
     """Rooms (with empty ones), boards, people and invites, timers: what the AI is told on top of the
     devices. Parts this person may not see (people and boards are for owners and admins) are left out
     and their role says why."""
-    names = ("rooms", "nodes", "users", "invites", "schedules", "outages", "rules", "away", "energy")
+    names = ("rooms", "nodes", "users", "invites", "schedules", "outages", "rules", "away", "energy", "memories")
     calls = [getattr(api, n, None) for n in names]
     got = dict(zip(names, _POOL.map(lambda f: _safe(f) if callable(f) else None, calls)))
     lines: List[str] = []
@@ -150,6 +151,10 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
     if isinstance(away, dict):
         lines.append("Away mode: " + (f"ON since {_local(away['since'], tz)}" + (f", turned on by {away['by']}" if away.get("by") else "")
                                       if away.get("on") else "off") + ".")
+    memories = got["memories"]
+    if isinstance(memories, list) and memories:
+        lines.append("\nThings they asked you to remember (use them; forget_this removes one):")
+        lines.extend(f"- {m['text']}" for m in memories[:50])
     return "\n".join(lines)
 
 
@@ -737,11 +742,85 @@ class EnergyUsageTool(Tool):
         return energy_text(self._api.energy(int(args.get("days") or 7)))
 
 
+# ------------------------------------------------------------------ memory and summaries
+class RememberTool(Tool):
+    name = "remember_this"
+    description = ("Remember something this person tells you to remember about their home or habits, for later chats "
+                   "(\"remember that the store light is the one by the stairs\", \"yaad rakhna main 6 baje uthta hoon\"). "
+                   "Only when they ask you to remember. Write it as a short sentence in English, in the third person "
+                   "is fine (\"Wakes up at 6 am\"). Never passwords or card numbers.")
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+
+    def run(self, args: dict) -> str:
+        text = str(args.get("text", "")).strip()
+        if len(text) < 2:
+            return "Error: say what to remember."
+        if re.search(r"\b(password|passcode|pin code|cvv|card number)\b", text, re.I):
+            return "Error: don't store passwords or card details. Tell them you won't remember that, for their safety."
+        self._api.remember(text[:300])
+        return f"Remembered: {text[:300]}. They can say 'forget that' or see the list on their Account page."
+
+
+class ForgetTool(Tool):
+    name = "forget_this"
+    description = "Forget something you were asked to remember (words from it, or 'everything' only after they confirm)."
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"which": {"type": "string"}, "confirmed": {"type": "boolean"}}, "required": ["which"]}
+
+    def run(self, args: dict) -> str:
+        rows = self._api.memories()
+        which = _norm(str(args.get("which", "")))
+        if which in ("everything", "all", "sab", "sab kuch"):
+            if not args.get("confirmed"):
+                return f"{CONFIRM} Forgetting all {len(rows)} things can't be undone."
+            for m in rows:
+                self._api.forget(m["id"])
+            return f"Forgot all {len(rows)} things."
+        words = [w for w in which.split() if len(w) > 2]
+        hits = [m for m in rows if which and (which in _norm(m["text"]) or (words and all(w in _norm(m["text"]) for w in words)))]
+        if not hits:
+            return "Error: nothing like that is remembered. " + ("Remembered: " + "; ".join(m["text"] for m in rows) if rows else "Nothing is remembered.")
+        if len(hits) > 1:
+            return "Error: that matches several: " + "; ".join(m["text"] for m in hits) + ". Ask which one."
+        self._api.forget(hits[0]["id"])
+        return f"Forgot: {hits[0]['text']}."
+
+
+class SummaryTool(Tool):
+    name = "home_summary"
+    description = ("How the home did today or this week in a few lines: power cuts, internet, electricity, what timers and "
+                   "rules did, alerts, boards. Also the text to share on WhatsApp.")
+
+    def __init__(self, api: HomeApi) -> None:
+        self._api = api
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"period": {"type": "string", "enum": ["day", "week"]}}}
+
+    def run(self, args: dict) -> str:
+        s = self._api.summary("day" if args.get("period") == "day" else "week")
+        return (f"{s['home']}, {'today' if s.get('period') == 'day' else 'this week'} ({s.get('range')}): " + "; ".join(s.get("lines", []))
+                + ". (The Summary page has a 'Send on WhatsApp' button.)")
+
+
 def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public_url: str = "", tz=None) -> List[Tool]:
     return [HomeOverviewTool(api, me, tz), PowerHistoryTool(api, tz), AddRoomTool(api), RenameRoomTool(api), DeleteRoomTool(api, devices),
             UpdateDeviceTool(api, devices), ListPeopleTool(api), InvitePersonTool(api, public_url),
             UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api),
-            CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices), EnergyUsageTool(api)]
+            CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices), EnergyUsageTool(api),
+            RememberTool(api), ForgetTool(api), SummaryTool(api)]
 
 
 # ------------------------------------------------------------------ the console (staff, read only)

@@ -368,3 +368,36 @@ def test_energy_usage_in_words():
     assert "a month is about 177 units, Rs 10,610" in out
     assert "Geyser: 14.5 h on, 29.0 units, Rs 1,740 (power guessed from its name)" in out
     assert "1 switches have no power set" in out and out.endswith("not a meter reading.")
+
+
+def test_remember_forget_and_summary():
+    from assistant.manage import ForgetTool, RememberTool, SummaryTool
+
+    class MemApi(OwnerApi):
+        def __init__(self):
+            super().__init__()
+            self.mem = []
+
+        def memories(self):
+            return self.mem
+
+        def remember(self, text):
+            self.mem.append({"id": f"m{len(self.mem) + 1}", "text": text})
+            return self.mem[-1]
+
+        def forget(self, mid):
+            self.mem = [m for m in self.mem if m["id"] != mid]
+
+        def summary(self, period="week"):
+            return {"home": "Iqbal home", "period": period, "range": "8 Oct – 14 Oct", "lines": ["Power: 3 cuts, 2 h without power", "Alerts: none"]}
+
+    api = MemApi()
+    assert RememberTool(api).run({"text": "The store light is the one by the stairs"}).startswith("Remembered:")
+    assert RememberTool(api).run({"text": "My wifi password is abc123"}).startswith("Error: don't store passwords")
+    RememberTool(api).run({"text": "Wakes up at 6 am"})
+    assert "Things they asked you to remember" in home_facts(api, api.devices()) and "- Wakes up at 6 am" in home_facts(api, api.devices())
+    assert ForgetTool(api).run({"which": "store light"}) == "Forgot: The store light is the one by the stairs."
+    assert ForgetTool(api).run({"which": "everything"}).startswith(CONFIRM)
+    assert ForgetTool(api).run({"which": "everything", "confirmed": True}) == "Forgot all 1 things."
+    out = SummaryTool(api).run({})
+    assert out.startswith("Iqbal home, this week (8 Oct – 14 Oct): Power: 3 cuts")

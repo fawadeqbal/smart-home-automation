@@ -62,6 +62,15 @@ final homeEnergyProvider = FutureProvider<Energy>((ref) async {
   }
 });
 
+final homeSummaryProvider = FutureProvider<HomeSummary>((ref) async {
+  if (ref.watch(currentHomeIdProvider) == null) return const HomeSummary();
+  try {
+    return await ref.read(homeRepositoryProvider).summary();
+  } catch (_) {
+    return const HomeSummary();
+  }
+});
+
 final homeWelcomeProvider = FutureProvider<HomeWelcome>((ref) async {
   if (ref.watch(currentHomeIdProvider) == null) return const HomeWelcome();
   try {

@@ -133,6 +133,19 @@ class HomeApi:
     def location(self) -> Dict[str, Any]:
         return self._call("GET", "/home/location")
 
+    def memories(self) -> List[Dict[str, Any]]:
+        """What this person asked the assistant to remember in this home (theirs alone)."""
+        return self._call("GET", "/assistant/memory")
+
+    def remember(self, text: str) -> Dict[str, Any]:
+        return self._call("POST", "/assistant/memory", {"text": text})
+
+    def forget(self, memory_id: str) -> None:
+        self._call("DELETE", f"/assistant/memory/{memory_id}")
+
+    def summary(self, period: str = "week") -> Dict[str, Any]:
+        return self._call("GET", f"/home/summary?period={period}")
+
     def energy(self, days: int = 7) -> Dict[str, Any]:
         """Electricity estimates for the switches this person can see."""
         return self._call("GET", f"/energy?days={days}")
