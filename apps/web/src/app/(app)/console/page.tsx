@@ -51,7 +51,6 @@ export default function ConsoleOverview() {
   const canAdmin = staffRole === 'SUPERADMIN';
   const max = Math.max(1, ...data.bars.map((b) => b.ok + b.bad));
   const rate = `${(k.confirmed * 100).toFixed(1)}%`;
-  const today = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
   const needs = data.attention.length;
   const servicesDown = data.services.filter((s) => !s.ok && s.key !== 'assistant').length;
   const firstRun = canAdmin && (k.homes === 0 || k.boardsInstalled + k.inStock + k.assigned === 0 || k.staff <= 1);
@@ -59,7 +58,6 @@ export default function ConsoleOverview() {
   return (
     <>
       <PageHead
-        eyebrow={`Platform · ${today}`}
         title="Overview"
         sub={`${needs ? `${needs} thing${needs === 1 ? '' : 's'} need${needs === 1 ? 's' : ''} attention` : 'Nothing needs attention'} across ${k.homes} home${k.homes === 1 ? '' : 's'}. ${servicesDown ? `${servicesDown} service${servicesDown === 1 ? ' is' : 's are'} down.` : 'Services are healthy.'}`}
         actions={
@@ -95,15 +93,6 @@ export default function ConsoleOverview() {
         </div>
       )}
 
-      <div className="kpis">
-        <Kpi label="Homes" value={k.homes} sub={`${k.settingUp} setting up`} />
-        <Kpi label="People" value={k.people} sub={`${k.staff} platform staff`} />
-        <Kpi label="Boards online" value={`${k.boardsOnline}/${k.boardsInstalled}`} sub={`${k.boardsInstalled - k.boardsOnline} offline`} fg={k.boardsOnline < k.boardsInstalled ? 'fg-warn' : ''} />
-        <Kpi label="In stock" value={k.inStock} sub={`${k.assigned} assigned, not installed`} />
-        <Kpi label="Commands · 24 h" value={k.commands.toLocaleString('en-US')} sub={Object.keys(k.byChannel).length ? Object.entries(k.byChannel).sort((a, b) => b[1] - a[1]).map(([c]) => c === 'web' ? 'app' : c === 'automation' ? 'schedule' : c).join(' · ') : 'none yet'} />
-        <Kpi label="Confirmed" value={k.commands ? rate : '—'} sub={`${k.failed} failed or unanswered`} fg="fg-ok" />
-      </div>
-
       <div className="grid-2 mb16">
         <section className="panel">
           <div className="panel-head">
@@ -136,6 +125,15 @@ export default function ConsoleOverview() {
             </div>
           ))}
         </section>
+      </div>
+
+      <div className="kpis strip">
+        <Kpi label="Homes" value={k.homes} sub={`${k.settingUp} setting up`} />
+        <Kpi label="People" value={k.people} sub={`${k.staff} platform staff`} />
+        <Kpi label="Boards online" value={`${k.boardsOnline}/${k.boardsInstalled}`} sub={`${k.boardsInstalled - k.boardsOnline} offline`} fg={k.boardsOnline < k.boardsInstalled ? 'fg-warn' : ''} />
+        <Kpi label="In stock" value={k.inStock} sub={`${k.assigned} assigned, not installed`} />
+        <Kpi label="Commands · 24 h" value={k.commands.toLocaleString('en-US')} sub={Object.keys(k.byChannel).length ? Object.entries(k.byChannel).sort((a, b) => b[1] - a[1]).map(([c]) => c === 'web' ? 'app' : c === 'automation' ? 'schedule' : c).join(' · ') : 'none yet'} />
+        <Kpi label="Confirmed" value={k.commands ? rate : '—'} sub={`${k.failed} failed or unanswered`} fg="fg-ok" />
       </div>
 
       <section className="panel panel-pad stack">

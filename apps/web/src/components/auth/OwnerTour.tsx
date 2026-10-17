@@ -187,17 +187,16 @@ export function OwnerTour() {
           {id === 'welcome' && (
             <div className="au-step" key="welcome">
               <div className="au-step-head">
-                <span className="au-eyebrow mono">Welcome to {welcome.home.name}</span>
                 {welcome.devices > 0 ? (
                   <>
-                    <h1 className="au-big">Everything is <span className="serif">already set up.</span></h1>
+                    <h1 className="au-big">Welcome to {welcome.home.name}. Everything is already set up.</h1>
                     <p className="au-lead">
                       {installer ? `${firstName(installer)} named every light, fan and appliance and put each one in the right room.` : 'Every light, fan and appliance is named and in the right room.'} Here’s your home.
                     </p>
                   </>
                 ) : (
                   <>
-                    <h1 className="au-big">Your home is <span className="serif">on its way.</span></h1>
+                    <h1 className="au-big">Welcome to {welcome.home.name}. It’s on its way.</h1>
                     <p className="au-lead">{installer ? `${firstName(installer)} is` : 'Your installer is'} still connecting the switchboards. Rooms and switches show up here as they’re added — you don’t need to do anything.</p>
                   </>
                 )}

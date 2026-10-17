@@ -40,7 +40,7 @@ export default function BillingPage() {
 
   return (
     <div data-screen-label="Billing">
-      <PageHead eyebrow="Platform" title="Contracts & invoices"
+      <PageHead title="Contracts & invoices"
                 sub="Maintenance contracts bill themselves each period; add one-off bills for visits and new work. Record payments as they come in."
                 actions={canEdit && <>
                   <button className="btn" onClick={() => void openDialog('invoice')}><Icon name="plus" size={15} />One-off bill</button>

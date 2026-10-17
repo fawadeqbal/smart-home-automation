@@ -21,7 +21,7 @@ export default function BackupsPage() {
   const newest = d.backups[0];
   return (
     <div className="stack" style={{ maxWidth: 900 }}>
-      <PageHead eyebrow="Platform" title="Backups"
+      <PageHead title="Backups"
                 sub={`Every night at 3 am the whole database, the firmware builds and the installation photos are saved in one file on the server. Kept ${d.keepDays} days. Download one now and then and keep it somewhere else too.`}
                 actions={<button className="btn btn-primary" disabled={busy || d.running} onClick={() => void run(async () => { const x = await post<Backups>('/platform/backups'); b.setData(x); setMade(x.backups[0]?.name ?? null); })}>
                   <Icon name="database" size={15} />{busy || d.running ? 'Backing up…' : 'Back up now'}

@@ -24,8 +24,7 @@ export default function TeamPage() {
   const by = (r: StaffRole) => data.people.filter((p) => p.staffRole === r).length;
   return (
     <>
-      <PageHead
-        eyebrow="Platform" title="Team"
+      <PageHead title="Team"
         sub={`${data.people.length} people · ${by('SUPERADMIN')} super admin${by('SUPERADMIN') === 1 ? '' : 's'} · ${by('INSTALLER')} installers · ${by('SUPPORT')} support`}
         actions={<button className="btn btn-primary" onClick={() => setInviting(true)}><Icon name="user-plus" size={15} />Invite to team</button>}
       />

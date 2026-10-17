@@ -180,7 +180,7 @@ export function CompanyTour() {
             {step === 0 && (
               <div className="au-step" key="s0">
                 <div className="au-step-head" style={{ gap: 10 }}>
-                  <span className="au-eyebrow blue mono">Step 1 of 3</span>
+                  <span className="au-eyebrow blue">Step 1 of 3</span>
                   <h1 className="au-h1o">Tell us about <span className="serif">{org.name}.</span></h1>
                   <p className="au-sub" style={{ fontSize: 16.5 }}>Customers see your logo and name in their app.</p>
                 </div>
@@ -218,7 +218,7 @@ export function CompanyTour() {
             {step === 1 && (
               <div className="au-step" key="s1">
                 <div className="au-step-head" style={{ gap: 10 }}>
-                  <span className="au-eyebrow blue mono">Step 2 of 3</span>
+                  <span className="au-eyebrow blue">Step 2 of 3</span>
                   <h1 className="au-h1o">Create your <span className="serif">first home.</span></h1>
                   <p className="au-sub" style={{ fontSize: 16.5 }}>A customer you’re about to install. You can add boards and rooms later.</p>
                 </div>
@@ -265,7 +265,7 @@ export function CompanyTour() {
             {step === 2 && (
               <div className="au-step" key="s2">
                 <div className="au-step-head" style={{ gap: 10 }}>
-                  <span className="au-eyebrow blue mono">Step 3 of 3</span>
+                  <span className="au-eyebrow blue">Step 3 of 3</span>
                   <h1 className="au-h1o">Invite <span className="serif">your team.</span></h1>
                   <p className="au-sub" style={{ fontSize: 16.5 }}>Each role only sees what it needs. You get a link to send each person — change roles anytime.</p>
                 </div>

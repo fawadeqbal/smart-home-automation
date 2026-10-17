@@ -41,8 +41,7 @@ export default function HelpCenterPage() {
 
   return (
     <div data-screen-label="Help Center">
-      <PageHead
-        eyebrow="Platform" title="Help Center"
+      <PageHead title="Help Center"
         sub="What customers read in Help and what the assistant answers from. Only published articles are used."
         actions={
           <>

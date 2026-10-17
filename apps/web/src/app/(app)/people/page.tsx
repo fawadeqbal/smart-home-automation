@@ -11,7 +11,7 @@ export default function PeoplePage() {
   const installer = me.staff?.role === 'INSTALLER' && home?.viaStaff && home.role !== 'OWNER';
   return (
     <HomeOnly admins>
-      <PageHead eyebrow={home?.name} title="People" sub="Who can sign in, and what each person may do in each room." />
+      <PageHead title="People" sub="Who can sign in, and what each person may do in each room." />
       {home && <PeopleView actorRole={home.role} actorId={me.id} canManage={!home.readOnly && !installer} ownerInviteOnly={!!installer} />}
     </HomeOnly>
   );

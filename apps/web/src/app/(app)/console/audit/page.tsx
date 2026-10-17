@@ -16,8 +16,7 @@ export default function AuditPage() {
   const source = `/platform/audit${home ? `?home=${home}` : ''}`;
   return (
     <>
-      <PageHead
-        eyebrow="Platform" title="Audit log" sub="Every change on the platform — who, what, and in which home."
+      <PageHead title="Audit log" sub="Every change on the platform — who, what, and in which home."
         actions={
           <>
             <select className="inline-select" style={{ height: 34 }} value={home} onChange={(e) => setHome(e.target.value)} aria-label="Home">
