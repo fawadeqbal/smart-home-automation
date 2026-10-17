@@ -53,7 +53,32 @@ ssh-keyscan 145.241.156.60 | gh secret set DEPLOY_KNOWN_HOSTS
 Defaults you only change if the server changes (Settings → Variables): `DEPLOY_USER` = `opc`,
 `DEPLOY_PATH` = `/opt/home-platform`, `PUBLIC_URL` = `https://home.fawadiqbal.dev`.
 
-### 3. Optional: approve each deploy
+### 3. The phone app's signing key
+
+Android installs a new APK over an old one only when both are signed with the same key. Create one
+key once, keep it safe (a lost key means everyone reinstalls), and give it to GitHub:
+
+```bash
+keytool -genkeypair -keystore switchboard-release.jks -storetype PKCS12 -alias switchboard \
+  -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 switchboard-release.jks | gh secret set ANDROID_KEYSTORE_BASE64
+gh secret set ANDROID_KEYSTORE_PASSWORD    # the password you chose
+gh secret set ANDROID_KEY_PASSWORD         # the same password
+gh secret set ANDROID_KEY_ALIAS --body switchboard
+```
+
+Without these secrets CI still builds the APK, signed with a throw-away key (a warning says so).
+
+### Downloads on the Releases page
+
+On `main`, the phone app and firmware jobs (they run when their code changed, or on *Run workflow*)
+publish their builds:
+
+- release **builds** (marked latest): `switchboard-home.apk` and `home_node.bin`, always the newest,
+  so `…/releases/latest/download/<name>` links never change;
+- release **firmware-v2.5.0** etc.: each firmware version, kept.
+
+### 4. Optional: approve each deploy
 
 The deploy job uses the GitHub environment **production**. Settings → Environments → production →
 *Required reviewers* makes every deploy wait for your click.

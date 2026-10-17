@@ -2,6 +2,13 @@
 
 Control homes from a web app and by voice. ESP8266 boards drive the bulbs and read the sensors. Installer companies run many customer homes from one **platform console**; home owners and their families get their own **home app** with per-room rights. It runs on your PC now and moves to a cloud server later with the same files.
 
+## Downloads
+
+The newest builds, made and tested automatically from `main` ([all releases](https://github.com/fawadeqbal/smart-home-automation/releases)):
+
+- **Android phone app:** [switchboard-home.apk](https://github.com/fawadeqbal/smart-home-automation/releases/latest/download/switchboard-home.apk)
+- **Board firmware (ESP8266):** [home_node.bin](https://github.com/fawadeqbal/smart-home-automation/releases/latest/download/home_node.bin), and every version under its own `firmware-v…` release
+
 ## Who uses it
 
 | Role | Scope | What they get |

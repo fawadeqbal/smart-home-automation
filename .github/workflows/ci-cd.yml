@@ -5,6 +5,9 @@
 #
 # One-time setup (GitHub > the repo > Settings > Secrets and variables > Actions): see docs/ci-cd.md.
 #   Secrets:   DEPLOY_SSH_KEY (private key that can log in to the server), DEPLOY_HOST (145.241.156.60)
+#   Phone app: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#              (one signing key for every build, so new APKs install over old ones).
+#   Builds go to the Releases page (main only): "builds" = newest APK + firmware, "firmware-vX" per version.
 #   Optional:  DEPLOY_KNOWN_HOSTS (output of `ssh-keyscan 145.241.156.60`), variables DEPLOY_USER (opc),
 #              DEPLOY_PATH (/opt/home-platform), PUBLIC_URL (https://home.fawadiqbal.dev)
 name: CI/CD
@@ -146,6 +149,8 @@ jobs:
     if: needs.changes.outputs.mobile == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write   # publishes the APK on the Releases page (main only)
     defaults:
       run:
         working-directory: apps/mobile
@@ -163,13 +168,35 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - name: Build the Android app (arm64, test-signed)
-        run: flutter build apk --release --target-platform android-arm64
+      - name: Signing key (from the repository secrets, when they are set)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "Signed with the release key" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set: the APK is signed with a throw-away debug key, so it can't install over an earlier build (docs/ci-cd.md)."
+          fi
+      - name: Build the Android app (arm64)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        # the build number grows with every run, so Android accepts each new APK as an update
+        run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         with:
           name: Switchboard-home-apk
           path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+      - name: Publish on the Releases page
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/publish-build.sh latest apps/mobile/build/app/outputs/flutter-apk/app-release.apk=switchboard-home.apk
 
   # ---------------------------------------------------------------- board firmware (only when it changed)
   firmware:
@@ -178,6 +205,8 @@ jobs:
     if: needs.changes.outputs.firmware == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write   # publishes the .bin on the Releases page (main only)
     env:
       ARDUINO_BOARD_MANAGER_ADDITIONAL_URLS: https://arduino.esp8266.com/stable/package_esp8266com_index.json
     steps:
@@ -204,15 +233,25 @@ jobs:
             firmware/home_node/test/local_auth_test.cpp -lcrypto -o local_auth_test
           ./local_auth_test
       - name: Name the .bin after its version
+        id: fw
         run: |
           v=$(grep -oP '#define FIRMWARE_VERSION\s+"\K[^"]+' firmware/home_node/config.h)
           mv build/home_node.ino.bin "build/home_node-$v.bin"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Firmware $v: upload it in the web app > a board > Firmware > Upload build" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: home-node-firmware
           path: build/home_node-*.bin
           retention-days: 30
+      - name: Publish on the Releases page
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${{ steps.fw.outputs.version }}
+          bash .github/scripts/publish-build.sh firmware "$v" "build/home_node-$v.bin"
+          bash .github/scripts/publish-build.sh latest "build/home_node-$v.bin=home_node.bin"
 
   # ---------------------------------------------------------------- deploy
   deploy:
