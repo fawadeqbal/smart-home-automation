@@ -132,7 +132,7 @@ export default function ConsoleOverview() {
         <Kpi label="People" value={k.people} sub={`${k.staff} platform staff`} />
         <Kpi label="Boards online" value={`${k.boardsOnline}/${k.boardsInstalled}`} sub={`${k.boardsInstalled - k.boardsOnline} offline`} fg={k.boardsOnline < k.boardsInstalled ? 'fg-warn' : ''} />
         <Kpi label="In stock" value={k.inStock} sub={`${k.assigned} assigned, not installed`} />
-        <Kpi label="Commands · 24 h" value={k.commands.toLocaleString('en-US')} sub={Object.keys(k.byChannel).length ? Object.entries(k.byChannel).sort((a, b) => b[1] - a[1]).map(([c]) => c === 'web' ? 'app' : c === 'automation' ? 'schedule' : c).join(' · ') : 'none yet'} />
+        <Kpi label="Commands · 24 h" value={k.commands.toLocaleString('en-US')} sub={Object.keys(k.byChannel).length ? Object.entries(k.byChannel).sort((a, b) => b[1] - a[1]).map(([c]) => c === 'web' ? 'app' : c === 'automation' ? 'schedule' : c).filter((c, i, all) => all.indexOf(c) === i).join(' · ') : 'none yet'} />
         <Kpi label="Confirmed" value={k.commands ? rate : '—'} sub={`${k.failed} failed or unanswered`} fg="fg-ok" />
       </div>
 
