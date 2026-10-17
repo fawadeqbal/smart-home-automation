@@ -67,7 +67,7 @@ function HomeDashboard({ isAdmin, firstName, homeName, readOnly }: { isAdmin: bo
   }
 
   return (
-    <div className="home-dash" data-screen-label="Owner home">
+    <div data-screen-label="Owner home">
       <header className="home-head">
         <h1>{homeName}</h1>
         <p>{greeting} · <Link href="/summary">This week in short</Link></p>

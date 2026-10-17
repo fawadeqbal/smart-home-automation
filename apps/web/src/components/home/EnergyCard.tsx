@@ -11,7 +11,7 @@ export function EnergyCard() {
   const top = data.devices.find((d) => d.kwh > 0);
   return (
     <Link className="energy-card card" href="/energy">
-      <span className="outage-ic"><Icon name="zap" size={15} /></span>
+      <span className="outage-ic t-on" style={{ background: 'var(--ons)', color: 'var(--ont)' }}><Icon name="zap" size={15} /></span>
       <span className="grow stack-tight" style={{ minWidth: 0 }}>
         <b>This week: about {data.total.kwh < 10 ? data.total.kwh.toFixed(1) : Math.round(data.total.kwh)} units · Rs {data.total.cost.toLocaleString('en-PK')}</b>
         <span className="small muted">{top ? `Most from ${top.name}` : ''}{top ? ' · ' : ''}a month at this pace ≈ Rs {data.month.cost.toLocaleString('en-PK')} (estimate)</span>

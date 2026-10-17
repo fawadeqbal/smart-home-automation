@@ -11,7 +11,7 @@ export function InstallCard() {
   useEffect(() => { void get<InstallReport | null>('/home/installation').then((x) => setR(x ?? null)).catch(() => undefined); }, []);
   if (!r || r.signed || !r.canSign || r.done < r.total) return null;
   return (
-    <Link className="energy-card install-card card" href="/installation">
+    <Link className="energy-card card" href="/installation">
       <span className="outage-ic" style={{ background: 'var(--acs)', color: 'var(--act)' }}><Icon name="check" size={15} /></span>
       <span className="grow stack-tight" style={{ minWidth: 0 }}>
         <b>Your installation is finished</b>

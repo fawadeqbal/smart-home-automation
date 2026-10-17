@@ -46,7 +46,7 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
   const classes = ['tile', sensor ? 'sensor' : '', on ? 'is-on' : '', !device.online ? 'is-offline' : ''].join(' ');
   const body = (
     <>
-      <span className="tile-icon"><Icon name={!device.online ? 'wifi-off' : locked ? 'lock' : deviceIcon(device.type, device.settings, device.name)} size={19} /></span>
+      <span className="tile-icon"><Icon name={!device.online ? 'wifi-off' : locked ? 'lock' : deviceIcon(device.type, device.settings)} size={19} /></span>
       <span className="tile-text">
         <b>{device.name}</b>
         {reading && device.online

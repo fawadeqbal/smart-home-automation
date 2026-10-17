@@ -83,7 +83,7 @@ function Hero({ device, isAdmin, onChange }: { device: Device; isAdmin: boolean;
     <div className={`hero-control ${on ? 'is-on' : ''} ${!device.online ? 'is-offline' : ''}`}>
       <button className="hero-power" onClick={() => void toggle()} disabled={!canSwitch || busy} aria-pressed={on}
         aria-label={`${device.name} is ${on ? 'on' : 'off'}. ${canSwitch ? `Turn ${on ? 'off' : 'on'}` : why ?? ''}`}>
-        {busy ? <Spinner size={28} /> : <Icon name={!device.online ? 'wifi-off' : deviceIcon(device.type, device.settings, device.name)} size={40} />}
+        {busy ? <Spinner size={28} /> : <Icon name={!device.online ? 'wifi-off' : deviceIcon(device.type, device.settings)} size={40} />}
       </button>
       <span className="hero-state">{!device.online ? 'Offline' : busy ? 'Switching…' : on ? 'On' : 'Off'}</span>
       <span className="hero-sub">{why ?? (canSwitch ? `Tap to turn ${on ? 'off' : 'on'}` : '')}</span>

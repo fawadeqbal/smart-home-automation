@@ -22,13 +22,13 @@ export function PageHelp({ id, title, children }: { id: string; title: string; c
     <>
       <button type="button" className={`help-toggle ${open ? 'active' : ''}`} onClick={() => set(!open)}
               aria-expanded={open} title="How this page works">
-        <Icon name="help-circle" size={18} />Help
+        <span className="help-q">?</span>Help
       </button>
       {open && (
         <div className="page-help" role="note">
           <div className="spread">
             <b>{title}</b>
-            <button type="button" className="icon-btn" aria-label="Hide help" onClick={() => set(false)}><Icon name="x" size={16} /></button>
+            <button type="button" className="icon-btn" aria-label="Hide help" onClick={() => set(false)}>×</button>
           </div>
           <div className="page-help-body">{children}</div>
           <Link href="/help" className="small">More help and examples →</Link>

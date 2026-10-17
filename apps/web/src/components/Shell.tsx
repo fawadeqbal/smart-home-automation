@@ -211,7 +211,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <CrumbsContext.Provider value={{ set: setCrumbs }}>
       <AssistantProvider homeId={platform ? 'console' : home?.id ?? null} console={platform && !!staffRole}>
-      <div className={`app ${platform ? 'is-console' : 'is-home'} ${path === '/' && !platform ? 'on-root' : ''}`}>
+      <div className={`app ${platform ? 'is-console' : 'is-home'}`}>
         <aside className="side" aria-label="Main">
           <Link href={platform ? (staffRole === 'INSTALLER' ? '/console/homes' : '/console') : '/'} className="side-brand">
             <span className="brand-mark"><Icon name="toggle-right" size={16} stroke={2} /></span>

@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useLive } from '@/lib/live';
-import { Icon } from './Icon';
 
 interface Ran { key: number; name: string; result: string; ok: boolean }
 
@@ -26,7 +25,7 @@ export function ScheduleNotices({ userId, isAdmin }: { userId: string; isAdmin: 
         <div key={n.key} className={`toast ${n.ok ? 'ok' : 'bad'}`} role="status">
           <span className={`live-dot ${n.ok ? '' : 'off'}`} />
           <div className="toast-body"><b>⏱ {n.name}</b><span>{n.result}</span></div>
-          <button className="icon-btn" aria-label="Close" onClick={() => setList((l) => l.filter((x) => x.key !== n.key))}><Icon name="x" size={16} /></button>
+          <button className="icon-btn" aria-label="Close" onClick={() => setList((l) => l.filter((x) => x.key !== n.key))}>×</button>
         </div>
       ))}
     </div>
