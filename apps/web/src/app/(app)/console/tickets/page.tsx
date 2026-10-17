@@ -36,7 +36,7 @@ export default function TicketsPage() {
 
   return (
     <div data-screen-label="Tickets">
-      <PageHead title="Tickets"
+      <PageHead eyebrow="Platform" title="Tickets"
                 sub={data ? `${data.open} open${data.overdue ? ` · ${data.overdue} overdue` : ''}. Urgent ones should be answered within 4 hours, high within a day, normal within 3 days.` : 'Requests from homes.'}
                 actions={<>
                   <Seg options={[{ id: 'open', label: 'Open' }, { id: 'mine', label: 'Mine' }, { id: 'done', label: 'Solved' }, { id: 'all', label: 'All' }]} value={view} onChange={setView} />

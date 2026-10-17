@@ -19,7 +19,8 @@ export default function RolesPage() {
 
   return (
     <div data-screen-label="Roles and permissions">
-      <PageHead title="Roles & permissions"
+      <PageHead
+        eyebrow="Platform" title="Roles & permissions"
         sub="Platform staff work across your homes. Home roles live inside one home. Pick a column to highlight what that role can do."
         actions={
           <div className="legend" style={{ flexWrap: 'wrap' }}>

@@ -32,10 +32,11 @@ export function Dot({ tone, lg = false, title }: { tone: Tone; lg?: boolean; tit
   return <span className={`sdot ${tone} ${lg ? 'lg' : ''}`} title={title} />;
 }
 
-export function PageHead({ title, sub, actions }: { eyebrow?: ReactNode; title: ReactNode; sub?: ReactNode; actions?: ReactNode }) {
+export function PageHead({ eyebrow, title, sub, actions }: { eyebrow?: ReactNode; title: ReactNode; sub?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="ph">
       <div className="ph-text">
+        {eyebrow && <span className="eyebrow">{eyebrow}</span>}
         <h1>{title}</h1>
         {sub && <p>{sub}</p>}
       </div>

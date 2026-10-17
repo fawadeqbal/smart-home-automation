@@ -48,8 +48,8 @@ export default function SettingsPage() {
   return (
     <>
       {own
-        ? <PageHead title="Company" sub="Your company’s details and what it looks after. No plans or limits: it’s your own server." />
-        : <PageHead title="Plan & billing" sub="Your organization, what your plan allows, and who receives invoices." />}
+        ? <PageHead eyebrow="Platform" title="Company" sub="Your company’s details and what it looks after. No plans or limits: it’s your own server." />
+        : <PageHead eyebrow="Platform" title="Plan & billing" sub="Your organization, what your plan allows, and who receives invoices." />}
 
       <div className="grid-2 mb20">
         {own ? (

@@ -41,7 +41,7 @@ export default function FirmwarePage() {
 
   return (
     <div data-screen-label="Firmware">
-      <PageHead title="Firmware"
+      <PageHead eyebrow="Platform" title="Firmware"
                 sub="Roll a build out to every board safely: one board first, then a few at a time, watching each wave. Any failure stops it until you look."
                 actions={d.canEdit && <button className="btn" onClick={() => setUploading(true)}><Icon name="plus" size={15} />Upload build</button>} />
       <ErrorBox error={error} />

@@ -169,6 +169,7 @@ function AppPreview() {
       <div className="wrap section lp-app">
         <div className="lp-app-copy">
           <div className="stack16">
+            <span className="eyebrow">The app</span>
             <h2 className="h2">Simple enough <span className="serif">for Ammi.</span></h2>
             <p className="lead">Big buttons, clear words, nothing to set up. Everything is already named and sorted by room when you first open it.</p>
           </div>
@@ -257,6 +258,7 @@ function Savings() {
       <div className="lp-save">
         <div className="lp-save-inputs">
           <div className="stack16" style={{ gap: 14 }}>
+            <span className="eyebrow">Your electricity bill</span>
             <h2 className="h2">What is left on <span className="serif">costing you?</span></h2>
             <p className="lead" style={{ fontSize: 16, maxWidth: 'none' }}>Move the sliders to match your home. Switchboard turns these off for you — by schedule, or from your phone.</p>
           </div>
@@ -288,6 +290,7 @@ function Faq() {
   return (
     <section className="wrap lp-faq">
       <div className="stack16">
+        <span className="eyebrow">Questions</span>
         <h2 className="h2">Good to know.</h2>
       </div>
       <div className="lp-faq-list">
@@ -439,6 +442,7 @@ export function Landing() {
 
       <section id="life" className="wrap section">
         <div className="lp-sec-head">
+          <span className="eyebrow">Sound familiar?</span>
           <h2 className="h2">The little things <span className="serif">that happen every day.</span></h2>
         </div>
         <div className="lp-pains">
@@ -446,6 +450,7 @@ export function Landing() {
             <article key={p.q} className={`lp-pain ${pain === i ? 'on' : ''}`} onMouseEnter={() => setPain(i)}>
               <div className="lp-pain-top">
                 <span className="lp-pain-icon"><Icon name={p.icon} size={24} /></span>
+                <span className="lp-pain-n">0{i + 1}</span>
               </div>
               <h3>{p.q}</h3>
               <div className="lp-pain-foot">
@@ -480,6 +485,7 @@ export function Landing() {
       <section id="how" className="wrap section">
         <div className="lp-how-head">
           <div className="stack16">
+            <span className="eyebrow">How it works</span>
             <h2 className="h2">Three steps. <span className="serif">You only do the first.</span></h2>
           </div>
           <p className="lead">Our expert handles everything else — and keeps looking after your home once it’s done.</p>

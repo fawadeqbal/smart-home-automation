@@ -11,7 +11,7 @@ import { InstallCard } from '@/components/home/InstallCard';
 import { PowerCard } from '@/components/home/OutagesPanel';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
-import { Empty, ErrorBox, useAction } from '@/components/ui';
+import { Empty, ErrorBox, Kpi, useAction } from '@/components/ui';
 import { post } from '@/lib/api';
 import { useDevices, useLoad } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
@@ -38,10 +38,10 @@ export default function HomePage() {
       <Empty>You’re not part of a home yet. Ask the home owner (or your installer) to send you an invite link.</Empty>
     );
   }
-  return <HomeDashboard key={home.id} isAdmin={isAdmin} firstName={me.name.split(' ')[0]!} homeName={home.name} readOnly={home.readOnly} />;
+  return <HomeDashboard key={home.id} isAdmin={isAdmin} firstName={me.name.split(' ')[0]!} readOnly={home.readOnly} />;
 }
 
-function HomeDashboard({ isAdmin, firstName, homeName, readOnly }: { isAdmin: boolean; firstName: string; homeName: string; readOnly: boolean }) {
+function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; firstName: string; readOnly: boolean }) {
   const { devices, error, replace, reload } = useDevices();
   const scenes = useLoad<Scene[]>(readOnly ? null : '/scenes');
   const [activeScene, setActiveScene] = useState<string | null>(null);
@@ -68,42 +68,6 @@ function HomeDashboard({ isAdmin, firstName, homeName, readOnly }: { isAdmin: bo
 
   return (
     <div data-screen-label="Owner home">
-      <header className="home-head">
-        <h1>{homeName}</h1>
-        <p>{greeting} · <Link href="/summary">This week in short</Link></p>
-      </header>
-
-      <div className="status-row">
-        <div className="status-chip">
-          <span className={`sc-ic ${onNow ? 'on' : ''}`}><Icon name="lightbulb" size={17} /></span>
-          <span className="sc-text"><span>Switched on</span><b>{onNow ? `${onNow} on` : 'All off'}</b></span>
-        </div>
-        {temps.length > 0 && (
-          <div className="status-chip">
-            <span className="sc-ic cool"><Icon name="thermometer" size={17} /></span>
-            <span className="sc-text"><span>Inside</span><b>{(temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1)}°C</b></span>
-          </div>
-        )}
-        {offlineBoards.length > 0 ? (
-          isAdmin ? (
-            <Link className="status-chip bad" href="/diagnostics">
-              <span className="sc-ic bad"><Icon name="wifi-off" size={17} /></span>
-              <span className="sc-text"><span>Boards</span><b>{offlineBoards.length} offline</b></span>
-            </Link>
-          ) : (
-            <div className="status-chip bad">
-              <span className="sc-ic bad"><Icon name="wifi-off" size={17} /></span>
-              <span className="sc-text"><span>Boards</span><b>{offlineBoards.length} offline</b></span>
-            </div>
-          )
-        ) : devices.length > 0 && (
-          <div className="status-chip">
-            <span className="sc-ic ok"><Icon name="wifi" size={17} /></span>
-            <span className="sc-text"><span>Boards</span><b>All online</b></span>
-          </div>
-        )}
-      </div>
-
       {offlineBoards.map((d) => {
         const rooms = [...new Set(offline.filter((x) => x.nodeId === d.nodeId).map((x) => x.roomName ?? d.nodeName))];
         const place = rooms.length === 1 ? rooms[0] : d.nodeName;
@@ -119,23 +83,31 @@ function HomeDashboard({ isAdmin, firstName, homeName, readOnly }: { isAdmin: bo
         );
       })}
 
+      <div className="ph-text mb20">
+        <h1>{greeting}</h1>
+        <p>{onNow} on{offline.length ? ` · ${offline.length} offline` : ''} · <Link href="/summary">This week in short</Link></p>
+      </div>
+
+      <div className="kpis k3">
+        <Kpi label="On now" value={onNow} chip={{ icon: 'lightbulb', tone: 'on' }} small />
+        <Kpi label="Devices" value={devices.length} chip={{ icon: 'cpu', tone: 'ac' }} small />
+        <Kpi label="Inside" value={temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : '–'} unit="°C" chip={{ icon: 'thermometer', tone: 'ok' }} small />
+      </div>
+
       {isAdmin && !readOnly && <InstallCard />}
       <AwayCard isAdmin={isAdmin} readOnly={readOnly} />
       <PowerCard link={isAdmin} />
       <EnergyCard />
 
       {runnable.length > 0 && (
-        <section className="section" aria-labelledby="scenes-h">
-          <div className="section-head"><h2 id="scenes-h">Scenes</h2></div>
-          <div className="scenes" role="group" aria-label="Scenes">
-            {runnable.map((s) => (
-              <button key={s.id} className={`scene-chip ${activeScene === s.id ? 'active' : ''}`} onClick={() => void runScene(s)} aria-pressed={activeScene === s.id}>
-                <span className="si"><Icon name={s.icon} size={17} /></span><span className="sl">{s.name}</span>
-              </button>
-            ))}
-            <Link className="scene-chip add" href="/automations"><span className="si"><Icon name="plus" size={17} /></span><span className="sl">Scenes & timers</span></Link>
-          </div>
-        </section>
+        <div className="scenes" role="group" aria-label="Scenes">
+          {runnable.map((s) => (
+            <button key={s.id} className={`scene-chip ${activeScene === s.id ? 'active' : ''}`} onClick={() => void runScene(s)}>
+              <span className="si"><Icon name={s.icon} size={14} /></span>{s.name}
+            </button>
+          ))}
+          <Link className="scene-chip" href="/automations"><span className="si"><Icon name="plus" size={14} /></span>Scenes & timers</Link>
+        </div>
       )}
       <ErrorBox error={sceneError} />
 
@@ -154,7 +126,7 @@ function HomeDashboard({ isAdmin, firstName, homeName, readOnly }: { isAdmin: bo
           <section className="section" key={room}>
             <div className="section-head">
               <h2>{room}</h2>
-              <span className="muted small">{on ? `${on} of ${list.length} on` : `${list.length} device${list.length === 1 ? '' : 's'}`}{off ? ' · offline' : ''}</span>
+              <span className="pill">{list.length} device{list.length === 1 ? '' : 's'}{on ? ` · ${on} on` : ''}{off ? ' · offline' : ''}</span>
               {viewOnly && <span className="row small muted" style={{ gap: 4 }}><Icon name="eye" size={13} />View only</span>}
             </div>
             <div className="tiles">

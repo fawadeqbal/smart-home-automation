@@ -39,7 +39,8 @@ export default function HomesPage() {
 
   return (
     <>
-      <PageHead title={title}
+      <PageHead
+        eyebrow="Platform" title={title}
         sub={installer ? 'Homes you are installing or looking after.' : `${live.length} homes · ${n('attention')} need attention · ${n('setup')} setting up`}
         actions={staffRole === 'SUPERADMIN' && <button className="btn btn-primary" onClick={() => setCreating(true)}><Icon name="plus" size={15} />New home</button>}
       />

@@ -70,7 +70,8 @@ export default function InventoryPage() {
 
   return (
     <div data-screen-label="Inventory">
-      <PageHead title="Inventory" sub="Every board your organization owns — from the shelf to a switchboard."
+      <PageHead
+        eyebrow="Platform" title="Inventory" sub="Every board your organization owns — from the shelf to a switchboard."
         actions={canEdit && <button className="btn" onClick={() => setAdding(true)}><Icon name="plus" size={15} />Add boards to stock</button>}
       />
       {params.get('home') && filter === 'STOCK' && (

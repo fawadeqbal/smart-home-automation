@@ -10,11 +10,11 @@ import type { Me } from '@/lib/types';
 
 /** What a home sees during a day — the sign-in picture's moving feed (an illustration, not live data). */
 const FEED = [
-  { icon: 'snowflake', t: 'AC turned off', d: 'From the office', bg: '#e9f2fd', fg: '#0062c4' },
-  { icon: 'droplet', t: 'Water tank full', d: 'Motor switched itself off', bg: '#e8f6ec', fg: '#1a7a34' },
-  { icon: 'moon', t: 'Good night', d: '7 things turned off', bg: '#1d1d1f', fg: '#ffd60a' },
-  { icon: 'sun', t: 'Geyser is ready', d: 'Warmed up at 6:30 am', bg: '#fff5d9', fg: '#8a5300' },
-  { icon: 'lightbulb', t: 'Gate light on', d: 'It’s sunset', bg: '#fff5d9', fg: '#8a5300' },
+  { icon: 'snowflake', t: 'AC turned off', d: 'From the office', bg: '#e9eeff', fg: '#1f43d1' },
+  { icon: 'droplet', t: 'Water tank full', d: 'Motor switched itself off', bg: '#e3f4ea', fg: '#116c46' },
+  { icon: 'moon', t: 'Good night', d: '7 things turned off', bg: '#0f1115', fg: '#f7c46a' },
+  { icon: 'sun', t: 'Geyser is ready', d: 'Warmed up at 6:30 am', bg: '#fff4dd', fg: '#985805' },
+  { icon: 'lightbulb', t: 'Gate light on', d: 'It’s sunset', bg: '#fff4dd', fg: '#985805' },
 ];
 
 export default function LoginPage() {

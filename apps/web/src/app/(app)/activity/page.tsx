@@ -10,7 +10,7 @@ export default function ActivityPage() {
   useCrumbs([{ label: home?.name ?? 'Home', href: '/' }, { label: 'Activity' }]);
   return (
     <HomeOnly admins>
-      <PageHead title="Activity" sub="Changes to your home — by you, your family and your installer." />
+      <PageHead eyebrow={home?.name} title="Activity" sub="Changes to your home — by you, your family and your installer." />
       <ActivityView source="/home/activity" showHome={false} />
     </HomeOnly>
   );

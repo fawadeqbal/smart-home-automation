@@ -29,7 +29,6 @@ export function useCrumbs(crumbs: Crumb[]) {
 }
 
 /* ---------------------------------------------------------------- navigation */
-const tabLabel = (l: string) => l.replace(' & permissions', '').replace('Plan & billing', 'Billing').replace('Contracts & invoices', 'Invoices').replace('Power & outages', 'Outages').replace('Help requests', 'Requests');
 interface NavItem { href: string; label: string; icon: string; count?: string | null; countBad?: boolean; exact?: boolean; sub?: { href: string; label: string } }
 
 function useConsoleCounts(enabled: boolean, installer: boolean) {
@@ -69,7 +68,6 @@ export function Shell({ children }: { children: ReactNode }) {
   const setCrumbs = useCallback((p: string, c: Crumb[]) => setCrumbState({ path: p, crumbs: c }), []);
   const crumbs = crumbState.path === path ? crumbState.crumbs : [];
   const [palette, setPalette] = useState(false);
-  const [more, setMore] = useState(false);
   const { theme, toggle } = useTheme();
   const platform = path.startsWith('/console');
   const counts = useConsoleCounts(!!staffRole, staffRole === 'INSTALLER');
@@ -211,7 +209,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <CrumbsContext.Provider value={{ set: setCrumbs }}>
       <AssistantProvider homeId={platform ? 'console' : home?.id ?? null} console={platform && !!staffRole}>
-      <div className={`app ${platform ? 'is-console' : 'is-home'}`}>
+      <div className="app">
         <aside className="side" aria-label="Main">
           <Link href={platform ? (staffRole === 'INSTALLER' ? '/console/homes' : '/console') : '/'} className="side-brand">
             <span className="brand-mark"><Icon name="toggle-right" size={16} stroke={2} /></span>
@@ -306,31 +304,12 @@ export function Shell({ children }: { children: ReactNode }) {
 
           {nav.length > 1 && (
             <nav className="tabbar" aria-label="Main">
-              {(nav.length > 5 ? nav.slice(0, 4) : nav).map((n) => (
+              {nav.slice(0, 6).map((n) => (
                 <Link key={n.href} href={n.href} className={`tab ${active(n) ? 'active' : ''}`}>
-                  <Icon name={n.icon} size={22} /><span>{tabLabel(n.label)}</span>
+                  <Icon name={n.icon} size={21} /><span>{n.label.replace(' & permissions', '').replace('Plan & billing', 'Billing')}</span>
                 </Link>
               ))}
-              {nav.length > 5 && (
-                <button type="button" className={`tab ${nav.slice(4).some(active) ? 'active' : ''}`} onClick={() => setMore(true)} aria-haspopup="dialog">
-                  <Icon name="more" size={22} /><span>More</span>
-                </button>
-              )}
             </nav>
-          )}
-          {more && (
-            <div className="backdrop" onClick={() => setMore(false)}>
-              <div className="dialog more-sheet" role="dialog" aria-label="More" onClick={(e) => e.stopPropagation()}>
-                <div className="more-grip" aria-hidden />
-                {nav.slice(4).map((n) => (
-                  <Link key={n.href} href={n.href} className={`menu-item ${active(n) ? 'focus' : ''}`} onClick={() => setMore(false)}>
-                    <Icon name={n.icon} size={19} /><span className="grow">{n.label}</span>
-                    {n.count && <span className={`count ${n.countBad ? 'bad' : ''}`}>{n.count}</span>}
-                    <Icon name="chevron-right" size={16} />
-                  </Link>
-                ))}
-              </div>
-            </div>
           )}
         </div>
         <NoticeToasts />

@@ -19,7 +19,7 @@ export default function AccountPage() {
   ];
   return (
     <div data-screen-label="Account" className="stack" style={{ maxWidth: 720 }}>
-      <PageHead title="Your account" sub="Your sign-in details, two-step sign-in and where you’re signed in." />
+      <PageHead eyebrow={home?.name ?? me.staff?.org.name} title="Your account" sub="Your sign-in details, two-step sign-in and where you’re signed in." />
       <section className="card card-pad row" style={{ gap: 14, alignItems: 'center' }}>
         <Avatar name={me.name} />
         <div className="stack-tight grow" style={{ minWidth: 0 }}>

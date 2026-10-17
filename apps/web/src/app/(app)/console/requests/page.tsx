@@ -56,7 +56,8 @@ export default function VisitRequestsPage() {
 
   return (
     <div data-screen-label="Visit requests">
-      <PageHead title="Visit requests"
+      <PageHead
+        eyebrow="Platform" title="Visit requests"
         sub="People who booked a free home visit on your website. Call them within a working day, book the visit, then create their home."
         actions={<a className="btn" href="/welcome" target="_blank" rel="noreferrer"><Icon name="external" size={15} />Open the website</a>}
       />
