@@ -140,7 +140,7 @@ export default function ConsoleOverview() {
         <div className="row" style={{ alignItems: 'baseline', gap: '8px 16px' }}>
           <h2>Commands · last 24 h</h2>
           <span className="small muted">{k.commands.toLocaleString('en-US')} sent · {k.commands ? rate : '—'} confirmed by the board</span>
-          <span className="legend push"><span><i style={{ background: 'var(--ok)' }} />Confirmed</span><span><i style={{ background: 'var(--bad)' }} />Failed or no answer</span></span>
+          <span className="legend push"><span><i style={{ background: 'var(--chart)' }} />Confirmed</span><span><i style={{ background: 'var(--bad)' }} />Failed or no answer</span></span>
         </div>
         <div className="cmd-chart" role="img" aria-label="Commands per hour, last 24 hours">
           {data.bars.map((b) => (

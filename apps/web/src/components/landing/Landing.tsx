@@ -44,10 +44,10 @@ const TABS: { id: Tab; short: string; icon: string; title: string; d: string }[]
   { id: 'help', short: 'Health', icon: 'shield', title: 'We tell you, in plain words', d: 'If something stops working, you’ll know what to try — and our expert already knows.' },
 ];
 const APP_DEVICES: [string, string, string, string][] = [
-  ['ceil', 'Ceiling light', 'lightbulb', 'On'], ['lamp', 'Lamp', 'lightbulb', 'On'], ['fan', 'Ceiling fan', 'fan', 'Speed 3'],
-  ['ac', 'AC', 'snowflake', '24° · Cool'], ['tv', 'TV', 'toggle-right', 'On'], ['ups', 'UPS charging', 'zap', 'On'],
+  ['ceil', 'Ceiling light', 'lightbulb', 'On'], ['lamp', 'Lamp', 'lightbulb', 'On'], ['fan', 'Ceiling fan', 'fan', 'On'],
+  ['ac', 'AC', 'snowflake', 'On'], ['tv', 'TV', 'toggle-right', 'On'], ['ups', 'UPS charging', 'zap', 'On'],
 ];
-const CHAT: ['me' | 'bot', string][] = [['me', 'Bedroom ka pankha band karo'], ['bot', 'Done — the bedroom fan is off.'], ['me', 'AC 24 pe kar do'], ['bot', 'Living room AC set to 24°.']];
+const CHAT: ['me' | 'bot', string][] = [['me', 'Bedroom ka pankha band karo'], ['bot', 'Done — the bedroom fan is off.'], ['me', 'Living room ka AC band kar do'], ['bot', 'Done — the living room AC is off.']];
 const FAMILY: [string, string, string[], boolean][] = [
   ['Ayesha', 'Owner', ['All rooms'], true], ['Zara, 14', 'Member', ['Her bedroom', 'Living room'], false],
   ['Dadi', 'Member', ['Her room', 'Lounge'], false], ['Bilal', 'Guest · until Sunday', ['Guest room'], false],
@@ -416,17 +416,11 @@ export function Landing() {
 
         <section id="top" className="wrap lp-hero">
           <div className="lp-hero-copy">
-            <span className="lp-pill"><i />Now in Lahore, Karachi and Islamabad</span>
             <h1>Your home.<br /><span className="serif gold">Now it listens.</span></h1>
-            <p className="lp-hero-sub">Lights, fans, AC, geyser and water motor — from your phone, by voice in Urdu or English, or on a schedule. We set it all up. Nothing at home changes.</p>
+            <p className="lp-hero-sub">Lights, fans, AC, geyser and water motor — from your phone, by voice in Urdu or English, or on a schedule. We set it all up. Nothing at home changes. Now in Lahore, Karachi and Islamabad.</p>
             <div className="lp-cta">
               <a href="#book" className="btn-gold">Book a free home visit<Icon name="send" size={16} /></a>
               <a href="#app" className="btn-ghost-dark"><Icon name="play" size={14} />See the app</a>
-            </div>
-            <div className="lp-facts">
-              {[['1 day', 'to set up your home'], ['0', 'switches to replace'], ['24/7', 'we keep an eye on it']].map(([v, l]) => (
-                <div key={l}><b>{v}</b><span>{l}</span></div>
-              ))}
             </div>
           </div>
           <HeroStage />

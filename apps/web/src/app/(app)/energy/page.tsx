@@ -50,7 +50,7 @@ export default function EnergyPage() {
       {!e ? (energy.error ? <div className="alert">{energy.error}</div> : <Loader label="Adding it up…" />) : (
         <>
           <div className="kpis k3">
-            <Kpi label="Units used" value={units(e.total.kwh)} unit="kWh" chip={{ icon: 'zap', tone: 'on' }} sub={`${hours(e.total.hours)} of switches on`} />
+            <Kpi label="Units used" value={units(e.total.kwh)} unit="kWh" chip={{ icon: 'zap', tone: 'ac' }} sub={`${hours(e.total.hours)} of switches on`} />
             <Kpi label="Cost" value={rs(e.total.cost)} chip={{ icon: 'wallet', tone: 'ac' }}
                  sub={<>at {rs(e.tariff)} a unit{canEdit && <> · <button className="link-btn" onClick={() => setEditing('tariff')}>{e.tariffSet ? 'Change' : 'Set your rate'}</button></>}</>} />
             <Kpi label="A month at this pace" value={`~${e.month.kwh}`} unit="units" chip={{ icon: 'activity', tone: 'ok' }} sub={`about ${rs(e.month.cost)}`} />

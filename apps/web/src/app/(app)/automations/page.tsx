@@ -99,7 +99,7 @@ function NewSchedule({ devices, scenes, place, onDone }: { devices: Device[]; sc
 
   return (
     <form className="card card-pad stack" onSubmit={submit}>
-      <div className="spread"><h3>New timer or schedule</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onDone}>×</button></div>
+      <div className="spread"><h3>New timer or schedule</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onDone}><Icon name="x" size={16} /></button></div>
 
       <div className="stack-tight">
         <span className="form-step">1 · What should happen?</span>
@@ -186,7 +186,7 @@ function NewScene({ devices, onDone }: { devices: Device[]; onDone: () => void }
         onDone();
       } catch (err) { setError(errorText(err)); }
     }}>
-      <div className="spread"><h3>New scene</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onDone}>×</button></div>
+      <div className="spread"><h3>New scene</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onDone}><Icon name="x" size={16} /></button></div>
       <label className="field">Name<input name="name" required maxLength={60} placeholder="Good night, Movie time, Leaving home…" /></label>
       <span className="form-step">Set each device you want in the scene</span>
       <ActionPicker devices={devices} value={actions} onChange={setActions} />
@@ -256,7 +256,7 @@ function NewRule({ all, controllable, scenes, isAdmin, onDone }: { all: Device[]
   const nothing = Object.keys(actions).length === 0 && !sceneId && !tell;
   return (
     <form className="card card-pad stack" onSubmit={submit}>
-      <div className="spread"><h3>New rule</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onDone}>×</button></div>
+      <div className="spread"><h3>New rule</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onDone}><Icon name="x" size={16} /></button></div>
       <span className="form-step">1 · When…</span>
       <div className="form-grid">
         <label className="field">This device
