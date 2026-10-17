@@ -270,7 +270,8 @@ test('board connections: public IP, why each ended, history; re-reading changes 
   fs.appendFileSync(BROKER_LOG, lines.join('\n') + '\n');
   const info = await until('connections recorded', async () => {
     const r = (await owner.get(`/nodes/${NODE_ID}/connections`)).body;
-    return r.history?.length === 2 ? r : null;
+    // the new connection is saved first, the board's address right after: wait for both
+    return r.history?.length === 2 && r.current?.ip === '203.0.113.9' ? r : null;
   });
   assert.equal(info.tracking, true);
   assert.equal(info.current.ip, '203.0.113.9');
