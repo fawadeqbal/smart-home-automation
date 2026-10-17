@@ -53,6 +53,9 @@ const ROUTES = [
   ['owner-rooms', 'owner', '/rooms'],
   ['owner-activity', 'owner', '/activity'],
   ['owner-device', 'owner', '/devices/d-kitchen-temp'],
+  ['owner-switch-on', 'owner', '/devices/d-drawing-fan'],
+  ['owner-switch-off', 'owner', '/devices/d-geyser'],
+  ['owner-switch-offline', 'owner', '/devices/d-master-fan'],
   ['owner-diagnostics', 'owner', '/diagnostics'],
   ['owner-notifications', 'owner', '/notifications'],
   ['owner-support', 'owner', '/support'],
@@ -202,6 +205,13 @@ for (const [name, persona, route] of selected) {
           await page.setViewportSize({ width: vp.viewport.width, height: Math.min(Math.max(h, vp.viewport.height), 16_000) });
           await page.waitForTimeout(300);
         }
+        // lazy images: make every one load and decode before the capture
+        await page.evaluate(async () => {
+          document.querySelectorAll('img[loading="lazy"]').forEach((img) => { img.loading = 'eager'; });
+          await Promise.all([...document.images].map((img) => (img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; setTimeout(r, 15000); }))));
+          await Promise.all([...document.images].map((img) => img.decode?.().catch(() => null)));
+        }).catch(() => null);
+        await page.waitForTimeout(200);
         await page.screenshot({ path: file, fullPage: !TALL, animations: 'disabled', caret: 'hide', timeout: 60_000 });
       } catch (e) {
         shotError = String(e?.message ?? e).split('\n')[0];
