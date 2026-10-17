@@ -238,12 +238,12 @@
 .au-try .r { width: 100%; display: flex; justify-content: space-between; align-items: center; }
 .au-try .bulb { width: 64px; height: 64px; border-radius: 20px; display: flex; align-items: center; justify-content: center; background: var(--sf2); color: var(--mu); transition: background .5s, color .5s; }
 .au-sw { width: 60px; height: 34px; border-radius: 999px; padding: 4px; display: flex; background: var(--sw); transition: background .5s; flex: none; }
-.au-sw i { width: 26px; height: 26px; border-radius: 999px; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); transition: transform .35s var(--ease); }
+.au-sw i { width: 26px; height: 26px; border-radius: 999px; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); transition: margin .5s cubic-bezier(.3, 1.4, .5, 1); }
 .au-sw.sm { width: 48px; height: 28px; padding: 3px; }
 .au-sw.sm i { width: 22px; height: 22px; }
 .au-sw.on { background: var(--on); }
-.au-sw.on i { transform: translateX(26px); }
-.au-sw.sm.on i { transform: translateX(20px); }
+.au-sw.on i { margin-left: 26px; }
+.au-sw.sm.on i { margin-left: 20px; }
 .au-try .nm { display: flex; flex-direction: column; line-height: 1.25; }
 .au-try .nm b { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
 .au-try .nm span { font-size: 15px; color: var(--mu); }

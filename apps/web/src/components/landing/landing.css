@@ -17,7 +17,7 @@
 .lp :focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
 .lp .serif { font: inherit; letter-spacing: inherit; color: var(--mu); }
 .lp-dark .serif, .lp-book .serif, .lp-save-out .serif { color: var(--inkmu); }
-.lp .gold { color: #86868b; }
+.lp .gold { color: var(--gold); }
 .lp .eyebrow { font-size: 17px; font-weight: 600; color: var(--ac); }
 .lp .wrap { max-width: var(--wrap); margin: 0 auto; padding-left: var(--gut); padding-right: var(--gut); }
 .lp .section { padding-top: clamp(80px, 10vw, 128px); padding-bottom: clamp(80px, 10vw, 128px); }
@@ -97,7 +97,7 @@
 .lp-tile-icon { width: 30px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; transition: background .4s, color .4s; background: #d1d1d6; color: #636366; }
 .lp-tile.on .lp-tile-icon { background: #ffb300; color: #3d2600; }
 .lp-sw { display: none !important; width: 30px; height: 18px; border-radius: 999px; padding: 2px; display: flex; transition: background .45s; background: #d5d3cc; }
-.lp-sw i { width: 14px; height: 14px; border-radius: 999px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); margin-left: 0; }
+.lp-sw i { width: 14px; height: 14px; border-radius: 999px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); transition: margin .45s cubic-bezier(.3, 1.4, .5, 1); margin-left: 0; }
 .lp-tile.on .lp-sw { background: #f59e0b; }
 .lp-tile.on .lp-sw i { margin-left: 12px; }
 .lp-tile-name { display: flex; flex-direction: column; line-height: 1.2; }

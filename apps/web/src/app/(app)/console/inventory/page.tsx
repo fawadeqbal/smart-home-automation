@@ -103,7 +103,7 @@ export default function InventoryPage() {
                     const [label, tone] = STATUS[b.status];
                     return (
                       <tr key={b.id} className={`click ${sel === b.id ? 'selected' : ''}`} onClick={() => setSel(b.id)}>
-                        <td><span className="stack-tight"><b className="mono nowrap" style={{ fontSize: 12.5, fontWeight: 500 }}>{b.id}</b><span className="cell-sub hide-sm">{b.model}</span></span></td>
+                        <td><span className="stack-tight"><b className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{b.id}</b><span className="cell-sub">{b.model}</span></span></td>
                         <td><Badge tone={tone}>{label}</Badge></td>
                         <td className="nowrap">
                           <span className="stack-tight"><span>{b.homeName ?? '—'}</span>

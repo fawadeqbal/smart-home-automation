@@ -128,7 +128,6 @@ export default function DevicePage() {
   const { id } = useParams<{ id: string }>();
   const device = useLoad<Device>(`/devices/${id}`);
   const history = useLoad<HistoryEntry[]>(`/devices/${id}/history?limit=200`);
-  const [shown, setShown] = useState(15);
   useLive('device.state', (e: { id: string }) => {
     if (e.id === id) { void device.reload(); void history.reload(); }
   });
@@ -177,7 +176,7 @@ export default function DevicePage() {
             <table className="table">
               <thead><tr><th>When</th><th>State</th><th>Cause</th></tr></thead>
               <tbody>
-                {history.data?.slice(0, shown).map((h, i) => (
+                {history.data?.map((h, i) => (
                   <tr key={i}>
                     <td className="small">{new Date(h.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</td>
                     <td>{d.controllable ? (h.state.on ? 'On' : 'Off') : d.stateFields.map((f) => `${h.state[f.key] ?? '–'}${f.unit ?? ''}`).join(' · ')}</td>
@@ -186,9 +185,6 @@ export default function DevicePage() {
                 ))}
               </tbody>
             </table>
-            {(history.data?.length ?? 0) > shown && (
-              <div className="panel-foot"><button className="link-btn" onClick={() => setShown((n) => n + 30)}>Show earlier ({history.data!.length - shown} more)</button></div>
-            )}
           </div>
         )}
       </section>
