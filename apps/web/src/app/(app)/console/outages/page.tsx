@@ -27,7 +27,7 @@ export default function OutagesPage() {
   const long = data.down.filter((d) => d.since && Date.now() - new Date(d.since).getTime() > 3_600_000);
   return (
     <div data-screen-label="Outages" className="stack" style={{ gap: 18 }}>
-      <PageHead eyebrow="Platform" title="Power & outages"
+      <PageHead title="Power & outages"
         sub="Worked out from what boards report when they come back: a restart with “Power On” is a power cut; a board that stayed on lost its Wi‑Fi or internet."
         actions={<Seg options={[{ id: '1', label: 'Today' }, { id: '7', label: '7 days' }, { id: '30', label: '30 days' }]} value={days} onChange={setDays} />} />
 
