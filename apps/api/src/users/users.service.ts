@@ -39,6 +39,8 @@ export class UsersService {
     const rooms = current ? await this.prisma.roomAccess.findMany({ where: { userId, room: { homeId: current.id } } }) : [];
     return {
       id: user.id, name: user.name, email: user.email, twoFactor: !!user.totpEnabledAt,
+      // for WhatsApp messages from the company (optional)
+      phone: user.phone ?? null,
       staff: user.staffRole && user.org
         ? {
             role: user.staffRole,

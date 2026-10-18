@@ -19,6 +19,9 @@ const update = z.object({
   status: z.nativeEnum(VisitStatus).optional(),
   note: z.string().max(1000).optional(),
   homeId: z.string().max(40).nullable().optional(),
+  // the booked visit, as the time on the clock in Pakistan ("2026-10-20T16:00"), and who goes
+  visitAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Pick a date and a time.').nullable().optional(),
+  assigneeId: z.string().max(40).nullable().optional(),
 });
 
 @Controller()

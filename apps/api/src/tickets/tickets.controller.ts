@@ -16,6 +16,7 @@ const update = z.object({
   priority: z.nativeEnum(TicketPriority).optional(), assigneeId: z.string().nullable().optional(),
   title: z.string().trim().min(1).max(100).optional(), category: z.enum(CATEGORIES).optional(),
 });
+const rating = z.object({ stars: z.number().int().min(1, 'Pick 1 to 5 stars.').max(5, 'Pick 1 to 5 stars.'), comment: z.string().trim().max(500).optional() });
 const staffOpen = z.object({
   homeId: z.string().min(1), title: z.string().trim().min(1).max(100), body: z.string().trim().min(1).max(4000),
   priority: z.nativeEnum(TicketPriority).optional(), category: z.enum(CATEGORIES).optional(),
@@ -44,6 +45,19 @@ export class TicketsController {
   @Post('support/tickets/:id/reply')
   reply(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(homeReply)) body: z.infer<typeof homeReply>) {
     return this.tickets.homeReply(user, id, body.body, body.solved);
+  }
+
+  /** The person who opened it rates the help: 1 to 5 stars, once it is solved (changeable for 7 days). */
+  @Post('support/tickets/:id/rating')
+  rate(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(rating)) body: z.infer<typeof rating>) {
+    return this.tickets.rate(user, id, body);
+  }
+
+  /** Average ratings: the company's, and per person who handled the tickets. */
+  @Staff('SUPERADMIN', 'SUPPORT', 'INSTALLER')
+  @Get('platform/tickets/ratings')
+  ratings(@CurrentUser() user: AuthUser) {
+    return this.tickets.ratings(user);
   }
 
   @Staff('SUPERADMIN', 'SUPPORT', 'INSTALLER')
