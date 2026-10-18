@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/realtime/live_client.dart';
@@ -12,13 +11,13 @@ import '../../core/routing/routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
+import '../../core/theme/sb_icons_more.dart';
 import '../../core/util/format.dart';
 import '../../data/models/energy.dart';
 import '../../data/models/session.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../shared/widgets/sb_switch.dart';
-import '../../shared/widgets/sheet.dart';
 import '../../state/activity.dart';
 import '../../state/automation.dart';
 import '../../state/clock.dart';
@@ -26,6 +25,7 @@ import '../../state/devices.dart';
 import '../../state/favourites.dart';
 import '../../state/home_overview.dart';
 import '../../state/local_control.dart';
+import '../../state/money.dart';
 import '../../state/people.dart';
 import '../../state/presence.dart';
 import '../../state/session.dart';
@@ -98,10 +98,11 @@ class HomeScreen extends ConsumerWidget {
           _OfflineBanner(),
           SizedBox(height: 22),
           _StatusPill(),
+          _BillDue(),
           _PowerCard(),
+          _EnergyCard(),
           _Away(),
           _WhoIsHome(),
-          _EnergyCard(),
           _Scenes(),
           _Favourites(),
           _Rooms(),
@@ -626,7 +627,8 @@ class _Away extends ConsumerWidget {
   }
 }
 
-/// This week's electricity, roughly; tap for the devices that used the most.
+/// Electricity in one line: this month from the meter readings (owners and admins), else this week's
+/// estimate. Tap for the Electricity page.
 class _EnergyCard extends ConsumerWidget {
   const _EnergyCard();
 
@@ -634,15 +636,25 @@ class _EnergyCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.sb;
     final e = ref.watch(homeEnergyProvider).value;
-    if (e == null || !e.loaded || e.kwh < 0.05) return const SizedBox.shrink();
-    final top = e.devices.where((d) => d.kwh > 0).firstOrNull;
+    final bill = ref.watch(billProvider).value;
+    final hasBill = bill != null && bill.loaded && bill.units > 0;
+    if (!hasBill && (e == null || !e.loaded || e.kwh < 0.05)) return const SizedBox.shrink();
+    final top = e?.devices.where((d) => d.kwh > 0).firstOrNull;
+    final title = hasBill
+        ? 'This month: ${Energy.units(bill.units)} units · ~${Energy.rupees(bill.costProjected ?? bill.costSoFar)}'
+        : 'This week: ~${Energy.units(e!.kwh)} units · ${Energy.rupees(e.cost)}';
+    final detail = hasBill
+        ? (bill.warn && bill.protectedLimit != null
+            ? 'Heading past the ${bill.protectedLimit}-unit limit'
+            : '${top != null ? 'Most from ${top.name} · ' : ''}${bill.daysLeft} days to the bill')
+        : '${top != null ? 'Most from ${top.name} · ' : ''}a month ≈ ${Energy.rupees(e!.monthCost)}';
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: GroupCard(
         radius: 22,
         children: [
           InkWell(
-            onTap: () => _showEnergy(context, e),
+            onTap: () => context.openInTab(Routes.energy),
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Row(
@@ -650,22 +662,16 @@ class _EnergyCard extends ConsumerWidget {
                   Container(
                     width: 40,
                     height: 40,
-                    decoration: BoxDecoration(color: c.sf2, borderRadius: BorderRadius.circular(12)),
-                    child: Center(child: SbIcon(SbIcons.zap, size: 18, color: c.tx)),
+                    decoration: BoxDecoration(color: c.onSoft, borderRadius: BorderRadius.circular(12)),
+                    child: Center(child: SbIcon(SbIcons.zap, size: 18, color: c.onText)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'This week: ~${Energy.units(e.kwh)} units · ${Energy.rupees(e.cost)}',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx),
-                        ),
-                        Text(
-                          '${top != null ? 'Most from ${top.name} · ' : ''}a month ≈ ${Energy.rupees(e.monthCost)}',
-                          style: TextStyle(fontSize: 13, color: c.mu),
-                        ),
+                        Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
+                        Text(detail, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: hasBill && bill.warn ? c.badText : c.mu)),
                       ],
                     ),
                   ),
@@ -678,96 +684,42 @@ class _EnergyCard extends ConsumerWidget {
       ),
     );
   }
-
-  void _showEnergy(BuildContext context, Energy e) {
-    showSbSheet<void>(
-      context,
-      builder: (ctx) {
-        final c = ctx.sb;
-        final rows = e.devices.where((d) => d.hours > 0).toList();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _WeekSummary(),
-            Text('Electricity this week', style: SbText.title.copyWith(color: c.tx)),
-            const SizedBox(height: 6),
-            Text(
-              'About ${Energy.units(e.kwh)} units, ${Energy.rupees(e.cost)} at Rs ${e.tariff.toStringAsFixed(0)} a unit. '
-              'An estimate from how long each switch was on — your meter is the real number.',
-              style: TextStyle(fontSize: 14, color: c.mu),
-            ),
-            const SizedBox(height: 14),
-            for (final d in rows)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(d.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
-                          Text(
-                            '${d.hours < 1 ? '${(d.hours * 60).round()} min' : '${d.hours.toStringAsFixed(1)} h'} on · ${Energy.units(d.kwh)} units'
-                            '${d.wattsSource == 'unknown' ? ' · power not set' : ''}',
-                            style: TextStyle(fontSize: 13, color: c.mu),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(Energy.rupees(d.cost), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
-                  ],
-                ),
-              ),
-            if (rows.isEmpty) Text('Nothing was on this week.', style: TextStyle(color: c.mu)),
-            const SizedBox(height: 14),
-            BigButton(
-              label: 'Bill, meter readings and load-shedding',
-              icon: SbIcons.zap,
-              height: 50,
-              color: c.sf2,
-              foreground: c.tx,
-              onTap: () {
-                Navigator.of(ctx).pop();
-                context.openInTab(Routes.energy);
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
 }
 
-/// The week in a few lines, with a button to send it to the family (WhatsApp or anything else).
-class _WeekSummary extends ConsumerWidget {
-  const _WeekSummary();
+/// A bill from the company to pay (owners and admins): one line, tap for Plan & bills.
+class _BillDue extends ConsumerWidget {
+  const _BillDue();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.sb;
-    final s = ref.watch(homeSummaryProvider).value;
-    if (s == null || !s.loaded) return const SizedBox.shrink();
+    final b = ref.watch(billingQuietProvider).value;
+    final line = b?.dueLine;
+    if (b == null || line == null) return const SizedBox.shrink();
+    final late = b.anyLate;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('This week', style: SbText.title.copyWith(color: c.tx)),
-          Text(s.range, style: TextStyle(fontSize: 13, color: c.mu)),
-          const SizedBox(height: 10),
-          for (final l in s.lines)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Text('• $l', style: TextStyle(fontSize: 14.5, color: c.tx, height: 1.35)),
-            ),
-          const SizedBox(height: 12),
-          BigButton(
-            label: 'Send to the family',
-            icon: SbIcons.share,
-            onTap: () => SharePlus.instance.share(ShareParams(text: s.text)),
+      padding: const EdgeInsets.only(top: 12),
+      child: Pressable(
+        onTap: () => context.openInTab(Routes.billing),
+        semanticLabel: 'Bills: $line',
+        scale: .98,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          decoration: BoxDecoration(color: late ? c.badSoft : c.onSoft, borderRadius: BorderRadius.circular(18)),
+          child: Row(
+            children: [
+              SbIcon(late ? SbIcons.warning : MoreIcons.wallet, size: 18, color: late ? c.badText : c.onText),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Bills: $line',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: late ? c.badText : c.onText),
+                ),
+              ),
+              SbIcon(SbIcons.caretRight, size: 16, color: late ? c.badText : c.onText),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -13,6 +13,7 @@ const units = (n: number) => (n < 10 ? n.toFixed(1) : Math.round(n).toLocaleStri
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /** "14:00" as "2:00 pm" */
 const ampm = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h! % 12 || 12}:${String(m).padStart(2, '0')} ${h! < 12 ? 'am' : 'pm'}`; };
+const daysText = (n: number) => (n === 1 ? '1 day' : `${n} days`);
 const dayDate = (iso: string, tz: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: tz });
 
 /** On the home page (everyone): "On UPS since 2:03 pm" while the grid is off, and the next expected cut. */
@@ -85,8 +86,11 @@ export function SheddingPanel({ canEdit }: { canEdit: boolean }) {
         {s.next ? <><b className="text-ink">{s.next.now ? `Load-shedding time now, until about ${new Date(s.next.until).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: s.timezone })}` : `Next expected cut: ${s.next.text}`}</b>. </> : 'No regular cut time yet. '}
         {s.source === 'typed' ? 'From the schedule you typed in (it’s used instead of the learned one).'
           : s.source === 'area' ? `Learned from other homes in ${learned.place ?? 'your area'}: this home has too few days of its own yet.`
-            : s.source === 'learned' ? `Learned from the power cuts of the last ${learned.observedDays} days: a time counts when the power went then on at least ${learned.needed} of them.`
-              : `A time shows up here once the power goes at about the same time on ${learned.needed} or more of the last ${learned.observedDays} days.`}
+            : s.source === 'learned' ? `Learned from the power cuts of the last ${daysText(learned.observedDays)}: a time counts when the power went then on at least ${learned.needed} of them.`
+              // a new home has only a day or two of its own: say how many it still needs, not "2 or more of the last 1 days"
+              : learned.observedDays < learned.needed
+                ? `A time shows up here once the power goes at about the same time on ${learned.needed} different days. This home has ${daysText(learned.observedDays)} of power history so far.`
+                : `A time shows up here once the power goes at about the same time on ${learned.needed} or more of the last ${daysText(learned.observedDays)}.`}
       </p>
       <DayStrip slots={learned.slots} windows={shown} />
       {shown.length > 0 && (

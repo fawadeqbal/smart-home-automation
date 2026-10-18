@@ -44,17 +44,37 @@ class HomeRepository {
   Future<Bill> addReading(double kwh, DateTime readAt, {bool newMeter = false}) async => Bill.fromJson(asJson(
       await _api.post<Object?>('/power/readings', {'kwh': kwh, 'readAt': readAt.toUtc().toIso8601String(), 'newMeter': newMeter})));
 
-  Future<Bill> updateReading(String id, double kwh) async =>
-      Bill.fromJson(asJson(await _api.patch<Object?>('/power/readings/$id', {'kwh': kwh})));
+  Future<Bill> updateReading(String id, double kwh, {DateTime? readAt, bool? newMeter}) async => Bill.fromJson(asJson(await _api.patch<Object?>(
+      '/power/readings/$id', {'kwh': kwh, if (readAt != null) 'readAt': readAt.toUtc().toIso8601String(), 'newMeter': ?newMeter})));
 
   Future<Bill> removeReading(String id) async => Bill.fromJson(asJson(await _api.delete<Object?>('/power/readings/$id')));
 
   Future<Bill> setBillingDay(int day) async => Bill.fromJson(asJson(await _api.put<Object?>('/power/bill', {'billingDay': day})));
 
+  /// The billing day, the price bands from the bill (empty: one price) and the protected limit (null: off).
+  Future<Bill> setBill({required int billingDay, required List<Slab> slabs, required int? protectedLimit}) async =>
+      Bill.fromJson(asJson(await _api.put<Object?>('/power/bill', {
+        'billingDay': billingDay,
+        'slabs': [for (final s in slabs) s.toJson()],
+        'protectedLimit': protectedLimit,
+      })));
+
+  /// The price of one unit (null: back to the typical rate). Owners and admins.
+  Future<void> setTariff(double? tariff) => _api.put<Object?>('/home/tariff', {'tariff': tariff});
+
+  /// UPS mode: the grid sensor and the heavy loads (owners and admins).
+  Future<GridSettings> grid() async => GridSettings.fromJson(asJson(await _api.get<Object?>('/power/grid')));
+
+  Future<GridSettings> setGrid({required List<String> loads, required bool restore}) async =>
+      GridSettings.fromJson(asJson(await _api.put<Object?>('/power/grid', {'loads': loads, 'restore': restore})));
+
+  /// The home's summary emailed to me; answers the address it went to.
+  Future<String> emailSummary(String period) async => str(asJson(await _api.post<Object?>('/home/summary/email?period=$period'))['to']);
+
   /// A message to the installer and the company's support (owners and admins).
   /// Opens a help request (anyone in the home may); the installer's team answers in it.
-  Future<Ticket> askForHelp(String message) async =>
-      Ticket.fromJson(asJson(await _api.post<Object?>('/support/tickets', {'body': message})));
+  Future<Ticket> askForHelp(String message, {String? title, String? category}) async => Ticket.fromJson(asJson(await _api.post<Object?>(
+      '/support/tickets', {'body': message, if (title != null && title.isNotEmpty) 'title': title, 'category': ?category})));
 
   Future<List<Ticket>> tickets() async => asJsonList(await _api.get<Object?>('/support/tickets')).map(Ticket.fromJson).toList();
 
