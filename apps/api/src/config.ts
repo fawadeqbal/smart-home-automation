@@ -46,6 +46,12 @@ export interface Settings {
   publicUrl: string;
   /** Outgoing email (Gmail: smtp.gmail.com, 465, the address, an app password). null: email is off. */
   smtp: { host: string; port: number; user: string; pass: string; from: string } | null;
+  /** How often the scheduler looks for timers that are due (ms). */
+  schedulerTickMs: number;
+  /** A timer whose board was offline or didn't answer is tried again after these many minutes (then it has failed). */
+  scheduleRetryMinutes: number[];
+  /** After the server was down: a schedule more than this late is skipped (or run late, if it says so). */
+  missedCutoffMinutes: number;
 }
 
 export function loadSettings(): Settings {
@@ -83,6 +89,9 @@ export function loadSettings(): Settings {
       pass: process.env.SMTP_PASS.replace(/\s+/g, ''),
       from: process.env.MAIL_FROM || `Switchboard <${process.env.SMTP_USER}>`,
     } : null,
+    schedulerTickMs: Number(process.env.SCHEDULER_TICK_MS || 5000),
+    scheduleRetryMinutes: (process.env.SCHEDULE_RETRY_MINUTES || '1,3,10').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0),
+    missedCutoffMinutes: Number(process.env.SCHEDULE_MISSED_CUTOFF_MIN || 15),
   };
 }
 

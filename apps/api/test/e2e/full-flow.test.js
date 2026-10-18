@@ -73,7 +73,7 @@ before(async () => {
   const { createApp } = require('../../dist/main.js');
   const { PrismaClient } = require('@prisma/client');
   prisma = new PrismaClient();
-  await prisma.$executeRawUnsafe('TRUNCATE "Organization", "Home", "User", "Node", "AuditLog", "FirmwareImage", "Invite" CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE "Organization", "Home", "User", "Node", "AuditLog", "FirmwareImage", "Invite", "LoginAttempt" CASCADE');
   app = await createApp();
   await app.listen(API_PORT, '127.0.0.1');
   base = `${await app.getUrl()}/api`.replace('[::1]', '127.0.0.1');
@@ -123,6 +123,11 @@ test('a new board lands in stock, is assigned to the home and adopted', async ()
   const stocked = await until('board in stock', async () => (await owner.get('/platform/inventory')).body.boards.find((b) => b.id === NODE_ID));
   assert.equal(stocked.status, 'STOCK');
   assert.equal((await owner.get('/nodes')).body.length, 0);
+  // a 2.6.0 board reconnects once with its own login right after it first connects (when the broker has
+  // per-board logins): let that happen first, so it doesn't look like the board dropping out mid-test
+  for (const end = Date.now() + 8000; Date.now() < end; await new Promise((r) => setTimeout(r, 200))) {
+    if ((await prisma.node.findUnique({ where: { id: NODE_ID } }))?.mqttLoginUsedAt) break;
+  }
   assert.equal((await owner.post(`/platform/inventory/${NODE_ID}/assign`, { homeId: state.homeId })).status, 200);
   const pending = await until('board listed', async () => (await owner.get('/nodes')).body.find((n) => n.id === NODE_ID));
   assert.equal(pending.status, 'ASSIGNED');

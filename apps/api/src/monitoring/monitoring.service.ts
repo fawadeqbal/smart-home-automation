@@ -38,6 +38,8 @@ export const NOTICE_KINDS = {
   cutSoon: { label: 'Load-shedding is due in about 15 minutes (run the motor or iron now)', default: false, adminsOnly: false },
   bill: { label: 'The electricity bill is heading past the protected limit', default: true, adminsOnly: true },
   meterReading: { label: 'A reminder to type the meter reading on the billing day', default: false, adminsOnly: true },
+  security: { label: 'Someone keeps trying to sign in to my account', default: true, adminsOnly: false },
+  boardReplaced: { label: 'A board was replaced or is waiting for a replacement', default: true, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
 

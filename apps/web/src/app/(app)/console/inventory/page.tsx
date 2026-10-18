@@ -17,6 +17,8 @@ import '@/components/service/service.css';
 type Filter = 'all' | 'STOCK' | 'ASSIGNED' | 'ADOPTED' | 'FAULTY';
 const STATUS: Record<InventoryBoard['status'], [string, Tone]> = { STOCK: ['In stock', 'info'], ASSIGNED: ['Assigned', 'warn'], ADOPTED: ['Installed', 'ok'], FAULTY: ['Faulty', 'bad'] };
 
+const day = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
 export default function InventoryPage() {
   const params = useSearchParams();
   const { staffRole } = useSession();
@@ -39,7 +41,7 @@ export default function InventoryPage() {
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
     return (data?.boards ?? []).filter((b) => (filter === 'all' || b.status === filter) &&
-      (!term || [b.id, b.homeName ?? '', b.location ?? '', b.mac ?? '', b.installer ?? ''].some((v) => v.toLowerCase().includes(term))));
+      (!term || [b.id, b.homeName ?? '', b.location ?? '', b.mac ?? '', b.installer ?? '', b.replacedBy?.id ?? '', b.replaced?.id ?? ''].some((v) => v.toLowerCase().includes(term))));
   }, [data, filter, q]);
 
   useEffect(() => {
@@ -119,7 +121,8 @@ export default function InventoryPage() {
                         <td><Badge tone={tone}>{label}</Badge></td>
                         <td className="nowrap">
                           <span className="stack-tight"><span>{b.homeName ?? '—'}</span>
-                            <span className="cell-sub">{b.status === 'ADOPTED' ? b.location : b.status === 'ASSIGNED' ? (b.installer ? `Installer ${b.installer}` : 'No installer') : b.status === 'FAULTY' ? 'Returned' : 'Shelf'}</span>
+                            <span className="cell-sub">{b.waiting ? `${b.location} · waiting for a replacement` : b.status === 'ADOPTED' ? b.location : b.status === 'ASSIGNED' ? (b.installer ? `Installer ${b.installer}` : 'No installer')
+                              : b.replacedBy ? `Replaced by ${b.replacedBy.id}` : b.status === 'FAULTY' ? 'Returned' : 'Shelf'}</span>
                           </span>
                         </td>
                         <td className="mono" style={{ fontSize: 12 }}><FirmwareCell version={b.firmware} latest={data.currentFirmware} old={b.firmwareOld} /></td>
@@ -148,6 +151,8 @@ export default function InventoryPage() {
                 <dt>Home</dt><dd>{board.homeName ?? 'Not assigned'}</dd>
                 <dt>Added</dt><dd>{new Date(board.addedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</dd>
                 {board.note && <><dt>Note</dt><dd>{board.note}</dd></>}
+                {board.replaced && <><dt>Replaced</dt><dd><button className="link-btn mono" onClick={() => setSel(board.replaced!.id)}>{board.replaced.id}</button> on {day(board.replaced.at)}</dd></>}
+                {board.replacedBy && <><dt>Replaced by</dt><dd><button className="link-btn mono" onClick={() => setSel(board.replacedBy!.id)}>{board.replacedBy.id}</button>{board.replacedBy.at ? ` on ${day(board.replacedBy.at)}` : ''}</dd></>}
               </dl>
               <div className="sp-body">
                 <ErrorBox error={actionError} />
@@ -202,10 +207,16 @@ export default function InventoryPage() {
                       <Link className="btn btn-primary grow" href={`/console/homes/${board.homeId}/boards/${encodeURIComponent(board.id)}`}>Open board<Icon name="chevron-right" size={14} /></Link>
                       <Link className="btn grow" href={`/console/homes/${board.homeId}`}>Open {board.homeName}</Link>
                     </div>
-                    {canEdit && <button className="btn btn-sm btn-ghost" onClick={() => setFaulty(board)}>Mark faulty (takes it out of the home)</button>}
+                    {canEdit && <button className="btn btn-sm btn-ghost" onClick={() => setFaulty(board)}>Mark faulty (its devices wait for a replacement)</button>}
                   </>
                 )}
-                {board.status === 'FAULTY' && (
+                {board.status === 'FAULTY' && board.waiting && (
+                  <>
+                    <span className="small fg-bad" style={{ lineHeight: 1.45 }}>{board.note ?? 'Marked faulty.'} Still in <b>{board.homeName}</b>: its {board.devices} devices wait for a replacement board.</span>
+                    <Link className="btn btn-primary btn-block" href={`/console/homes/${board.homeId}/boards/${encodeURIComponent(board.id)}`}><Icon name="repeat" size={14} />Replace it</Link>
+                  </>
+                )}
+                {board.status === 'FAULTY' && !board.waiting && (
                   <>
                     <span className="small fg-bad" style={{ lineHeight: 1.45 }}>{board.note ?? 'Marked faulty.'}</span>
                     {canEdit && (
@@ -225,7 +236,9 @@ export default function InventoryPage() {
       {adding && <AddStockDialog inv={data} onClose={() => setAdding(false)} onDone={() => void reload()} />}
       {faulty && (
         <FormModal title={`Mark ${faulty.id} faulty`} danger submitLabel="Mark faulty" onClose={() => setFaulty(null)}
-          sub={faulty.status === 'ADOPTED' ? `It leaves ${faulty.homeName}: its ${faulty.devices} devices and wall buttons are deleted.` : 'It can’t be assigned until it is repaired.'}
+          sub={faulty.status === 'ADOPTED' && faulty.devices > 0
+            ? `It stays in ${faulty.homeName}, out of service: its ${faulty.devices} devices, wall buttons, timers and scenes are kept, waiting for a replacement board.`
+            : 'It can’t be assigned until it is repaired.'}
           onSubmit={async (f) => { await post(`/platform/inventory/${faulty.id}/faulty`, { note: f.get('note') }); await reload(); }}>
           <label className="field">What’s wrong?<textarea name="note" rows={3} maxLength={300} placeholder="Relay on D1 stuck on." /></label>
         </FormModal>

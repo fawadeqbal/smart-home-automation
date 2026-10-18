@@ -26,7 +26,8 @@ export default function ConsoleBoardPage() {
   // same order as the home's Boards tab, so previous / next match the list you came from
   const order = ws.data?.boards.map((b) => b.id) ?? [];
   const rank = (nid: string) => (order.indexOf(nid) + 1 || order.length + 1);
-  const installed = (nodes.data ?? []).filter((n) => n.status === 'ADOPTED').sort((a, b) => rank(a.id) - rank(b.id) || a.name.localeCompare(b.name));
+  // installed boards, and faulty ones still in the home (waiting for a replacement)
+  const installed = (nodes.data ?? []).filter((n) => n.status === 'ADOPTED' || n.status === 'FAULTY').sort((a, b) => rank(a.id) - rank(b.id) || a.name.localeCompare(b.name));
   const node = installed.find((n) => n.id === board);
   const canSetup = staffRole === 'SUPERADMIN' || staffRole === 'INSTALLER';
   const boardsHref = `/console/homes/${id}?tab=boards`;
@@ -56,6 +57,7 @@ export default function ConsoleBoardPage() {
       siblings={installed} hrefFor={(nodeId) => hrefFor(nodeId)} latestFirmware={ws.data?.currentFirmware ?? null}
       onTab={(t) => router.replace(hrefFor(node.id, t), { scroll: false })}
       onForgotten={() => router.push(boardsHref)}
+      onReplaced={(r) => router.replace(hrefFor(r.newId, 'overview'))}
     />
   );
 }

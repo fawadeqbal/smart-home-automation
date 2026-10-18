@@ -62,7 +62,8 @@ export function DiagnosticsView({ canSetup, editHref, openHref, installerName, a
   useLive('node.health', (e: { nodeId: string; health: BoardNode['health']; lastSeenAt: string }) =>
     nodes.setData((list) => list?.map((n) => (n.id === e.nodeId ? { ...n, health: e.health, lastSeenAt: e.lastSeenAt } : n)) ?? list));
 
-  const installed = (nodes.data ?? []).filter((n) => n.status === 'ADOPTED');
+  // and boards marked faulty that still hold the home's devices (waiting for a replacement)
+  const installed = (nodes.data ?? []).filter((n) => n.status === 'ADOPTED' || n.status === 'FAULTY');
   useEffect(() => {
     if (open || !installed.length) return;
     const worst = installed.find((n) => boardCondition(n).tone === 'bad') ?? installed.find((n) => boardCondition(n).tone === 'warn');
@@ -86,7 +87,7 @@ export function DiagnosticsView({ canSetup, editHref, openHref, installerName, a
       )}
       {installed.length === 0 && <Empty>No boards installed in this home yet.</Empty>}
       {installed.map((n) => {
-        const c = boardCondition(n);
+        const c = n.waiting ? { tone: 'bad' as const, label: 'Waiting for a replacement board' } : boardCondition(n);
         const tone = toneOf(c.tone);
         const isOpen = open === n.id;
         const h = n.health;
@@ -104,7 +105,7 @@ export function DiagnosticsView({ canSetup, editHref, openHref, installerName, a
               <span className={`sdot lg ${tone}`} />
               <span className="li-text">
                 <b style={{ fontSize: 15 }}>{n.name} board</b>
-                <span className="sub"><span className={`fg-${tone === 'ok' ? 'ok' : tone === 'warn' ? 'warn' : 'bad'}`} style={{ fontWeight: 500 }}>{n.online ? c.label : `Offline · ${seen.replace(' ago', '')}`}</span> · {n.devices.length} devices · seen {seen}</span>
+                <span className="sub"><span className={`fg-${tone === 'ok' ? 'ok' : tone === 'warn' ? 'warn' : 'bad'}`} style={{ fontWeight: 500 }}>{n.online || n.waiting ? c.label : `Offline · ${seen.replace(' ago', '')}`}</span> · {n.devices.length} devices · seen {seen}</span>
                 <span className="mono" style={{ fontSize: 11.5, color: 'var(--mu)' }}>{n.id}</span>
               </span>
               <span className="chev"><Icon name="chevron-down" size={16} /></span>

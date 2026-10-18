@@ -1,6 +1,5 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, VisitStatus } from '@prisma/client';
-import type { Request } from 'express';
 import { AuthUser } from '../auth/auth.types';
 import { zonedToUtc } from '../automation/time';
 import { AuditService } from '../common/audit.service';
@@ -19,13 +18,8 @@ const PER_IP_PER_HOUR = 5;
 const ALL_PER_HOUR = 300;
 const HOUR = 3_600_000;
 
-/** The visitor's address. Behind our own proxy (Next.js, Traefik: a local address) it is in X-Forwarded-For. */
-export function clientIp(req: Request): string {
-  const peer = (req.socket?.remoteAddress ?? '').replace(/^::ffff:/, '');
-  const local = peer === '::1' || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(peer);
-  const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0]!.trim();
-  return local && forwarded ? forwarded : peer || 'unknown';
-}
+/** The visitor's address (see common/client-ip.ts: X-Forwarded-For only from our own proxy). */
+export { clientIp } from '../common/client-ip';
 
 /**
  * "Book a free visit" from the public landing page. Anyone may send one (rate-limited); the organization

@@ -132,7 +132,7 @@ export default function DevicePage() {
         </div>
         <span className="row" style={{ gap: 6 }}>
           {d.childLock && <span className="badge"><Icon name="lock" size={12} /> Child lock</span>}
-          <span className={`badge ${d.online ? 'ok' : 'bad'}`}>{d.online ? 'Online' : 'Offline'}</span>
+          <span className={`badge ${d.online ? 'ok' : 'bad'}`}>{d.waiting ? 'Waiting for a new board' : d.online ? 'Online' : 'Offline'}</span>
         </span>
       </div>
 

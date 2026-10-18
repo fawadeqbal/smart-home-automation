@@ -111,7 +111,8 @@ export class RulesService implements OnModuleInit, OnModuleDestroy {
     });
     const names = await this.deviceNames(user.homeId);
     const scenes = new Map((await this.prisma.scene.findMany({ where: { homeId: user.homeId }, select: { id: true, name: true } })).map((s) => [s.id, s.name]));
-    return rows.map((r) => this.dto(r, names, scenes));
+    const waiting = new Set((await this.prisma.device.findMany({ where: { node: { homeId: user.homeId, status: 'FAULTY' } }, select: { id: true } })).map((d) => d.id));
+    return rows.map((r) => this.dto(r, names, scenes, waiting));
   }
 
   async create(user: AuthUser, input: RuleInput) {
@@ -337,7 +338,7 @@ export class RulesService implements OnModuleInit, OnModuleDestroy {
       const start = sunsetLocal ? sunsetLocal.getUTCHours() * 60 + sunsetLocal.getUTCMinutes() : 18 * 60 + 30;
       const stop = end.hh * 60 + end.mm;
       if (minute < start || minute >= stop) continue;
-      const lights = await this.prisma.device.findMany({ where: { id: { in: h.awayLights }, type: 'switch', node: { homeId: h.id, online: true } }, include: { state: true } });
+      const lights = await this.prisma.device.findMany({ where: { id: { in: h.awayLights }, type: 'switch', node: { homeId: h.id, online: true, status: 'ADOPTED' } }, include: { state: true } });
       const actor = await this.ownerActor(h.id);
       if (!actor) continue;
       for (const l of lights) {
@@ -371,7 +372,8 @@ export class RulesService implements OnModuleInit, OnModuleDestroy {
     const home = await this.prisma.home.findUniqueOrThrow({ where: { id: user.homeId }, select: { awayMode: true, awaySince: true, awayById: true, awayLights: true, timezone: true } });
     const by = home.awayById ? await this.prisma.user.findUnique({ where: { id: home.awayById }, select: { name: true } }) : null;
     const switches = await this.prisma.device.findMany({
-      where: { node: { homeId: user.homeId, status: 'ADOPTED' }, type: 'switch', enabled: true },
+      // lights on a board waiting for a replacement stay picked (they work again once it is replaced)
+      where: { node: { homeId: user.homeId, status: { in: ['ADOPTED', 'FAULTY'] } }, type: 'switch', enabled: true },
       select: { id: true, name: true, room: { select: { name: true } } }, orderBy: { name: 'asc' },
     });
     const p = await this.place.today(user.homeId, home.timezone);
@@ -425,11 +427,16 @@ export class RulesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private dto(r: { id: string; name: string; enabled: boolean; trigger: Prisma.JsonValue; conditions: Prisma.JsonValue; actions: Prisma.JsonValue; cooldownSec: number;
-    lastFiredAt: Date | null; lastResult: string | null; createdById: string; createdBy: { name: string } }, names: Map<string, string>, scenes: Map<string, string>) {
+    lastFiredAt: Date | null; lastResult: string | null; createdById: string; createdBy: { name: string } }, names: Map<string, string>, scenes: Map<string, string>,
+  waiting = new Set<string>()) {
     const trigger = r.trigger as unknown as Trigger;
     const actions = r.actions as unknown as RuleAction[];
     const conditions = r.conditions as Conditions;
+    // its devices on a board that is out of service: "Gate: waiting for a replacement board"
+    const ids = [trigger.deviceId, ...actions.flatMap((a) => (a.type === 'device' ? [a.deviceId] : []))];
+    const problems = [...new Set(ids.filter((id) => waiting.has(id)))].map((id) => `${names.get(id)}: waiting for a replacement board`);
     return {
+      problems,
       id: r.id, name: r.name, enabled: r.enabled, trigger: { ...trigger, deviceName: names.get(trigger.deviceId) ?? 'Removed device' },
       conditions, cooldownSec: r.cooldownSec, lastFiredAt: r.lastFiredAt, lastResult: r.lastResult, createdBy: r.createdBy.name, createdById: r.createdById,
       actions: actions.map((a) => a.type === 'device' ? { ...a, deviceName: names.get(a.deviceId) ?? 'Removed device' }

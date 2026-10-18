@@ -76,8 +76,17 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
           <div key={d.nodeId} className="banner bad">
             <span className="banner-led" />
             <div className="banner-text">
-              <b>{place} is offline</b>
-              <span>The wall switches still work. It reconnects by itself — your installer has been told.</span>
+              {d.waiting ? (
+                <>
+                  <b>{place}: waiting for a replacement board</b>
+                  <span>Its board is broken. Your installer replaces it; then its devices, timers and scenes work again as before.</span>
+                </>
+              ) : (
+                <>
+                  <b>{place} is offline</b>
+                  <span>The wall switches still work. It reconnects by itself — your installer has been told.</span>
+                </>
+              )}
             </div>
             {isAdmin && <Link className="btn" href={`/diagnostics?board=${d.nodeId}`}>See what’s wrong</Link>}
           </div>
@@ -86,7 +95,7 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
 
       <div className="ph-text mb20">
         <h1>{greeting}</h1>
-        <p>{onNow} on{offline.length ? ` · ${offline.length} offline` : ''} · <Link href="/summary">This week in short</Link></p>
+        <p>{onNow} on{offline.length ? ` · ${offline.length} ${offline.every((d) => d.waiting) ? 'unavailable' : 'offline'}` : ''} · <Link href="/summary">This week in short</Link></p>
       </div>
 
       <div className="kpis k3">

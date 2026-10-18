@@ -182,9 +182,24 @@ class _ScheduleRow extends ConsumerWidget {
     final next = s.enabled && s.nextRunAt != null
         ? 'Next: ${Fmt.until(s.nextRunAt!)}'
         : done
-        ? (s.lastResult ?? 'Done')
+        ? null
         : 'Paused';
     final title = s.name.replaceAll(RegExp(r' · \d+ min$'), '');
+    // the last run, in one line: worked, trying again, didn't work, or skipped (and what happened)
+    final status = s.status;
+    final last = s.lastResult == null || status == null
+        ? null
+        : '${switch (status) {
+            RunStatus.ok => 'Worked',
+            RunStatus.retrying => 'Trying again',
+            RunStatus.failed => 'Didn’t work',
+            RunStatus.skipped => 'Skipped',
+          }}: ${s.lastResult!.replaceFirst(RegExp(r'^Skipped: '), '')}';
+    final lastColor = switch (status) {
+      RunStatus.failed => c.badText,
+      RunStatus.retrying || RunStatus.skipped => c.onText,
+      _ => c.mu,
+    };
 
     return Opacity(
       opacity: s.enabled ? 1 : .55,
@@ -217,16 +232,29 @@ class _ScheduleRow extends ConsumerWidget {
                       ),
                     ),
                     Text(when, style: TextStyle(fontSize: 13, color: c.mu)),
-                    Text(
-                      next,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
-                        color: s.enabled ? c.okText : c.mu,
+                    if (next != null)
+                      Text(
+                        next,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                          color: s.enabled ? c.okText : c.mu,
+                        ),
                       ),
-                    ),
+                    for (final p in s.problems)
+                      Text(
+                        p,
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: c.onText),
+                      ),
+                    if (last != null)
+                      Text(
+                        last,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12.5, color: lastColor),
+                      ),
                   ],
                 ),
               ),

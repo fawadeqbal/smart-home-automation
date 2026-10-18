@@ -99,6 +99,18 @@ def test_diagnose_for_an_owner_sees_boards_for_a_member_only_devices():
     owner.boards = []
 
 
+def test_diagnose_says_which_devices_wait_for_a_replacement_board():
+    lamp = {**device("d1", "Lamp", online=False), "waiting": True}
+    devs = [lamp, device("d2", "Fan")]
+    owner = FakeApi("tok", devs)
+    owner.boards = [{"name": "Hall board", "status": "FAULTY", "online": False, "note": "Relay stuck"}]
+    out = build_tools(owner, devs).execute(ToolCall("1", "diagnose_home", {}))
+    assert "Devices waiting for a replacement board" in out and "Lamp in the Living room" in out
+    assert "Devices not responding" not in out                       # not "offline": it is waiting for the installer
+    assert "Board Hall board: marked faulty: its devices wait for a replacement board (Relay stuck)." in out
+    owner.boards = []
+
+
 def test_the_console_can_see_what_a_question_finds_as_customer_or_staff():
     FakeApi.help = ARTICLES
     app = create_app(Settings(shared_secret="s"), llm=bulb_llm(), stt=FakeSTT(), tts=FakeTTS(),

@@ -28,6 +28,12 @@ const updateDevice = z.object({
   tank: z.object({ fillBelowPct: z.number().int().min(0).max(90).optional(), stopAtPct: z.number().int().min(50).max(100).optional() }).strict().optional(),
 });
 const adopt = z.object({ name, board: z.string() });
+const replace = z.object({
+  newId: z.string().trim().min(1).max(64), board: z.string().optional(),
+  /** where the old board goes: the faulty shelf (default) or back to stock when it was fine */
+  oldTo: z.enum(['faulty', 'stock']).optional(), note: z.string().trim().max(300).optional(),
+});
+const faultyNote = z.object({ note: z.string().trim().max(300).default('') });
 const updateNode = z.object({ name: name.optional(), board: z.string().optional() });
 // Wi-Fi limits: SSID 1-32 bytes, WPA password 8-63 characters (empty for open networks)
 const wifi = z.object({ ssid: z.string().min(1).max(32), password: z.string().max(63).refine((p) => p.length === 0 || p.length >= 8, 'A Wi-Fi password has at least 8 characters.') });
@@ -166,6 +172,37 @@ export class HardwareController {
   @HttpCode(204)
   forget(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.nodes.forget(user, id);
+  }
+
+  /** Boards that could take over from this one (stock, or assigned to this home), each with its pin plan. */
+  @Setup()
+  @Get('nodes/:id/replacements')
+  replacements(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.nodes.replacements(user, id);
+  }
+
+  /** Replace this board: its devices and buttons move to the new one, keeping their ids. */
+  @Setup()
+  @Post('nodes/:id/replace')
+  @HttpCode(200)
+  replace(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(replace)) body: z.infer<typeof replace>) {
+    return this.nodes.replace(user, id, body);
+  }
+
+  /** It's broken: it stays in the home, out of service, its devices waiting for a replacement board. */
+  @Setup()
+  @Post('nodes/:id/faulty')
+  @HttpCode(204)
+  faulty(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(faultyNote)) body: z.infer<typeof faultyNote>) {
+    return this.nodes.faultyHere(user, id, body.note);
+  }
+
+  /** Marked faulty, but it works after all. */
+  @Setup()
+  @Post('nodes/:id/working')
+  @HttpCode(204)
+  working(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.nodes.backInService(user, id);
   }
 
   /** The board's internet connection: public IP, place and provider, how steady it is, recent connections. */

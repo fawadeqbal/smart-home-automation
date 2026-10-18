@@ -32,6 +32,7 @@ import { RulesController } from './automation/rules.controller';
 import { RulesService } from './automation/rules.service';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
+import { LoginLimiter } from './auth/login-limiter';
 import { AuditModule } from './common/audit.service';
 import { Settings, SETTINGS } from './config';
 import { DevicesService } from './hardware/devices.service';
@@ -101,6 +102,7 @@ export function createAppModule(settings: Settings) {
       AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, BillingService, RolloutService, TwoFactorService, BackupService, InputsService, LocalService, BoardLoginService, TankService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
       QuotesService, PlannerService, StockService, StaffNoticesService,
       PowerService,
+      LoginLimiter,
     ],
   })
   class AppModule {}

@@ -56,6 +56,7 @@ class Device {
     this.childLock = false,
     this.speeds = 0,
     this.restoreOff = false,
+    this.waiting = false,
   });
 
   factory Device.fromJson(Json json) => Device(
@@ -80,6 +81,7 @@ class Device {
     childLock: boolean(json['childLock']),
     speeds: integer(json['speeds']),
     restoreOff: boolean(json['restoreOff']),
+    waiting: boolean(json['waiting']),
   );
 
   final String id;
@@ -125,6 +127,9 @@ class Device {
 
   /// It stays off after a power cut instead of coming back the way it was.
   final bool restoreOff;
+  /// Its board is broken and was taken out of service: the device is kept (with its timers and scenes),
+  /// waiting for the installer to put in a replacement board.
+  final bool waiting;
 
   bool get isOn => state['on'] == true;
 
@@ -135,7 +140,7 @@ class Device {
   bool get canControl => controllable && enabled && access.canControl;
 
   /// Its board answers — a command would reach it.
-  bool get responding => online;
+  bool get responding => online && !waiting;
 
   Device copyWith({
     String? name,
@@ -166,5 +171,6 @@ class Device {
     childLock: childLock,
     speeds: speeds,
     restoreOff: restoreOff,
+    waiting: waiting,
   );
 }

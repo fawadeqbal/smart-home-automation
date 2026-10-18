@@ -8,29 +8,28 @@ import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService, randomToken, sha256 } from './auth.service';
 import { AuthUser } from './auth.types';
+import { LoginLimiter } from './login-limiter';
 
 /** A link someone asked for by email: short, they are waiting for it. */
 const SELF_TTL_MS = 60 * 60 * 1000;
 /** A link an owner or super admin made to send by WhatsApp: a day, it may be read later. */
 const MADE_TTL_MS = 24 * 60 * 60 * 1000;
-/** "Forgot password?" asks per email and per network, in an hour (more are ignored, silently). */
-const PER_EMAIL = 3;
-const PER_IP = 10;
 
 /**
  * Choosing a new password: by email ("Forgot password?"), with a link an owner, admin or super admin made
  * for them, or while signed in. A link works once; using it signs out every other session of that person.
+ * "Forgot password?" is limited per email and per network (more requests are ignored, silently), and
+ * so are links that don't exist (someone guessing them).
  */
 @Injectable()
 export class PasswordsService {
-  private readonly asked = new Map<string, number[]>();
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
     private readonly mail: MailService,
     private readonly audit: AuditService,
     @Inject(SETTINGS) private readonly settings: Settings,
+    private readonly limiter: LoginLimiter,
   ) {}
 
   get mailEnabled() {
@@ -44,7 +43,7 @@ export class PasswordsService {
    */
   async forgot(email: string, ip: string): Promise<{ mail: boolean }> {
     const key = email.toLowerCase();
-    if (!this.allow(`e:${key}`, PER_EMAIL) || !this.allow(`i:${ip}`, PER_IP)) return { mail: this.mail.enabled };
+    if (!(await this.limiter.allow('forgot', key, ip))) return { mail: this.mail.enabled };
     const user = await this.prisma.user.findUnique({ where: { email: key } });
     if (user && !user.disabled && this.mail.enabled) {
       const token = await this.create(user.id, null, SELF_TTL_MS);
@@ -60,13 +59,13 @@ export class PasswordsService {
   }
 
   // ---------------------------------------------------------------- using a link
-  async info(token: string) {
-    const r = await this.valid(token);
+  async info(token: string, ip = 'unknown') {
+    const r = await this.valid(token, ip);
     return { name: firstName(r.user.name), email: maskEmail(r.user.email), expiresAt: r.expiresAt, madeByOther: !!r.createdBy };
   }
 
-  async reset(token: string, password: string, res: Response, userAgent?: string) {
-    const r = await this.valid(token);
+  async reset(token: string, password: string, res: Response, userAgent?: string, ip = 'unknown') {
+    const r = await this.valid(token, ip);
     const passwordHash = await hash(password);
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: r.userId }, data: { passwordHash } }),
@@ -74,10 +73,10 @@ export class PasswordsService {
       this.prisma.passwordReset.updateMany({ where: { userId: r.userId, usedAt: null }, data: { usedAt: new Date() } }),
       this.prisma.session.updateMany({ where: { userId: r.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
-    this.auth.clearFailures(r.user.email);
+    await this.auth.clearFailures(r.user.email);
     await this.audit.record(null, r.userId, 'user.password_reset', r.userId, { by: r.createdBy ? 'link' : 'email' });
     // with two-step sign-in on, the link changes the password only: they sign in with it and their code
-    if (!r.user.totpEnabledAt) await this.auth.startSession(r.user, res, userAgent);
+    if (!r.user.totpEnabledAt) await this.auth.startSession(r.user, res, userAgent, ip);
     this.changedNotice(r.user.email, r.user.name);
     return r.user;
   }
@@ -147,8 +146,10 @@ export class PasswordsService {
     return token;
   }
 
-  private async valid(token: string) {
+  private async valid(token: string, ip: string) {
+    await this.limiter.check('token', null, ip);
     const r = await this.prisma.passwordReset.findUnique({ where: { tokenHash: sha256(token) }, include: { user: true } });
+    if (!r) await this.limiter.fail('token', null, ip); // a link that never existed: someone may be guessing
     if (!r || r.usedAt || r.expiresAt < new Date() || r.user.disabled) {
       throw new NotFoundException('This link has expired or was already used. Ask for a new one.');
     }
@@ -166,17 +167,6 @@ export class PasswordsService {
       text: `Hi ${firstName(name)},\n\nThe password of your Switchboard account was just changed, and you were signed out on your other devices.`
         + '\n\nIf this wasn’t you, use “Forgot password?” on the sign-in page now, and tell your home owner or installer.',
     });
-  }
-
-  /** At most `max` in the last hour for this key. */
-  private allow(key: string, max: number) {
-    const now = Date.now();
-    const recent = (this.asked.get(key) ?? []).filter((t) => now - t < 3_600_000);
-    if (recent.length >= max) return false;
-    recent.push(now);
-    this.asked.set(key, recent);
-    if (this.asked.size > 5000) this.asked.clear();      // a simple cap; this is a courtesy limit, not a wall
-    return true;
   }
 }
 
