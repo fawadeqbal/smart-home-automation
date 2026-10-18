@@ -73,7 +73,7 @@ before(async () => {
   const { createApp } = require('../../dist/main.js');
   const { PrismaClient } = require('@prisma/client');
   prisma = new PrismaClient();
-  await prisma.$executeRawUnsafe('TRUNCATE "Organization", "Home", "User", "Node", "AuditLog", "FirmwareImage", "Invite" CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE "Organization", "Home", "User", "Node", "AuditLog", "FirmwareImage", "Invite", "LoginAttempt" CASCADE');
   app = await createApp();
   await app.listen(API_PORT, '127.0.0.1');
   base = `${await app.getUrl()}/api`.replace('[::1]', '127.0.0.1');
