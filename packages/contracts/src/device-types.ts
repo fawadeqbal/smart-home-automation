@@ -15,6 +15,10 @@ export interface DeviceTypeDefinition<S extends z.ZodTypeAny = z.ZodTypeAny> {
   settings: S;
   /** Fields of its state, for display and the assistant. */
   stateFields: { key: string; label: string; unit?: string }[];
+  /** Pins it uses besides its main one (taken from its settings), checked like the main pin. */
+  extraPins?: (settings: Record<string, unknown>) => { gpio: number; use: PinUse; label: string }[];
+  /** The firmware version that first understands this type (older boards reject the configuration). */
+  minFirmware?: string;
 }
 
 export const switchType: DeviceTypeDefinition = {
@@ -53,7 +57,9 @@ export const contactType: DeviceTypeDefinition = {
   hasActiveLow: true,
   settings: z
     .object({
-      kind: z.enum(['door', 'window', 'motion', 'leak', 'generic']).default('door'),
+      // mains: a module that senses the grid supply (WAPDA): active while the grid is on, so the home
+      // knows it is running on UPS or solar when it goes
+      kind: z.enum(['door', 'window', 'motion', 'leak', 'mains', 'generic']).default('door'),
       pullup: z.boolean().default(true),
       debounceMs: z.number().int().min(5).max(2000).default(50),
     })
@@ -78,11 +84,69 @@ export const analogType: DeviceTypeDefinition = {
   stateFields: [{ key: 'level', label: 'Level', unit: '%' }],
 };
 
+/** Speeds of a 3-relay capacitor fan regulator: which relays close for each speed (0 = the main pin,
+ *  1 and 2 = the two extra pins). The usual wiring: relay 1 a small capacitor, relay 2 a bigger one,
+ *  relay 3 bypasses the capacitors (full speed). */
+export const FAN_DEFAULT_SPEEDS: number[][] = [[0], [1], [0, 1], [2]];
+
+export const fanType: DeviceTypeDefinition = {
+  type: 'fan',
+  label: 'Ceiling fan with speeds (3-relay capacitor regulator)',
+  pinUse: 'output',
+  controllable: true,
+  hasActiveLow: true,
+  settings: z
+    .object({
+      /** relay 2 and relay 3 (relay 1 is the device's own pin) */
+      pins: z.array(z.number().int()).length(2),
+      speeds: z.array(z.array(z.number().int().min(0).max(2)).min(1).max(3)).min(2).max(6).default(FAN_DEFAULT_SPEEDS),
+    })
+    .strict(),
+  stateFields: [{ key: 'on', label: 'On' }, { key: 'speed', label: 'Speed' }],
+  extraPins: (s) =>
+    (Array.isArray(s.pins) ? (s.pins as number[]) : []).map((gpio, i) => ({ gpio, use: 'output' as PinUse, label: `relay ${i + 2}` })),
+  minFirmware: '2.6.0',
+};
+
+export const tankType: DeviceTypeDefinition = {
+  type: 'tank',
+  label: 'Water tank level (JSN-SR04T ultrasonic sensor)',
+  pinUse: 'output', // the sensor's TRIG pin; ECHO goes on echoPin (through a divider: the sensor's echo is 5 V)
+  controllable: false,
+  hasActiveLow: false,
+  settings: z
+    .object({
+      echoPin: z.number().int(),
+      /** distance from the sensor to the water when the tank is empty, and when it is full (cm) */
+      emptyCm: z.number().int().min(20).max(600).default(150),
+      fullCm: z.number().int().min(20).max(400).default(25),
+      intervalSec: z.number().int().min(5).max(600).default(30),
+      /** the motor that fills it: switched on below fillBelowPct (0: never by itself), off at stopAtPct */
+      motorDeviceId: z.string().max(40).default(''),
+      fillBelowPct: z.number().int().min(0).max(90).default(0),
+      stopAtPct: z.number().int().min(50).max(100).default(95),
+      /** the motor is stopped (and people told) when the level hasn't risen after this many minutes: a dry well
+       *  or a closed valve, and in any case after maxRunMin */
+      dryRunMin: z.number().int().min(2).max(60).default(10),
+      maxRunMin: z.number().int().min(5).max(240).default(60),
+      /** set by the server when the motor is on the same board: the board stops it by itself when full,
+       *  even without internet */
+      motorKey: z.string().max(48).optional(),
+    })
+    .strict()
+    .refine((s) => s.emptyCm > s.fullCm + 10, { message: 'The empty distance must be at least 10 cm more than the full distance' }),
+  stateFields: [{ key: 'level', label: 'Level', unit: '%' }, { key: 'cm', label: 'Distance', unit: 'cm' }],
+  extraPins: (s) => (typeof s.echoPin === 'number' ? [{ gpio: s.echoPin, use: 'input' as PinUse, label: 'echo' }] : []),
+  minFirmware: '2.6.0',
+};
+
 export const DEVICE_TYPES: Record<string, DeviceTypeDefinition> = {
   [switchType.type]: switchType,
+  [fanType.type]: fanType,
   [dhtType.type]: dhtType,
   [contactType.type]: contactType,
   [analogType.type]: analogType,
+  [tankType.type]: tankType,
 };
 
 export interface InputTypeDefinition {
@@ -124,3 +188,33 @@ export const switchCommand = z.union([
   z.object({ toggle: z.literal(true) }).strict(),
 ]);
 export type SwitchCommand = z.infer<typeof switchCommand>;
+
+/** Commands a fan accepts: a switch's, or a speed (1..number of speeds; 0 = off). Its state: {"on", "speed"}. */
+export const fanCommand = z.union([
+  z.object({ on: z.boolean() }).strict(),
+  z.object({ toggle: z.literal(true) }).strict(),
+  z.object({ speed: z.number().int().min(0).max(6) }).strict(),
+]);
+export type FanCommand = z.infer<typeof fanCommand>;
+
+/** The command a device accepts (null: it takes none), and how many speeds a fan has. */
+export function commandSchemaFor(type: string): z.ZodTypeAny | null {
+  if (type === 'switch') return switchCommand;
+  if (type === 'fan') return fanCommand;
+  return null;
+}
+export function fanSpeeds(settings: unknown): number {
+  const speeds = (settings as { speeds?: unknown } | null)?.speeds;
+  return Array.isArray(speeds) && speeds.length ? speeds.length : FAN_DEFAULT_SPEEDS.length;
+}
+
+/** Compares firmware versions like "2.5.0" (missing parts count as 0). */
+export function firmwareAtLeast(version: string | null | undefined, min: string): boolean {
+  if (!version) return false;
+  const a = version.split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  const b = min.split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return true;
+}

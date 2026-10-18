@@ -12,6 +12,8 @@ export const announcePayload = z.object({
   fw: z.string(),
   mac: z.string().optional(),
   ip: z.string().optional(),
+  /** which MQTT login it connected with (firmware 2.6.0+): its own, or the shared "node" one */
+  login: z.enum(['own', 'shared']).optional(),
 });
 
 export const configDevice = z.object({
@@ -20,6 +22,8 @@ export const configDevice = z.object({
   pin: z.number().int(),
   activeLow: z.boolean().default(false),
   settings: z.record(z.unknown()).default({}),
+  /** after a power cut: "last" comes back the way it was, "off" stays off (firmware 2.6.0+) */
+  restore: z.enum(['last', 'off']).default('last'),
 });
 
 export const configInput = z.object({
@@ -43,6 +47,18 @@ export const localKeyCommand = z.object({
   epoch: z.number().int().min(1),
 });
 
+/**
+ * Per-board MQTT logins (firmware 2.6.0+). A new board first connects with the shared "node" login; the
+ * server gives it its own (user = its node id) over the cmd topic, never retained. The board keeps it
+ * and connects with it from then on, falling back to the shared login only when its own is refused.
+ */
+export const BOARD_LOGIN_MIN_FIRMWARE = '2.6.0';
+export const loginCommand = z.object({
+  action: z.literal('login'),
+  user: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,47}$/),
+  password: z.string().regex(/^[A-Za-z0-9_-]{24,64}$/),
+});
+
 /** A button press or a wall switch flip, from the board (the switch was already toggled on the board, if it has one). */
 export const inputEventPayload = z.object({
   gesture: z.enum(['single', 'double', 'long', 'flip']),
@@ -55,6 +71,9 @@ export const nodeConfigPayload = z.object({
   devices: z.array(configDevice),
   inputs: z.array(configInput),
   telemetrySec: z.number().int().default(60),
+  /** after a power cut, switches come back one by one this many ms apart (not all at once on a UPS
+   *  or generator); 0 = all together (firmware 2.6.0+) */
+  restoreGapMs: z.number().int().min(0).max(10000).default(1500),
 });
 export type NodeConfigPayload = z.infer<typeof nodeConfigPayload>;
 
