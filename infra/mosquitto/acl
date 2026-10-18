@@ -3,10 +3,14 @@
 # The API sees and controls everything.
 user api
 topic readwrite home/v1/#
+# per-board logins (firmware 2.6.0+): the API adds and changes them in the broker's dynamic-security plugin
+topic readwrite $CONTROL/dynamic-security/#
 
-# Boards log in as "node". They get no topics of their own here: the pattern below
-# limits each board to its own subtree, where %c is its MQTT client id = its node id
+# Boards log in as "node" (the shared login) until the server gives them their own (firmware 2.6.0+,
+# kept in the dynamic-security plugin: user and client id = the node id, only its own subtree).
+# The pattern below limits each board to its own subtree, where %c is its MQTT client id = its node id
 # (e.g. esp-3c71bf12). A board cannot read or switch another board's devices.
+# MQTT_STRICT_BOARD_LOGIN=true narrows the shared login further (see prepare.sh).
 user node
 
 pattern readwrite home/v1/nodes/%c/#

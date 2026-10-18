@@ -45,12 +45,15 @@ services:
       MQTT_API_PASSWORD: ${MQTT_API_PASSWORD:?set MQTT_API_PASSWORD in .env}
       MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD:?set MQTT_NODE_PASSWORD in .env}
       MQTT_TLS_HOST: ${DOMAIN:?set DOMAIN in .env}
+      # true once every board runs firmware 2.6.0+ (see infra/mosquitto/prepare.sh)
+      MQTT_STRICT_BOARD_LOGIN: ${MQTT_STRICT_BOARD_LOGIN:-false}
     command: [sh, /mosquitto/config/start-server.sh]
     ports: ['8883:8883']
     volumes:
       - ./mosquitto/mosquitto.server.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/start-server.sh:/mosquitto/config/start-server.sh:ro
       - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/prepare.sh:/mosquitto/config/prepare.sh:ro
       - mosquitto-data:/mosquitto/data
       # its connection log, read by the API (board public IPs and why connections ended)
       - mosquitto-log:/mosquitto/log

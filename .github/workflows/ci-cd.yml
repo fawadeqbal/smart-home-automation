@@ -77,17 +77,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start the MQTT broker (same config and logins as production)
+      - name: Start the MQTT broker (same config and logins as production, incl. per-board logins)
         run: |
           docker run -d --name mqtt -p 1883:1883 \
             -e MQTT_API_PASSWORD -e MQTT_NODE_PASSWORD \
             -v "$PWD/infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
             -v "$PWD/infra/mosquitto/acl:/mosquitto/config/acl:ro" \
+            -v "$PWD/infra/mosquitto/prepare.sh:/mosquitto/config/prepare.sh:ro" \
             eclipse-mosquitto:2 sh -c '
-              mosquitto_passwd -c -b /mosquitto/data/passwd api "$MQTT_API_PASSWORD" &&
-              mosquitto_passwd -b /mosquitto/data/passwd node "$MQTT_NODE_PASSWORD" &&
-              chown mosquitto:mosquitto /mosquitto/data/passwd && chmod 0700 /mosquitto/data/passwd &&
-              exec mosquitto -c /mosquitto/config/mosquitto.conf'
+              sh /mosquitto/config/prepare.sh /mosquitto/config/mosquitto.conf /mosquitto/config/acl &&
+              exec mosquitto -c /tmp/mosquitto/mosquitto.conf'
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4

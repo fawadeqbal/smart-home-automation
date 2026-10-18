@@ -44,7 +44,7 @@ services:
     environment:
       MQTT_API_PASSWORD: ${MQTT_API_PASSWORD:?set MQTT_API_PASSWORD in .env}
       MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD:?set MQTT_NODE_PASSWORD in .env}
-    # Builds the password file from .env on every start, then runs the broker.
+    # Builds the logins from .env on every start (prepare.sh), then runs the broker.
     command:
       - sh
       - -c
@@ -52,14 +52,12 @@ services:
         mkdir -p /mosquitto/log && touch /mosquitto/log/broker.log &&
         chown -R mosquitto:mosquitto /mosquitto/log && chmod 0644 /mosquitto/log/broker.log &&
         if [ $$(wc -c < /mosquitto/log/broker.log) -gt 2097152 ]; then tail -n 8000 /mosquitto/log/broker.log > /tmp/l && cat /tmp/l > /mosquitto/log/broker.log; fi &&
-        rm -f /mosquitto/data/passwd &&
-        mosquitto_passwd -c -b /mosquitto/data/passwd api "$$MQTT_API_PASSWORD" &&
-        mosquitto_passwd -b /mosquitto/data/passwd node "$$MQTT_NODE_PASSWORD" &&
-        chown mosquitto:mosquitto /mosquitto/data/passwd && chmod 0700 /mosquitto/data/passwd &&
-        exec mosquitto -c /mosquitto/config/mosquitto.conf
+        sh /mosquitto/config/prepare.sh /mosquitto/config/mosquitto.conf /mosquitto/config/acl &&
+        exec mosquitto -c /tmp/mosquitto/mosquitto.conf
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/prepare.sh:/mosquitto/config/prepare.sh:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
     labels:

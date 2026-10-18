@@ -14,6 +14,7 @@ While it runs, type in this window:
     press D5        press the wall button wired to D5 (or GPIO number: press 14)
     trip door       open/close the contact sensor with key "door" (door, motion, leak...)
     temp 31.5       next sensor reading uses this temperature
+    level tank 35   the water tank with key "tank" now reads 35 %
     state           print every device
     drop            lose the connection abruptly (the broker announces it offline)
     rejoin          connect again after a drop, without restarting (Wi-Fi or internet back)
@@ -46,11 +47,13 @@ except ImportError:
     sys.exit("Install the MQTT library first:  pip install paho-mqtt")
 
 ROOT = "home/v1"
-FIRMWARE = "2.5.0-fake"   # what the fake can do: wall switches, double-press and long press, local control
+FIRMWARE = "2.6.0-fake"   # what the fake can do: wall switches, gestures, local control, fans, tanks, own login
 # Same rules as packages/contracts/src/boards.ts
 PINS = {5: "D1", 4: "D2", 14: "D5", 12: "D6", 13: "D7", 16: "D0", 15: "D8", 0: "D3", 2: "D4", 3: "RX", 17: "A0"}
 USES = {5: "ois", 4: "ois", 14: "ois", 12: "ois", 13: "ois", 16: "o", 15: "o", 0: "i", 2: "oi", 3: "is", 17: "a"}
-NEEDS = {"switch": "o", "dht": "s", "contact": "i", "analog": "a", "toggle_button": "i", "wall_switch": "i"}
+NEEDS = {"switch": "o", "fan": "o", "tank": "o", "dht": "s", "contact": "i", "analog": "a", "toggle_button": "i", "wall_switch": "i"}
+FAN_SPEEDS = [[0], [1], [0, 1], [2]]
+SWITCHING = ("switch", "fan")   # devices people switch
 
 
 def load_env(path: Path) -> dict:
@@ -86,12 +89,20 @@ class FakeNode:
         self.stop = threading.Event()
 
         self.user, self.password = user, password
+        self.shared_user, self.shared_password = user, password
+        self.own_password = ""     # its own login, from the server's {"action": "login"} (firmware 2.6.0)
+        self.own_refused = 0
         self.client = self.make_client()
         self.host, self.port = host, port
 
     def make_client(self) -> mqtt.Client:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.node_id)
-        client.username_pw_set(self.user, self.password)
+        # like the firmware: its own login when it has one (and it wasn't refused twice), else the shared one
+        self.using_own = bool(self.own_password) and self.own_refused < 2
+        if self.using_own:
+            client.username_pw_set(self.node_id, self.own_password)
+        else:
+            client.username_pw_set(self.shared_user, self.shared_password)
         client.will_set(self.t("status"), json.dumps({"online": False}), qos=1, retain=True)
         client.on_connect = self.on_connect
         client.on_message = self.on_message
@@ -135,16 +146,23 @@ class FakeNode:
     def on_connect(self, client, userdata, flags, reason, properties=None):
         if reason.is_failure:
             self.say(f"broker refused the connection: {reason}")
+            if self.using_own:
+                self.own_refused += 1
+                if self.own_refused >= 2:   # fall back to the shared login, with a fresh client
+                    threading.Thread(target=self.reconnect, daemon=True).start()
             return
+        if self.using_own:
+            self.own_refused = 0
         self.say(f"connected to {self.host}:{self.port}")
         self.connects += 1
         self.publish(self.t("status"), {"online": True, "fw": self.firmware, "ip": self.ip()}, retain=True)
-        self.publish(self.t("announce"), {"board": self.board, "fw": self.firmware, "mac": "02:00:00:00:00:01", "ip": self.ip()}, retain=True)
+        self.publish(self.t("announce"), {"board": self.board, "fw": self.firmware, "mac": "02:00:00:00:00:01", "ip": self.ip(),
+                                          "login": "own" if self.using_own else "shared"}, retain=True)
         client.subscribe([(self.t("config"), 1), (self.t("devices", "+", "set"), 1), (self.t("cmd"), 1)])
         if self.offline_src:   # like the firmware: tell the server what changed while it was away
             with self.lock:
                 for key, d in self.devices.items():
-                    if d["type"] == "switch":
+                    if d["type"] in SWITCHING:
                         self.publish_state(key, self.offline_src)
             self.offline_src = ""
         self.report()   # fresh health right away, like the firmware
@@ -164,6 +182,12 @@ class FakeNode:
                 self.local_key, self.local_epoch = key, epoch
                 self.say(f"local control key {self.local_tag()} saved")
                 self.report()
+        elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "login":
+            if payload.get("user") == self.node_id and len(str(payload.get("password", ""))) >= 24:
+                if payload["password"] != self.own_password or not self.using_own:
+                    self.own_password, self.own_refused = str(payload["password"]), 0
+                    self.say("got its own server login: reconnecting with it")
+                    threading.Thread(target=self.reconnect, daemon=True).start()
         elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "local-off":
             self.local_key, self.local_epoch = "", 0
             self.say("local control key forgotten")
@@ -197,8 +221,17 @@ class FakeNode:
         try:
             for d in config.get("devices", []):
                 self.check_pin(d["pin"], NEEDS.get(d["type"]), used, d["type"])
-                devices[d["key"]] = {"type": d["type"], "pin": d["pin"], "settings": d.get("settings", {}),
-                                     "activeLow": d.get("activeLow", False)}
+                settings = d.get("settings", {})
+                if d["type"] == "fan":
+                    pins = settings.get("pins", [])
+                    if len(pins) != 2:
+                        raise ValueError("a fan needs two more relay pins")
+                    for p in pins:
+                        self.check_pin(p, "o", used, "fan relay")
+                if d["type"] == "tank":
+                    self.check_pin(settings.get("echoPin", -1), "i", used, "tank echo")
+                devices[d["key"]] = {"type": d["type"], "pin": d["pin"], "settings": settings,
+                                     "activeLow": d.get("activeLow", False), "restore": d.get("restore", "last")}
             for i in config.get("inputs", []):
                 self.check_pin(i["pin"], NEEDS.get(i["type"]), used, i["type"])
                 if i["target"] and i["target"] not in devices:
@@ -213,6 +246,11 @@ class FakeNode:
             for key, d in devices.items():
                 if d["type"] == "switch":
                     d["state"] = {"on": self.saved_switches.get(key, False)}
+                elif d["type"] == "fan":
+                    d["state"] = self.saved_switches.get(key) or {"on": False, "speed": 3}
+                elif d["type"] == "tank":
+                    d["state"] = {"level": 60, "cm": 0, "alarm": ""}
+                    d["state"]["cm"] = self.tank_cm(d["settings"], 60)
                 elif d["type"] == "contact":
                     d["state"] = {"active": False}
                 elif d["type"] == "analog":
@@ -226,7 +264,7 @@ class FakeNode:
         summary = ", ".join(f"{k}={v['type']}@{PINS[v['pin']]}" for k, v in devices.items()) or "no devices"
         self.say(f"config rev {rev} applied ({adopted}): {summary}")
         for key, d in devices.items():
-            if d["type"] == "switch":
+            if d["type"] in SWITCHING:
                 self.publish_state(key, "boot")
             else:
                 self.read_sensor(key)
@@ -247,19 +285,80 @@ class FakeNode:
         self.say(f"Command for {key} from the server")
         with self.lock:
             device = self.devices.get(key)
-            if device is None or device["type"] != "switch":
+            if device is None or device["type"] not in SWITCHING:
                 self.publish(self.t("devices", key, "state"), {"cid": cid, "src": "remote", "error": "not a switch"})
                 return
-            if isinstance(command.get("on"), bool):
-                device["state"]["on"] = command["on"]
-            elif command.get("toggle") is True:
-                device["state"]["on"] = not device["state"]["on"]
-            else:
-                self.publish(self.t("devices", key, "state"), {"cid": cid, "src": "remote", "error": "bad command"})
+            error = self.apply(device, command)
+            if error:
+                self.publish(self.t("devices", key, "state"), {"cid": cid, "src": "remote", "error": error})
                 return
-            self.saved_switches[key] = device["state"]["on"]
             self.publish_state(key, "remote", cid)
-        self.say(f"{key} -> {'ON' if device['state']['on'] else 'OFF'} (remote)")
+        self.say(f"{key} -> {self.describe(device)} (remote)")
+        self.watch_tanks()
+
+    def apply(self, device: dict, command: dict) -> str | None:
+        """Like Device::apply on the board: None when done, else why not. Saves switch states."""
+        state = device["state"]
+        if device["type"] == "fan":
+            speeds = len(device["settings"].get("speeds") or FAN_SPEEDS)
+            on, speed, understood = state["on"], state["speed"], False
+            if isinstance(command.get("speed"), int) and not isinstance(command.get("speed"), bool):
+                if not 0 <= command["speed"] <= speeds:
+                    return "speed out of range for this fan"
+                on, speed, understood = command["speed"] > 0, command["speed"] or speed, True
+            if isinstance(command.get("on"), bool):
+                on, understood = command["on"], True
+            if command.get("toggle") is True:
+                on, understood = not state["on"], True
+            if not understood:
+                return "bad command"
+            device["state"] = {"on": on, "speed": speed}
+        elif isinstance(command.get("on"), bool):
+            state["on"] = command["on"]
+        elif command.get("toggle") is True:
+            state["on"] = not state["on"]
+        else:
+            return "bad command"
+        key = next(k for k, d in self.devices.items() if d is device)
+        self.saved_switches[key] = dict(device["state"]) if device["type"] == "fan" else device["state"]["on"]
+        return None
+
+    @staticmethod
+    def describe(device: dict) -> str:
+        s = device["state"]
+        text = "ON" if s.get("on") else "OFF"
+        return f"{text} (speed {s['speed']})" if device["type"] == "fan" else text
+
+    # ------------------------------------------------------------ water tanks (like TankSensor on the board)
+    @staticmethod
+    def tank_cm(settings: dict, level: int) -> int:
+        empty, full = settings.get("emptyCm", 150), settings.get("fullCm", 25)
+        return round(empty - (empty - full) * level / 100)
+
+    def set_level(self, key: str, level: int) -> None:
+        with self.lock:
+            d = self.devices.get(key)
+            if not d or d["type"] != "tank":
+                self.say(f"no tank with key {key}")
+                return
+            d["state"] = {"level": level, "cm": self.tank_cm(d["settings"], level), "alarm": d["state"].get("alarm", "")}
+            self.publish_state(key, "sensor")
+        self.say(f"{key}: {level} %", "debug")
+        self.watch_tanks()
+
+    def watch_tanks(self) -> None:
+        """A motor on this board is stopped by the board itself when its tank is full (no internet needed)."""
+        with self.lock:
+            for key, d in self.devices.items():
+                motor_key = d["settings"].get("motorKey") if d["type"] == "tank" else None
+                motor = self.devices.get(motor_key) if motor_key else None
+                if not motor or not motor["state"].get("on"):
+                    continue
+                if d["state"].get("level", 0) >= d["settings"].get("stopAtPct", 95):
+                    motor["state"]["on"] = False
+                    self.saved_switches[motor_key] = False
+                    self.publish_state(motor_key, "automation")
+                    self.say(f"{key} full: {motor_key} switched off by the board", "warn")
 
     def press(self, pin: int, gesture: str = "single") -> None:
         """A press ("single", "double", "long") or a wall switch "flip": like the board, a single press or a
@@ -271,10 +370,9 @@ class FakeNode:
                 return
             if key and gesture in ("single", "flip"):
                 device = self.devices[key]
-                device["state"]["on"] = not device["state"]["on"]
-                self.saved_switches[key] = device["state"]["on"]
+                self.apply(device, {"toggle": True})
                 self.publish_state(key, "button")
-                self.say(f"[button {PINS[pin]}] {key} -> {'ON' if device['state']['on'] else 'OFF'}")
+                self.say(f"[button {PINS[pin]}] {key} -> {self.describe(device)}")
             self.publish(self.t("inputs", str(pin), "event"), {"gesture": gesture})
 
     def read_sensor(self, key: str) -> None:
@@ -359,20 +457,16 @@ class FakeNode:
                 return 404, {"error": "no such device"}
             if key not in info.get("c", []):
                 return 403, {"error": "you may not switch this"}
-            if device["type"] != "switch":
+            if device["type"] not in SWITCHING:
                 return 400, {"error": "not a switch"}
-            if isinstance(command.get("on"), bool):
-                device["state"]["on"] = command["on"]
-            elif command.get("toggle") is True:
-                device["state"]["on"] = not device["state"]["on"]
-            else:
-                return 400, {"error": "bad command"}
-            self.saved_switches[key] = device["state"]["on"]
+            error = self.apply(device, {k: v for k, v in command.items() if k != "key"})
+            if error:
+                return 400, {"error": error}
             if self.client.is_connected() and not self.dropped:
                 self.publish_state(key, "local")
             else:
                 self.offline_src = "local"
-        self.say(f"{key} -> {'ON' if device['state']['on'] else 'OFF'} (phone over Wi-Fi, {info.get('u')})")
+        self.say(f"{key} -> {self.describe(device)} (phone over Wi-Fi, {info.get('u')})")
         return 200, {"ok": True, "key": key, "state": device["state"]}
 
     def local_state(self, info: dict) -> dict:
@@ -465,6 +559,19 @@ class FakeNode:
         self.client.loop_start()
         self.say("connection back after a drop")
 
+    def reconnect(self) -> None:
+        """A fresh connection with whichever login it should use now (its own, or back to the shared one)."""
+        time.sleep(0.3)
+        old = self.client
+        try:
+            old.disconnect()
+            old.loop_stop()
+        except Exception:  # noqa: BLE001
+            pass
+        self.client = self.make_client()
+        self.client.connect_async(self.host, self.port, keepalive=self.keepalive)
+        self.client.loop_start()
+
     def close(self) -> None:
         self.stop.set()
         self.publish(self.t("status"), {"online": False}, retain=True)
@@ -525,6 +632,8 @@ def main() -> None:
                     print(f"  {key} -> {d['state']}")
                 else:
                     print(f"  no contact sensor called {key}")
+            elif cmd == "level" and len(parts) > 2 and parts[2].isdigit():
+                node.set_level(parts[1], max(0, min(100, int(parts[2]))))
             elif cmd == "state":
                 for k, d in node.devices.items():
                     print(f"  {k}: {d['type']} on {PINS[d['pin']]} -> {d['state']}")
@@ -533,7 +642,7 @@ def main() -> None:
             elif cmd == "rejoin":
                 node.rejoin()
             else:
-                print("  commands: press D5 | double D5 | hold D5 | flip D6 | temp 30 | trip <contact key> | state | drop | quit")
+                print("  commands: press D5 | double D5 | hold D5 | flip D6 | temp 30 | trip <contact key> | level <tank key> 40 | state | drop | quit")
     except KeyboardInterrupt:
         pass
     if not node.stop.is_set():

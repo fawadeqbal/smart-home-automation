@@ -1,5 +1,5 @@
 #!/bin/sh
-# Starts Mosquitto on Server B: logins from .env, TLS certificate from the server's Caddy.
+# Starts Mosquitto on Server B: logins from .env (see prepare.sh), TLS certificate from the server's Caddy.
 # Caddy renews the certificate by itself; when the file changes this script exits and Docker
 # restarts the container with the new one (boards reconnect within seconds).
 set -eu
@@ -34,14 +34,18 @@ trim_log() {
 }
 trim_log
 
-rm -f /mosquitto/data/passwd
-mosquitto_passwd -c -b /mosquitto/data/passwd api "$MQTT_API_PASSWORD"
-mosquitto_passwd -b /mosquitto/data/passwd node "$MQTT_NODE_PASSWORD"
-chown mosquitto:mosquitto /mosquitto/data/passwd
-chmod 0700 /mosquitto/data/passwd
+# Logins (fixed ones from .env, per-board ones kept by the API) and the configuration to run
+sh /mosquitto/config/prepare.sh /mosquitto/config/mosquitto.conf /mosquitto/config/acl
 
-mosquitto -c /mosquitto/config/mosquitto.conf &
+# With per-board logins; if the plugin won't load, without (boards then use the shared login)
+mosquitto -c /tmp/mosquitto/mosquitto.conf &
 PID=$!
+sleep 3
+if ! kill -0 "$PID" 2>/dev/null; then
+  echo "Mosquitto would not start with per-board logins: starting without them"
+  mosquitto -c /tmp/mosquitto/plain.conf &
+  PID=$!
+fi
 trap 'kill "$PID" 2>/dev/null; wait "$PID"; exit 0' TERM INT
 SUM="$(sha256sum < "$CRT")"
 while kill -0 "$PID" 2>/dev/null; do
