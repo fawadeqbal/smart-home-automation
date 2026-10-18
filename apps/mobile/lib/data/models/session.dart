@@ -93,7 +93,7 @@ class Me {
 /// Someone who works for the company that installs and looks after homes.
 @immutable
 class Staff {
-  const Staff({required this.role, required this.orgName});
+  const Staff({required this.role, required this.orgName, this.code = ''});
 
   factory Staff.fromJson(Json json) => Staff(
     role: switch (str(json['role'])) {
@@ -103,11 +103,15 @@ class Staff {
       final other => other.isEmpty ? 'Staff' : other,
     },
     orgName: str(asJson(json['org'])['name'], 'your company'),
+    code: str(json['role']),
   );
 
   /// In words: "Installer", "Support", "Super admin".
   final String role;
   final String orgName;
+
+  /// As the API writes it (`INSTALLER`), for the staff mode's rights.
+  final String code;
 }
 
 /// One of my homes, for the home picker.
