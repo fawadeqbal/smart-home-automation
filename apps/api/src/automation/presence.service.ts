@@ -10,6 +10,7 @@ import { MonitoringService } from '../monitoring/monitoring.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AutomationService } from './automation.service';
+import { checkAccess } from '../access/access-window';
 import { decide, homeLine, isLightOrFan, PersonState, personState, PresenceEvent } from './presence';
 
 const TICK_MS = Number(process.env.PRESENCE_TICK_MS) || 30_000;
@@ -61,10 +62,18 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
     return m;
   }
 
+  /**
+   * My sharing in this home. While I share, also the home's boards (id and address on the Wi‑Fi): the
+   * phone asks them `GET /local/hello` to know it's home, whatever rooms I may use.
+   */
   async mine(user: AuthUser) {
     const row = await this.prisma.presence.findUnique({ where: { userId_homeId: { userId: user.id, homeId: user.homeId } } });
     const member = await this.prisma.membership.findUnique({ where: { userId_homeId: { userId: user.id, homeId: user.homeId } }, select: { role: true } });
-    return { sharing: !!row, canShare: !!member, ...(row ? personState(row) : {}) };
+    const boards = row
+      ? (await this.prisma.node.findMany({ where: { homeId: user.homeId, status: 'ADOPTED' }, select: { id: true, ip: true }, orderBy: { name: 'asc' } }))
+        .map((n) => ({ nodeId: n.id, ip: n.ip }))
+      : [];
+    return { sharing: !!row, canShare: !!member, boards, ...(row ? personState(row) : {}) };
   }
 
   async setSharing(user: AuthUser, sharing: boolean) {
@@ -210,9 +219,15 @@ export class PresenceService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ---------------------------------------------------------------- deciding and doing
+  /** The people who share, as counted now. A guest outside their hours (or past their end) doesn't count. */
   private async states(homeId: string, now = new Date()): Promise<(PersonState & { userId: string; name: string })[]> {
-    const rows = await this.prisma.presence.findMany({ where: { homeId }, include: { user: { select: { name: true, disabled: true } } } });
-    return rows.filter((r) => !r.user.disabled).map((r) => ({ ...personState(r, now), userId: r.userId, name: r.user.name }));
+    const [rows, home] = await Promise.all([
+      this.prisma.presence.findMany({ where: { homeId }, include: { user: { select: { name: true, disabled: true, memberships: { where: { homeId } } } } } }),
+      this.prisma.home.findUnique({ where: { id: homeId }, select: { timezone: true } }),
+    ]);
+    return rows
+      .filter((r) => !r.user.disabled && r.user.memberships[0] && checkAccess(r.user.memberships[0], home?.timezone ?? 'UTC', now).ok)
+      .map((r) => ({ ...personState(r, now), userId: r.userId, name: r.user.name }));
   }
 
   async tick() {

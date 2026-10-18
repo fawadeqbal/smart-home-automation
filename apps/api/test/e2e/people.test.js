@@ -268,7 +268,10 @@ test('who\'s home: only people who share count; the last one out switches lights
   // off by default: reports are ignored until they share
   assert.deepEqual((await kid.post('/presence', { atHome: true })).body, { sharing: false });
   assert.equal((await kid.get('/presence')).body.people.length, 0);
-  assert.equal((await kid.put('/presence/me', { sharing: true })).body.sharing, true);
+  const shared = (await kid.put('/presence/me', { sharing: true })).body;
+  assert.equal(shared.sharing, true);
+  // the phone gets the home's boards to ask on the Wi‑Fi
+  assert.deepEqual(shared.boards, [{ nodeId: NODE_ID, ip: `127.0.0.1:${LOCAL_PORT}` }]);
   assert.equal((await owner.put('/presence/me', { sharing: true })).body.sharing, true);
   await kid.post('/presence', { atHome: true });
   await owner.post('/presence', { atHome: true });

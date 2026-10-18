@@ -24,18 +24,18 @@ You only get sensor alerts for rooms you can see. You need the matching sensor f
 ## Choose your alerts
 
 - **Web app:** click the bell → **All notifications & settings**. Under **Tell me when…**, switch each alert on or off.
-- **Phone app:** **Me** → **NOTIFY ME WHEN**: **Something stops working**, **Water, doors and heat**, **Movement at night**.
+- **Phone app:** **Me** → **NOTIFY ME WHEN**: **Something stops working**, **Water, doors and heat**, **Movement at night**, and more.
 
 ## Get alerts when the app is closed
 
-This works through the web app:
+**Phone app (Android):** after you sign in, the app asks once whether to send alerts to this phone; tap **Turn on alerts**. Missed it? **Me** → **Get alerts on this phone**. Alarms (a leak, a door while you're away) ring on the **Alerts** channel; the rest arrive quietly. Tapping one opens what it's about. The bell on the Home tab lists them all.
+
+**Web app** (computers, and iPhone):
 1. On the phone or computer you want alerts on, open the web app and go to **All notifications & settings**.
 2. Press **Turn on alerts for this device** and allow notifications.
 3. **On iPhone:** first add the app to the Home Screen (Share → **Add to Home Screen**), open it from there, then press the button.
 
 Do this on each device you want alerts on. The page shows how many devices have alerts turned on.
-
-The Switchboard phone app saves your alert choices but doesn't show or deliver the alerts itself. Use the web app (in the browser or added to your home screen) to receive them.
 
 ## Reading and clearing
 

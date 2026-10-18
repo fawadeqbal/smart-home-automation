@@ -30,8 +30,10 @@ function groupByRoom(devices: Device[]) {
 
 export default function HomePage() {
   const router = useRouter();
-  const { me, home, isAdmin } = useSession();
+  const { me, home, isAdmin, reload } = useSession();
   useEffect(() => { if (!home && me.staff) router.replace(landingFor(me)); }, [home, me, router]);
+  // a guest's hours began or ended (or rights changed): who I am, again
+  useLive('access.changed', () => void reload());
   useCrumbs(home ? [{ label: home.name, href: '/' }, { label: 'Home' }] : [{ label: 'Home' }]);
 
   if (!home) {
