@@ -18,6 +18,8 @@ import { LogsService } from './logs.service';
 import { PLANS } from '../platform/plans';
 
 const TELEMETRY_SEC = 60;
+/** after a power cut, switches come back one by one this far apart (not all at once on a UPS) */
+const RESTORE_GAP_MS = 1500;
 
 /**
  * Boards: discovers them (announce), tracks online/offline (status + Last Will), adopts them, and
@@ -224,6 +226,7 @@ export class NodesService implements OnModuleInit {
       devices: adopted
         ? node.devices.map((d) => ({
             key: d.key, type: d.type, pin: d.pin, activeLow: d.activeLow, settings: d.settings as Record<string, unknown>,
+            restore: 'last' as const,
           }))
         : [],
       inputs: adopted
@@ -232,6 +235,7 @@ export class NodesService implements OnModuleInit {
             .map((i) => ({ type: i.type, pin: i.pin, target: i.target?.key ?? '', settings: i.settings as Record<string, unknown> }))
         : [],
       telemetrySec: TELEMETRY_SEC,
+      restoreGapMs: RESTORE_GAP_MS,
     };
   }
 
@@ -370,7 +374,7 @@ export class NodesService implements OnModuleInit {
       });
     });
     this.logs.moved(nodeId);
-    const empty: NodeConfigPayload = { rev: node.configRev, adopted: false, devices: [], inputs: [], telemetrySec: TELEMETRY_SEC };
+    const empty: NodeConfigPayload = { rev: node.configRev, adopted: false, devices: [], inputs: [], telemetrySec: TELEMETRY_SEC, restoreGapMs: RESTORE_GAP_MS };
     await this.mqtt.publish(topics.config(nodeId), empty, { qos: 1, retain: true });
     for (const key of keys) await this.mqtt.publish(topics.deviceState(nodeId, key), null, { qos: 1, retain: true });
     await this.local.forget(nodeId);
