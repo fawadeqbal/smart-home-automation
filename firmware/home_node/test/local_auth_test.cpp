@@ -72,6 +72,16 @@ int main() {
   CHECK(auth.check("esp-abc123", "not base64!", NONCE, SIG, PATH, BODY, strlen(BODY), pass) == LocalCheck::BadPass);
   CHECK(auth.setKey(KEY, 4));
   CHECK(auth.check("esp-abc123", PASS, NONCE, SIG, PATH, BODY, strlen(BODY), pass) == LocalCheck::OldPass);
+
+  // a guest's pass that stops at 1800000000: refused once the board knows it's later; without the time
+  // (0) it's taken (the server's new epoch retires it then)
+  const char* GUEST = "eyJuIjoiZXNwLWFiYzEyMyIsImUiOjQsInUiOiJndWVzdC0xIiwidiI6WyJzdzEiXSwiYyI6WyJzdzEiXSwieCI6MTgwMDAwMDAwMH0";
+  const char* GUEST_SIG = "214852d0a3972d29ae5da837597f05d1e7954c8c4be4fdb8aede7c86a78c0dd8";
+  CHECK(auth.check("esp-abc123", GUEST, NONCE, GUEST_SIG, PATH, BODY, strlen(BODY), pass, 1799999999) == LocalCheck::Ok);
+  CHECK(auth.check("esp-abc123", GUEST, NONCE, GUEST_SIG, PATH, BODY, strlen(BODY), pass, 1800000000) == LocalCheck::Expired);
+  CHECK(auth.check("esp-abc123", GUEST, NONCE, GUEST_SIG, PATH, BODY, strlen(BODY), pass, 0) == LocalCheck::Ok);
+  CHECK(auth.check("esp-abc123", PASS, NONCE, SIG, PATH, BODY, strlen(BODY), pass, 1900000000) == LocalCheck::OldPass);
+
   auth.clear();
   CHECK(!auth.hasKey());
 

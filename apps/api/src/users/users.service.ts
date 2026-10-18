@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { verify } from '@node-rs/argon2';
 import { Access, Prisma, Role, StaffRole } from '@prisma/client';
+import { AccessLimits, checkAccess, hasLimits, limitsSummary, LimitsInput, NO_LIMITS, readLimits } from '../access/access-window';
 import { AuthService, randomToken, sha256 } from '../auth/auth.service';
 import { AuthUser, canSetup, isAdmin } from '../auth/auth.types';
 import { LoginLimiter } from '../auth/login-limiter';
@@ -13,6 +14,20 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { PLANS } from '../platform/plans';
 
 const INVITE_TTL_MS = 7 * 24 * 3600 * 1000;
+
+const limitsOf = (m: AccessLimits) => ({ accessUntil: m.accessUntil, accessFrom: m.accessFrom, accessTo: m.accessTo, accessDays: m.accessDays });
+
+/** Turns form input into limits, with the form's words when something is wrong. */
+function parseLimits(input: LimitsInput, timeZone: string, current: AccessLimits = NO_LIMITS): AccessLimits {
+  try {
+    return readLimits(input, timeZone, current);
+  } catch (err) {
+    throw new BadRequestException((err as Error).message);
+  }
+}
+
+/** Time limits are for members and guests: owners and admins always get in. */
+const limitable = (role: Role) => role === Role.MEMBER || role === Role.GUEST;
 
 @Injectable()
 export class UsersService {
@@ -29,7 +44,7 @@ export class UsersService {
    * Who I am: my homes, my staff role and organization, and the home this request is about
    * (with my role, rights per room and whether I can set it up).
    */
-  async me(userId: string, ctx?: Pick<AuthUser, 'homeId' | 'role' | 'viaStaff' | 'readOnly'>) {
+  async me(userId: string, ctx?: Pick<AuthUser, 'homeId' | 'role' | 'viaStaff' | 'readOnly' | 'blocked' | 'accessEndsAt'>) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       include: { org: true, memberships: { include: { home: { select: { id: true, name: true, city: true, archivedAt: true } } }, orderBy: { createdAt: 'asc' } } },
@@ -38,7 +53,8 @@ export class UsersService {
     const current = home?.homeId
       ? await this.prisma.home.findUnique({ where: { id: home.homeId }, select: { id: true, name: true, city: true, timezone: true, orgId: true } })
       : null;
-    const rooms = current ? await this.prisma.roomAccess.findMany({ where: { userId, room: { homeId: current.id } } }) : [];
+    const rooms = current && !home?.blocked ? await this.prisma.roomAccess.findMany({ where: { userId, room: { homeId: current.id } } }) : [];
+    const mine = current ? user.memberships.find((m) => m.homeId === current.id) : undefined;
     return {
       id: user.id, name: user.name, email: user.email, twoFactor: !!user.totpEnabledAt,
       // for WhatsApp messages from the company (optional)
@@ -60,7 +76,12 @@ export class UsersService {
             role: home.role, viaStaff: home.viaStaff, readOnly: home.readOnly,
             canSetup: canSetup({ staffRole: user.staffRole, viaStaff: home.viaStaff, homeId: current.id }),
             // staff looking at a customer's home never get the owner's first-visit tour
-            onboarded: home.viaStaff || !!user.memberships.find((m) => m.homeId === current.id)?.onboardedAt,
+            onboarded: home.viaStaff || !!mine?.onboardedAt,
+            // time-limited access: why they can't use the home now (null: they can), and its limits in words
+            blocked: home.blocked ?? null,
+            access: mine && !home.viaStaff && hasLimits(mine)
+              ? { ...limitsOf(mine), summary: limitsSummary(mine, current.timezone), endsAt: home.accessEndsAt ?? null }
+              : null,
           }
         : null,
       // kept for older clients: the role in the current home
@@ -80,16 +101,26 @@ export class UsersService {
       this.prisma.home.findUniqueOrThrow({ where: { id: actor.homeId }, include: { installer: { select: { id: true, name: true, email: true } } } }),
     ]);
     const order: Record<Role, number> = { OWNER: 0, ADMIN: 1, MEMBER: 2, GUEST: 3 };
+    const now = new Date();
     const people = members
       .sort((a, b) => order[a.role] - order[b.role])
-      .map((m) => ({
-        id: m.user.id, name: m.user.name, email: m.user.email, role: m.role, disabled: m.user.disabled, staff: null as StaffRole | null,
-        joinedAt: m.createdAt, rooms: m.user.rooms.map((r) => ({ roomId: r.roomId, access: r.access })),
-      }));
+      .map((m) => {
+        // time-limited people: "active" (inside their hours), "outside" (outside them) or "expired" (past the end)
+        const limited = limitable(m.role) && hasLimits(m);
+        const check = limited ? checkAccess(m, home.timezone, now) : null;
+        return {
+          id: m.user.id, name: m.user.name, email: m.user.email, role: m.role, disabled: m.user.disabled, staff: null as StaffRole | null,
+          joinedAt: m.createdAt, rooms: m.user.rooms.map((r) => ({ roomId: r.roomId, access: r.access })),
+          access: limited ? {
+            ...limitsOf(m), summary: limitsSummary(m, home.timezone),
+            status: !check || check.ok ? 'active' : check.reason === 'expired' ? 'expired' : 'outside',
+          } : null,
+        };
+      });
     if (home.installer && !people.some((p) => p.id === home.installer!.id)) {
       people.push({
         id: home.installer.id, name: home.installer.name, email: home.installer.email, role: null as unknown as Role,
-        disabled: false, staff: StaffRole.INSTALLER, joinedAt: home.createdAt, rooms: [],
+        disabled: false, staff: StaffRole.INSTALLER, joinedAt: home.createdAt, rooms: [], access: null,
       });
     }
     return people;
@@ -111,14 +142,34 @@ export class UsersService {
     return membership;
   }
 
-  async update(actor: AuthUser, userId: string, input: { role?: Role; disabled?: boolean; name?: string }) {
+  async update(actor: AuthUser, userId: string, input: { role?: Role; disabled?: boolean; name?: string } & LimitsInput) {
     const m = await this.target(actor, userId);
     if (input.role === Role.OWNER) throw new BadRequestException('A home has exactly one owner.');
     if (input.role === Role.ADMIN && actor.role !== Role.OWNER) {
       throw new ForbiddenException('Only the owner can make someone an admin.');
     }
-    if (input.role && input.role !== m.role) {
-      await this.prisma.membership.update({ where: { userId_homeId: { userId, homeId: actor.homeId } }, data: { role: input.role } });
+    const role = input.role ?? m.role;
+    const limitsAsked = input.accessUntil !== undefined || input.accessFrom !== undefined || input.accessTo !== undefined || input.accessDays !== undefined;
+    let limits: AccessLimits | null = null;
+    let fewerHours = false;
+    if (!limitable(role)) {
+      if (limitsAsked && (input.accessUntil || input.accessFrom || input.accessTo || input.accessDays?.length)) {
+        throw new BadRequestException('Owners and admins can’t have hours or an end date. Make them a member or guest first.');
+      }
+      if (hasLimits(m)) limits = NO_LIMITS; // made an admin: limits no longer apply
+    } else if (limitsAsked) {
+      const home = await this.prisma.home.findUniqueOrThrow({ where: { id: actor.homeId }, select: { timezone: true } });
+      limits = parseLimits(input, home.timezone, m);
+      // narrower limits than before: retire phone passes made under the old ones
+      fewerHours = (!!limits.accessUntil && (!m.accessUntil || limits.accessUntil < m.accessUntil))
+        || limits.accessFrom !== m.accessFrom || limits.accessTo !== m.accessTo || limits.accessDays.join() !== m.accessDays.join();
+    }
+    if ((input.role && input.role !== m.role) || limits) {
+      await this.prisma.membership.update({
+        where: { userId_homeId: { userId, homeId: actor.homeId } },
+        // extending someone's access (or lifting it) starts a fresh stretch: they can be told again when it ends
+        data: { ...(input.role ? { role: input.role } : {}), ...(limits ? { ...limits, expiredAt: null } : {}) },
+      });
     }
     const userData: { name?: string; disabled?: boolean } = {};
     if (input.name !== undefined) userData.name = input.name;
@@ -133,9 +184,13 @@ export class UsersService {
     }
     await this.audit.record(actor.homeId, actor.id, 'user.update', userId, { ...input, name: updated.name });
     // their phone's passes for switching over Wi-Fi still carry the old rights: retire them
-    if ((input.role && input.role !== m.role) || input.disabled) await this.local.revoke(actor.homeId);
+    if ((input.role && input.role !== m.role) || input.disabled || fewerHours) await this.local.revoke(actor.homeId);
     this.realtime.accessChanged(userId);
-    return { id: updated.id, role: input.role ?? m.role, disabled: updated.disabled, name: updated.name };
+    const now = limits ?? m;
+    return {
+      id: updated.id, role, disabled: updated.disabled, name: updated.name,
+      access: limitable(role) && hasLimits(now) ? limitsOf(now) : null,
+    };
   }
 
   async setRooms(actor: AuthUser, userId: string, rooms: { roomId: string; access: Access }[]) {
@@ -172,7 +227,7 @@ export class UsersService {
   }
 
   // ---------------------------------------------------------------- invites into a home
-  async invite(actor: AuthUser, email: string, role: Role, name?: string, rooms: { roomId: string; access: Access }[] = []) {
+  async invite(actor: AuthUser, email: string, role: Role, name?: string, rooms: { roomId: string; access: Access }[] = [], limitsIn: LimitsInput = {}) {
     const staffInstaller = actor.staffRole === StaffRole.INSTALLER && actor.viaStaff && actor.role !== Role.OWNER;
     if (role === Role.OWNER) {
       if (!actor.viaStaff) throw new BadRequestException('A home has exactly one owner.');
@@ -195,24 +250,39 @@ export class UsersService {
       const valid = await this.prisma.room.count({ where: { homeId: actor.homeId, id: { in: rooms.map((r) => r.roomId) } } });
       if (valid !== new Set(rooms.map((r) => r.roomId)).size) throw new BadRequestException('Unknown room.');
     }
+    let limits = NO_LIMITS;
+    const home = await this.prisma.home.findUniqueOrThrow({ where: { id: actor.homeId }, select: { timezone: true } });
+    if (limitsIn.accessUntil || limitsIn.accessFrom || limitsIn.accessTo || limitsIn.accessDays?.length) {
+      if (!limitable(role)) throw new BadRequestException('Owners and admins can’t have hours or an end date. Invite them as a member or guest.');
+      limits = parseLimits(limitsIn, home.timezone);
+    }
     await this.prisma.invite.deleteMany({ where: { homeId: actor.homeId, email, usedAt: null } }); // a new link replaces an old one
     const token = randomToken();
+    // a guest who is only welcome until Sunday doesn't need a link that works for a week
+    const linkEnds = new Date(Math.min(Date.now() + INVITE_TTL_MS, limits.accessUntil?.getTime() ?? Infinity));
     await this.prisma.invite.create({
       data: {
         homeId: actor.homeId, email, name: name ?? null, role, tokenHash: sha256(token), createdBy: actor.id,
-        expiresAt: new Date(Date.now() + INVITE_TTL_MS), rooms: rooms as unknown as Prisma.InputJsonValue,
+        expiresAt: linkEnds, rooms: rooms as unknown as Prisma.InputJsonValue, ...limits,
       },
     });
-    await this.audit.record(actor.homeId, actor.id, 'user.invite', email, { role, name, rooms: rooms.length });
-    return { token, path: `/invite/${token}`, expiresInDays: 7, existingAccount: !!existing };
+    await this.audit.record(actor.homeId, actor.id, 'user.invite', email, {
+      role, name, rooms: rooms.length, ...(hasLimits(limits) ? { access: limitsSummary(limits, home.timezone) } : {}),
+    });
+    const days = Math.max(1, Math.round((linkEnds.getTime() - Date.now()) / 86400000));
+    return { token, path: `/invite/${token}`, expiresInDays: days, expiresAt: linkEnds, existingAccount: !!existing, access: hasLimits(limits) ? limitsSummary(limits, home.timezone) : null };
   }
 
   async listInvites(actor: AuthUser) {
-    return this.prisma.invite.findMany({
+    const home = await this.prisma.home.findUniqueOrThrow({ where: { id: actor.homeId }, select: { timezone: true } });
+    const rows = await this.prisma.invite.findMany({
       where: { homeId: actor.homeId, usedAt: null, expiresAt: { gt: new Date() } },
-      select: { id: true, email: true, name: true, role: true, expiresAt: true, createdAt: true },
+      select: { id: true, email: true, name: true, role: true, expiresAt: true, createdAt: true, accessUntil: true, accessFrom: true, accessTo: true, accessDays: true },
       orderBy: { createdAt: 'desc' },
     });
+    return rows.map(({ accessUntil, accessFrom, accessTo, accessDays, ...i }) => ({
+      ...i, access: limitsSummary({ accessUntil, accessFrom, accessTo, accessDays }, home.timezone),
+    }));
   }
 
   async revokeInvite(actor: AuthUser, id: string) {
@@ -255,6 +325,8 @@ export class UsersService {
       email: invite.email, name: invite.name, role: invite.role, staffRole: invite.staffRole,
       homeName: invite.home?.name ?? null, orgName: org?.name ?? null, orgLogo: org?.logo ?? null,
       inviter: inviter?.name ?? null, expiresAt: invite.expiresAt, home,
+      // "9:00–17:00 Mon–Sat · until Sun 20 Oct, 17:00" when their access will be limited
+      access: invite.home ? limitsSummary(invite, invite.home.timezone) : null,
       existingAccount: !!existing, accountName: existing?.name ?? null,
     };
   }
@@ -293,10 +365,11 @@ export class UsersService {
           const home = await tx.home.findUniqueOrThrow({ where: { id: invite.homeId }, select: { orgId: true } });
           if (u.staffRole && u.orgId === home.orgId) throw new ForbiddenException('The owner must be the customer, not someone on the installer’s team.');
         }
+        const limits = limitable(invite.role) ? limitsOf(invite) : NO_LIMITS;
         await tx.membership.upsert({
           where: { userId_homeId: { userId: u.id, homeId: invite.homeId } },
-          create: { userId: u.id, homeId: invite.homeId, role: invite.role },
-          update: { role: invite.role },
+          create: { userId: u.id, homeId: invite.homeId, role: invite.role, ...limits },
+          update: { role: invite.role, ...limits, expiredAt: null },
         });
         const live = rooms.length ? await tx.room.findMany({ where: { homeId: invite.homeId, id: { in: rooms.map((r) => r.roomId) } }, select: { id: true } }) : [];
         const keep = rooms.filter((r) => live.some((l) => l.id === r.roomId));

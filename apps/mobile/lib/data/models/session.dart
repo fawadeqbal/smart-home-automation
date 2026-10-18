@@ -146,9 +146,13 @@ class CurrentHome {
     this.readOnly = false,
     this.canSetup = false,
     this.onboarded = true,
+    this.blocked,
+    this.accessSummary,
   });
 
   factory CurrentHome.fromJson(Json json) => CurrentHome(
+    blocked: strOrNull(asJson(json['blocked'])['message']),
+    accessSummary: strOrNull(asJson(json['access'])['summary']),
     id: str(json['id']),
     name: str(json['name'], 'Home'),
     city: str(json['city']),
@@ -177,6 +181,13 @@ class CurrentHome {
 
   /// Has seen the first-visit tour.
   final bool onboarded;
+
+  /// Time-limited access: why they can't use the home right now ("Your access to … is from 9:00 to
+  /// 17:00"); null when they can.
+  final String? blocked;
+
+  /// Their limits in short ("9:00–17:00 Mon–Sat · until Sun 25 Oct, 20:00"); null without limits.
+  final String? accessSummary;
 
   /// Looks after the home: people, invites, health, everyone's routines. Read-only support
   /// staff have an admin role but may not change anything, so they don't.

@@ -11,10 +11,18 @@ import { clientIp } from '../common/client-ip';
 import { ZodPipe } from '../common/zod';
 import { UsersService } from './users.service';
 
+/** Time-limited access (members and guests): an end, and hours on some days. null clears a part. */
+const limits = {
+  accessUntil: z.string().trim().max(40).nullable().optional(),
+  accessFrom: z.string().trim().max(5).nullable().optional(),
+  accessTo: z.string().trim().max(5).nullable().optional(),
+  accessDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+};
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   role: z.nativeEnum(Role).optional(),
   disabled: z.boolean().optional(),
+  ...limits,
 });
 const roomsSchema = z.object({
   rooms: z.array(z.object({ roomId: z.string(), access: z.nativeEnum(Access) })).max(200),
@@ -24,6 +32,7 @@ const inviteSchema = z.object({
   name: z.string().trim().max(80).optional(),
   role: z.nativeEnum(Role).default(Role.MEMBER),
   rooms: z.array(z.object({ roomId: z.string(), access: z.nativeEnum(Access) })).max(200).optional(),
+  ...limits,
 });
 const acceptSchema = z.object({ name: z.string().trim().max(80).optional(), password: z.string().min(1).max(200) });
 
@@ -69,7 +78,8 @@ export class UsersController {
   @Roles('OWNER', 'ADMIN')
   @Post('invites')
   invite(@CurrentUser() user: AuthUser, @Body(new ZodPipe(inviteSchema)) body: z.infer<typeof inviteSchema>) {
-    return this.users.invite(user, body.email, body.role, body.name || undefined, body.rooms ?? []);
+    const { accessUntil, accessFrom, accessTo, accessDays } = body;
+    return this.users.invite(user, body.email, body.role, body.name || undefined, body.rooms ?? [], { accessUntil, accessFrom, accessTo, accessDays });
   }
 
   @Roles('OWNER', 'ADMIN')

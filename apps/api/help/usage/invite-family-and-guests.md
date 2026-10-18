@@ -2,7 +2,7 @@
 title: Add a family member or guest and choose their rooms
 category: usage
 audience: everyone
-tags: [invite, family, guest, add person, share, whatsapp link, rooms, access, ghar wale, mehman, bachay, invite link bhejo, bachon, bache, ghar walay, access dena]
+tags: [invite, family, guest, add person, share, whatsapp link, rooms, access, ghar wale, mehman, bachay, invite link bhejo, bachon, bache, ghar walay, access dena, maid, driver, hours, until, expired, extend, weekend guest]
 published: true
 ---
 Owners and admins invite people. You choose a role and, room by room, what they may do. Switchboard doesn't send emails or texts: you get a link to send, usually on WhatsApp.
@@ -33,7 +33,17 @@ Owners and admins invite people. You choose a role and, room by room, what they 
 
 ## Guests
 
-Guests can switch things in the rooms you pick, but can never get **Switch & rename**. Guest access **doesn't end by itself**. Remove guests from **People** when they leave.
+Guests can switch things in the rooms you pick, but can never get **Switch & rename**. Remove guests from **People** when they leave, or give them an end date so their access stops by itself.
+
+## For a while, or at certain hours
+
+A member or guest can have an **end date** (a guest for the weekend) and/or **hours** on some days (the maid from 9:00 to 17:00, Monday to Saturday; a night guard from 22:00 to 06:00, which goes past midnight). Times are in your home's time zone.
+
+- **When inviting:** tick **For a while, or at certain hours** (web) or switch it on (phone), then pick an end (Tonight, Tomorrow, The weekend, A week, or a date) and/or the hours and days.
+- **Later:** web **People** → **⋯** → **Change access hours**; phone **Me** → **Family** → **Hours**.
+- **Assistant:** "Invite Shazia as a guest from 9 to 5, Monday to Saturday", "Let Bilal in until Sunday 8 pm", "Extend Bilal until next Friday".
+
+Outside their hours they can still open the app, but they can't see or switch anything: the app says "Your access to <home> is from 9:00 to 17:00". Their phone's Wi‑Fi passes stop working then too. After the end date the People page shows them as **Expired** and you're told; press **Extend** to let them in again, or remove them.
 
 ## If it doesn't work
 

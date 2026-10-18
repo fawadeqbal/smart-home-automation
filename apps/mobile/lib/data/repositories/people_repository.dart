@@ -20,12 +20,14 @@ class PeopleRepository {
     ];
   }
 
-  /// A one-time link (7 days) for [email] to join as [role], with [rooms] shared with them.
+  /// A one-time link (7 days) for [email] to join as [role], with [rooms] shared with them, and
+  /// [limits] (`AccessLimits.body`) when their access is only for a while or at certain hours.
   Future<InviteLink> invite({
     required String email,
     String? name,
     HomeRole role = HomeRole.member,
     Map<String, Access> rooms = const {},
+    Json? limits,
   }) async {
     final body = {
       'email': email,
@@ -34,9 +36,16 @@ class PeopleRepository {
       'rooms': [
         for (final e in rooms.entries) {'roomId': e.key, 'access': e.value.json},
       ],
+      ...?limits,
     };
     return InviteLink.fromJson(asJson(await _api.post<Object?>('/invites', body)));
   }
+
+  /// Changes, extends or lifts someone's time limits (`AccessLimits.body`).
+  Future<void> setLimits(String userId, Json limits) => _api.patch<Object?>('/users/$userId', limits);
+
+  /// Takes someone out of the home.
+  Future<void> remove(String userId) => _api.delete<Object?>('/users/$userId');
 
   /// The notifications this person may get (board alerts only for owners and admins).
   Future<List<NotificationPref>> prefs() async =>

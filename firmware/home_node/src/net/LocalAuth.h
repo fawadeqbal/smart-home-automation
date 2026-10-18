@@ -36,7 +36,7 @@ class Hasher {
                     uint8_t out[32]) = 0;
 };
 
-enum class LocalCheck { Ok, NoKey, BadNonce, BadPass, OtherBoard, OldPass, BadSig };
+enum class LocalCheck { Ok, NoKey, BadNonce, BadPass, OtherBoard, OldPass, BadSig, Expired };
 
 namespace localauth {
 
@@ -173,9 +173,11 @@ class LocalAuth {
   /**
    * Checks a request. On Ok, `pass` holds the decoded pass (who, what they may see and switch).
    * The nonce must already have been taken from the NonceBook by the caller.
+   * `nowSec`: the time (unix seconds) when the board knows it, else 0. A guest's pass carries "x", when it
+   * stops working; without the time the server's new epoch retires it instead.
    */
   LocalCheck check(const char* nodeId, const char* passText, const char* nonce, const char* sig, const char* path,
-                   const char* body, size_t bodyLen, JsonDocument& pass) {
+                   const char* body, size_t bodyLen, JsonDocument& pass, long nowSec = 0) {
     if (!hasKey()) return LocalCheck::NoKey;
     char json[512];
     if (localauth::b64urlDecode(passText, json, sizeof json) < 0) return LocalCheck::BadPass;
@@ -197,7 +199,9 @@ class LocalAuth {
     hasher_.hmac(passKey, 64, parts, lens, 5, mac);
     char want[65];
     localauth::toHex(mac, 32, want);
-    return sig && localauth::sameText(want, sig) ? LocalCheck::Ok : LocalCheck::BadSig;
+    if (!sig || !localauth::sameText(want, sig)) return LocalCheck::BadSig;
+    const long until = pass["x"] | 0L;
+    return until > 0 && nowSec > 0 && nowSec >= until ? LocalCheck::Expired : LocalCheck::Ok;
   }
 
  private:

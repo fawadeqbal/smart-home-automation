@@ -3,6 +3,7 @@ import { FormEvent, useMemo, useState } from 'react';
 import { PageHelp, Tip } from '@/components/Help';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
+import { LastOneOut } from '@/components/home/LastOneOut';
 import { del, errorText, patch, post, put } from '@/lib/api';
 import { useDevices, useLoad, useNow } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
@@ -589,6 +590,7 @@ export default function AutomationsPage() {
           )}
         </div>
       </section>
+      {isAdmin && <LastOneOut />}
     </>
   );
 }

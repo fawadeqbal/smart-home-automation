@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { InvitePersonDialog } from '@/components/console/Dialogs';
+import { EditAccessDialog } from '@/components/home/AccessLimits';
 import { PasswordLinkDialog } from '@/components/PasswordLinkDialog';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
@@ -14,8 +15,8 @@ import type { Access, FamilyMember, Invite, Role, Room } from '@/lib/types';
  * Who can sign in to the home, and what each person may do in each room.
  * `actorRole` is the viewer's role in the home; `canManage` false = read-only (support, installers).
  */
-export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = false }: {
-  actorRole: Role; actorId: string; canManage: boolean; ownerInviteOnly?: boolean;
+export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = false, timeZone = 'Asia/Karachi' }: {
+  actorRole: Role; actorId: string; canManage: boolean; ownerInviteOnly?: boolean; timeZone?: string;
 }) {
   const people = useLoad<FamilyMember[]>('/users');
   const rooms = useLoad<Room[]>('/rooms');
@@ -23,6 +24,7 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<FamilyMember | null>(null);
   const [resetFor, setResetFor] = useState<FamilyMember | null>(null);
+  const [limitsFor, setLimitsFor] = useState<FamilyMember | null>(null);
   const { error, run } = useAction();
 
   if (!people.data || !rooms.data) return people.error ?? rooms.error ? <div className="alert">{people.error ?? rooms.error}</div> : <Loader label="Loading people…" />;
@@ -69,7 +71,14 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
                   <td>
                     <div className="cell-main">
                       <Avatar name={p.name} role={roleText} size="sm" />
-                      <span className="stack-tight"><b>{p.name}{p.id === actorId ? <span className="muted" style={{ fontWeight: 400 }}> (you)</span> : null}</b><span className="cell-sub">{p.staff ? 'Platform staff' : p.email}</span></span>
+                      <span className="stack-tight"><b>{p.name}{p.id === actorId ? <span className="muted" style={{ fontWeight: 400 }}> (you)</span> : null}</b><span className="cell-sub">{p.staff ? 'Platform staff' : p.email}</span>
+                        {p.access && (
+                          <span className="cell-sub row" style={{ gap: 6 }}>
+                            {p.access.status === 'expired' ? <span className="badge bad">Expired</span> : p.access.status === 'outside' ? <span className="badge mute">Outside hours</span> : <span className="badge info">Limited</span>}
+                            {p.access.summary}
+                          </span>
+                        )}
+                      </span>
                     </div>
                   </td>
                   <td>
@@ -99,6 +108,9 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
                   })}
                   <td className="right nowrap">
                     {p.disabled ? <span className="badge bad">Disabled</span> : <span className="small muted">{p.staff ? 'Installer' : `Joined ${new Date(p.joinedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}</span>}
+                    {can && p.access?.status === 'expired' && (
+                      <button className="btn btn-sm" style={{ marginLeft: 6 }} onClick={() => setLimitsFor(p)}>Extend</button>
+                    )}
                     {can && (
                       <Dropdown align="right" width={200} trigger={(_o, t) => <button className="icon-btn" onClick={t} aria-label={`More for ${p.name}`} style={{ marginLeft: 6 }}><Icon name="more" size={16} /></button>}>
                         {(close) => (
@@ -108,6 +120,9 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
                             </button>
                             {!p.staff && !p.disabled && (
                               <button className="menu-item" onClick={() => { close(); setResetFor(p); }}><Icon name="key" size={15} />Password link</button>
+                            )}
+                            {(p.role === 'MEMBER' || p.role === 'GUEST') && (
+                              <button className="menu-item" onClick={() => { close(); setLimitsFor(p); }}><Icon name="clock" size={15} />{p.access ? 'Change access hours' : 'Limit to hours or an end date'}</button>
                             )}
                             <button className="menu-item danger" onClick={() => { close(); setRemoving(p); }}><Icon name="trash" size={15} />Remove from home</button>
                           </>
@@ -123,7 +138,7 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
                 <td>
                   <div className="cell-main">
                     <span className="avatar sm av-system"><Icon name="send" size={13} /></span>
-                    <span className="stack-tight"><b>{i.name || i.email}</b><span className="cell-sub">{i.name ? `${i.email} · ` : ''}Invite link</span></span>
+                    <span className="stack-tight"><b>{i.name || i.email}</b><span className="cell-sub">{i.name ? `${i.email} · ` : ''}Invite link{i.access ? ` · ${i.access}` : ''}</span></span>
                   </div>
                 </td>
                 <td><span className="tag mute">{ROLE_LABEL[i.role]}</span></td>
@@ -137,7 +152,8 @@ export function PeopleView({ actorRole, actorId, canManage, ownerInviteOnly = fa
           </tbody>
         </table>
       </div>
-      {inviting && <InvitePersonDialog rooms={rooms.data} canAdmin={isOwner} ownerInvite={ownerInviteOnly} onClose={() => setInviting(false)} onDone={reload} />}
+      {inviting && <InvitePersonDialog rooms={rooms.data} canAdmin={isOwner} ownerInvite={ownerInviteOnly} timeZone={timeZone} onClose={() => setInviting(false)} onDone={reload} />}
+      {limitsFor && <EditAccessDialog person={limitsFor} timeZone={timeZone} onClose={() => setLimitsFor(null)} onSaved={() => void people.reload()} />}
       {resetFor && <PasswordLinkDialog name={resetFor.name} endpoint={`/users/${resetFor.id}/reset-link`} onClose={() => setResetFor(null)} />}
       {removing && (
         <Confirm title={`Remove ${removing.name}?`} confirmLabel="Remove"

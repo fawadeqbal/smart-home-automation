@@ -12,12 +12,14 @@ import '../../data/models/session.dart';
 import '../../data/repositories/people_repository.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/sb_chip.dart';
+import '../../shared/widgets/sb_switch.dart';
 import '../../shared/widgets/segmented.dart';
 import '../../shared/widgets/sheet.dart';
 import '../../state/devices.dart';
 import '../../state/people.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
+import 'access_limits.dart';
 
 Future<void> showInviteSheet(BuildContext context) => showSbSheet<void>(context, builder: (_) => const InviteSheet());
 
@@ -38,6 +40,10 @@ class _InviteSheetState extends ConsumerState<InviteSheet> {
   bool _busy = false;
   String? _link;
   String? _error;
+  bool _limited = false;
+  LimitsDraft _limits = const LimitsDraft();
+  int _days = 7;
+  String? _accessText;
 
   @override
   void dispose() {
@@ -68,9 +74,14 @@ class _InviteSheetState extends ConsumerState<InviteSheet> {
             name: _name.text.trim(),
             role: _role,
             rooms: {for (final id in chosen) id: Access.control},
+            limits: _limited && _limits.any ? _limits.body : null,
           );
       ref.invalidate(membersProvider);
-      setState(() => _link = '${ref.read(serverUrlProvider)}${invite.path}');
+      setState(() {
+        _link = '${ref.read(serverUrlProvider)}${invite.path}';
+        _days = invite.expiresInDays;
+        _accessText = invite.access;
+      });
     } catch (e) {
       setState(() => _error = ApiException.from(e).message);
     } finally {
@@ -107,7 +118,8 @@ class _InviteSheetState extends ConsumerState<InviteSheet> {
           Text('Invite ready', style: SbText.title.copyWith(color: c.tx)),
           const SizedBox(height: 4),
           Text(
-            'Send ${first.isEmpty ? 'them' : first} this link. It works once, for 7 days.',
+            'Send ${first.isEmpty ? 'them' : first} this link. It works once, for $_days day${_days == 1 ? '' : 's'}.'
+            '${_accessText != null ? ' Their access: $_accessText.' : ''}',
             style: TextStyle(fontSize: 15, color: c.mu),
           ),
           const SizedBox(height: 14),
@@ -231,6 +243,25 @@ class _InviteSheetState extends ConsumerState<InviteSheet> {
               style: TextStyle(fontSize: 13, color: c.mu),
             ),
           ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('For a while, or at certain hours', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: c.tx)),
+                  Text('A guest for the weekend, help from 9:00 to 17:00', style: TextStyle(fontSize: 13, color: c.mu)),
+                ],
+              ),
+            ),
+            SbSwitch(value: _limited, onChanged: (v) => setState(() => _limited = v), semanticLabel: 'For a while, or at certain hours'),
+          ],
+        ),
+        if (_limited) ...[
+          const SizedBox(height: 12),
+          LimitsFields(value: _limits, onChanged: (v) => setState(() => _limits = v)),
+        ],
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: 12),

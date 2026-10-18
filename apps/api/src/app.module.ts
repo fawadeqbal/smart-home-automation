@@ -72,6 +72,9 @@ import { StaffNoticesService } from './common/staff-notices.service';
 import { PhoneController } from './users/phone.controller';
 import { PowerController } from './power/power.controller';
 import { PowerService } from './power/power.service';
+import { AccessExpiryService } from './users/access-expiry.service';
+import { PresenceController } from './automation/presence.controller';
+import { PresenceService } from './automation/presence.service';
 
 /**
  * Composition root. Shared infrastructure (database, broker, live updates, access rules, audit)
@@ -96,6 +99,7 @@ export function createAppModule(settings: Settings) {
       HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, RulesController, EnergyController, MemoryController, TicketsController, InstallationController, BillingController, BackupController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
       QuotesController, PlannerController, PhoneController,
       PowerController,
+      PresenceController,
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
@@ -103,6 +107,7 @@ export function createAppModule(settings: Settings) {
       QuotesService, PlannerService, StockService, StaffNoticesService,
       PowerService,
       LoginLimiter,
+      AccessExpiryService, PresenceService,
     ],
   })
   class AppModule {}

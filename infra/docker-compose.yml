@@ -85,6 +85,7 @@ services:
       FIRMWARE_DIR: /data/firmware
       BROKER_LOG: /broker-log/broker.log
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      FCM_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT:-}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       WEB_ORIGIN: ${WEB_ORIGIN:-https://${DOMAIN}}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}

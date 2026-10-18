@@ -40,6 +40,8 @@ export class AuthGuard implements CanActivate {
     if (noHome) return true;
 
     if (!user.homeId) throw new ConflictException('Choose a home first.');
+    // time-limited access: outside the hours or after the end, nothing in the home (devices, rooms, the assistant)
+    if (user.blocked) throw new ForbiddenException(user.blocked.message);
     if (user.readOnly && !READS.has(req.method)) throw new ForbiddenException('Support access is read-only.');
     const roles = this.reflector.getAllAndOverride<Role[] | undefined>(ROLES_KEY, targets);
     if (roles && !roles.includes(user.role)) throw new ForbiddenException('You do not have permission for this.');

@@ -215,6 +215,24 @@ class LocalClient {
     throw LocalError('Can’t reach ${board.name}. Is this phone on the home’s Wi‑Fi?');
   }
 
+  /// Is one of these boards on the Wi‑Fi this phone is on? ("Who's home": a board of the home answering
+  /// `/local/hello` with its own id means we're in.) Tries where each answered last, the address the
+  /// server knows, then its name on the Wi‑Fi.
+  Future<bool> reachesAny(List<({String nodeId, String? ip})> boards) async {
+    for (final b in boards) {
+      final candidates = <String>{?_hosts[b.nodeId], if (b.ip != null && b.ip!.isNotEmpty) b.ip!};
+      for (final host in candidates) {
+        if (await _hello(host, b.nodeId) != null) return (_hosts[b.nodeId] = host).isNotEmpty;
+      }
+    }
+    for (final b in boards) {
+      for (final host in await lookupLocalName(b.nodeId)) {
+        if (await _hello(host, b.nodeId) != null) return (_hosts[b.nodeId] = host).isNotEmpty;
+      }
+    }
+    return false;
+  }
+
   /// A nonce when [host] is this board, else null.
   Future<String?> _hello(String host, String nodeId) async {
     try {

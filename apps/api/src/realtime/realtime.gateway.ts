@@ -29,7 +29,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
       const user = await this.auth.authenticate(cookies[ACCESS_COOKIE] ?? '', ['access'], asked || undefined);
       const rooms = [`user:${user.id}`];
       if (user.orgId && user.staffRole) rooms.push(`org:${user.orgId}`);
-      if (user.homeId) {
+      // outside their hours (or past the end) a guest hears nothing about the home, only their own notices
+      if (user.homeId && !user.blocked) {
         const levels = await this.access.roomLevels(user);
         rooms.push(`home:${user.homeId}`);
         if (levels === 'all') rooms.push(`admins:${user.homeId}`);

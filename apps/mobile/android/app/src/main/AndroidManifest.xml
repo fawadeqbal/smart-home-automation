@@ -43,6 +43,11 @@
             android:foregroundServiceType="microphone"
             android:stopWithTask="true"
             android:exported="false" />
+        <!-- Phone notifications (Firebase): notices without a channel of their own land on "Notices";
+             alerts name the "Alerts" channel (high importance). The app creates both (lib/push). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="general" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

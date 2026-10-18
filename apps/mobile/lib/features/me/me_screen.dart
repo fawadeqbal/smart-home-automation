@@ -20,6 +20,7 @@ import '../../voice/hands_free_ui.dart';
 import '../health/ask_for_help.dart';
 import '../home/home_actions.dart';
 import 'change_password.dart';
+import 'sharing.dart';
 
 /// Alerts in the owner's words; each switch covers a few of the real notification settings.
 /// People only see the ones the server offers them (board alerts are for owners and admins).
@@ -33,6 +34,9 @@ const _alertGroups = [
   ('On UPS, and the bill', ['ups', 'bill']),
   ('Load-shedding is due (15 min before)', ['cutSoon']),
   ('Meter reading day reminder', ['meterReading']),
+  ('While I’m away', ['awayAlert']),
+  ('Everyone left, or someone came home', ['presence']),
+  ('A guest’s access ended', ['accessEnded']),
 ];
 
 /// The Me tab: you, your home, alerts, appearance, sign out.
@@ -212,6 +216,17 @@ class MeScreen extends ConsumerWidget {
               style: TextStyle(fontSize: 13.5, color: c.mu),
             ),
           ),
+        if (home.accessSummary != null && !manages)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+            child: Text('Your access here: ${home.accessSummary}.', style: TextStyle(fontSize: 13.5, color: c.mu)),
+          ),
+        if (!home.viaStaff && home.blocked == null) ...[
+          const SizedBox(height: 20),
+          const ShareWhenHome(),
+        ],
+        const SizedBox(height: 20),
+        const PhoneAlertsRow(),
         if (prefs.isNotEmpty) ...[
           const SizedBox(height: 20),
           Padding(

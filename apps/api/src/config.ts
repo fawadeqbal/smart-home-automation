@@ -52,6 +52,8 @@ export interface Settings {
   scheduleRetryMinutes: number[];
   /** After the server was down: a schedule more than this late is skipped (or run late, if it says so). */
   missedCutoffMinutes: number;
+  /** Phone push: a Firebase service account key (the JSON, or base64 of it). null: phones get no push. */
+  fcmServiceAccount: string | null;
 }
 
 export function loadSettings(): Settings {
@@ -92,6 +94,7 @@ export function loadSettings(): Settings {
     schedulerTickMs: Number(process.env.SCHEDULER_TICK_MS || 5000),
     scheduleRetryMinutes: (process.env.SCHEDULE_RETRY_MINUTES || '1,3,10').split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0),
     missedCutoffMinutes: Number(process.env.SCHEDULE_MISSED_CUTOFF_MIN || 15),
+    fcmServiceAccount: process.env.FCM_SERVICE_ACCOUNT?.trim() || null,
   };
 }
 

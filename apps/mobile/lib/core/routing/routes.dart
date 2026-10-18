@@ -24,6 +24,7 @@ abstract final class Routes {
   static const health = 'health';
   static const family = 'family';
   static const energy = 'energy';
+  static const notifications = 'notifications';
 }
 
 extension TabNavigation on BuildContext {

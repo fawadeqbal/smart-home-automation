@@ -18,6 +18,10 @@ export interface CurrentHome {
   canSetup: boolean;
   /** has seen the first-visit tour of this home (always true for staff looking in) */
   onboarded: boolean;
+  /** time-limited access: why I can't use the home right now (null: I can) */
+  blocked?: { reason: 'expired' | 'hours'; message: string } | null;
+  /** my limits here, when I have some */
+  access?: (AccessLimitsValue & { summary: string | null; endsAt: string | null }) | null;
 }
 
 export interface Me {
@@ -141,7 +145,7 @@ export interface OrgDetails {
   baseLat?: number | null; baseLng?: number | null; stockMin?: number;
 }
 
-export interface Invite { id: string; email: string; name: string | null; role: Role; expiresAt: string; createdAt: string }
+export interface Invite { id: string; email: string; name: string | null; role: Role; expiresAt: string; createdAt: string; access?: string | null }
 
 export interface StateField {
   key: string;
@@ -276,6 +280,8 @@ export interface FamilyMember {
   disabled: boolean;
   joinedAt: string;
   rooms: { roomId: string; access: Access }[];
+  /** time-limited access (members and guests); null: none */
+  access?: (AccessLimitsValue & { summary: string | null; status: 'active' | 'outside' | 'expired' }) | null;
 }
 
 export interface HistoryEntry {
@@ -642,4 +648,27 @@ export interface Bill {
   cost: { soFar: number; projected: number | null; lines: { units: number; rate: number; cost: number }[] };
   protectedLimit: number | null; over: boolean; heading: boolean;
   topDevices: { id: string; name: string; kwh: number }[]; lastMonth: number | null; message: string;
+}
+
+// time-limited access (people)
+export interface AccessLimitsValue { accessUntil: string | null; accessFrom: string | null; accessTo: string | null; accessDays: number[] }
+export type AccessLimitsInput = Partial<AccessLimitsValue>;
+
+// who's home, and the last one out
+export type PresenceStatus = 'home' | 'away' | 'unknown';
+export interface WhoIsHome {
+  sharing: boolean;
+  people: { id: string; name: string; status: PresenceStatus; since: string | null; reportedAt: string | null; me: boolean }[];
+  line: string | null;
+  rule: { enabled: boolean; out: boolean; lastEvent: string | null; lastEventAt: string | null; lastResult: string | null } | null;
+}
+export interface PresenceRuleState {
+  rule: {
+    enabled: boolean; switchOff: 'none' | 'lights' | 'chosen'; offDevices: string[]; awayMode: boolean; notify: boolean;
+    arriveSceneId: string | null; createdBy: string | null; createdById: string; out: boolean;
+    lastEvent: 'left' | 'arrived' | null; lastEventAt: string | null; lastResult: string | null;
+  } | null;
+  devices: { id: string; name: string; type: string; room: string | null; lightOrFan: boolean }[];
+  scenes: { id: string; name: string }[];
+  sharers: number;
 }

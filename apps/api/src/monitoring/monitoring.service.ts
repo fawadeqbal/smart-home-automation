@@ -40,6 +40,8 @@ export const NOTICE_KINDS = {
   meterReading: { label: 'A reminder to type the meter reading on the billing day', default: false, adminsOnly: true },
   security: { label: 'Someone keeps trying to sign in to my account', default: true, adminsOnly: false },
   boardReplaced: { label: 'A board was replaced or is waiting for a replacement', default: true, adminsOnly: true },
+  accessEnded: { label: 'A guest’s access to the home ended', default: true, adminsOnly: true },
+  presence: { label: 'Everyone left, or the first person came home (when I set that up)', default: true, adminsOnly: false },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
 
@@ -233,7 +235,7 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         data: { homeId, userId: p.id, kind: notice.kind, severity: notice.severity, title: notice.title, body: notice.body, link: notice.link },
       });
       this.realtime.toUser(p.id, 'notification', n);
-      void this.push.send(p.id, { id: n.id, title: n.title, body: n.body, link: n.link, severity: n.severity });
+      void this.push.send(p.id, { id: n.id, title: n.title, body: n.body, link: n.link, severity: n.severity, kind: n.kind, homeId });
     }
     if (wanted.length) this.log.log(`${notice.title} -> ${wanted.length} people`);
   }

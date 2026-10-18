@@ -85,6 +85,8 @@ services:
       MAIL_FROM: ${MAIL_FROM:-}
       FIRMWARE_DIR: /data/firmware
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      # phone push (Firebase Cloud Messaging): the service account key, base64 of the JSON file; empty = off (docs/push.md)
+      FCM_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT:-}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       WEB_ORIGIN: https://${DOMAIN}
       COOKIE_SECURE: 'true'

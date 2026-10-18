@@ -8,7 +8,7 @@ from assistant.guard import AGENT, ScopeGuard
 from assistant.home_api import HomeApiError
 from assistant.knowledge import KnowledgeBase
 from assistant.manage import (CONFIRM, CreateSceneTool, DeleteRoomTool, HomeDetailsTool, InvitePersonTool,
-                              RemovePersonTool, UpdateDeviceTool, UpdatePersonTool, home_facts)
+                              ListPeopleTool, RemovePersonTool, UpdateDeviceTool, UpdatePersonTool, home_facts)
 from assistant.web import create_app
 
 from conftest import FakeApi, FakeLLM, FakeSTT, FakeTTS, device
@@ -180,6 +180,43 @@ def test_invite_with_rooms_gives_a_link():
     assert api.changes == [("invite", {"email": "maid@x.pk", "role": "GUEST", "name": "Shazia",
                                        "rooms": [{"roomId": "r1", "access": "CONTROL"}]})]
     assert InvitePersonTool(api).run({"email": "no email"}).startswith("Error: ask for their email")
+
+
+def test_invite_a_guest_for_the_weekend_or_help_at_certain_hours():
+    api = OwnerApi()
+    out = InvitePersonTool(api).run({"email": "maid@x.pk", "role": "guest", "rooms": ["hall"], "from": "9:00", "to": "17:00",
+                                     "days": ["mon", "tue", "wed", "thu", "fri", "saturday"], "until": "2026-12-31T20:00"})
+    assert out.startswith("Invite made for maid@x.pk as guest with 1 room(s). Send them this link")
+    assert api.changes == [("invite", {"email": "maid@x.pk", "role": "GUEST", "rooms": [{"roomId": "r1", "access": "CONTROL"}],
+                                       "accessUntil": "2026-12-31T20:00", "accessFrom": "9:00", "accessTo": "17:00",
+                                       "accessDays": [1, 2, 3, 4, 5, 6]})]
+    assert InvitePersonTool(api).run({"email": "a@x.pk", "from": "9:00"}).startswith("Error: allowed hours need a start and an end")
+    assert InvitePersonTool(api).run({"email": "a@x.pk", "until": "Sunday"}).startswith("Error: give the end as YYYY-MM-DDTHH:MM")
+    assert InvitePersonTool(api).run({"email": "a@x.pk", "days": ["someday"]}).startswith("Error: I don't know the day")
+    assert InvitePersonTool(api).run({"email": "a@x.pk", "role": "admin", "until": "2026-12-31T20:00"}).startswith(
+        "Error: owners and admins can't have hours")
+
+
+def test_extend_or_change_someones_hours():
+    api = OwnerApi()
+    out = UpdatePersonTool(api).run({"person": "sara", "until": "2026-11-01T18:00", "from": "none", "to": "none", "days": ["every day"]})
+    assert out == "Sara: access until 2026-11-01 18:00, any hour, every day."
+    assert api.changes == [("update_user", "u2", {"accessUntil": "2026-11-01T18:00", "accessFrom": None, "accessTo": None, "accessDays": []})]
+    api.changes.clear()
+    assert UpdatePersonTool(api).run({"person": "sara", "until": "none"}) == "Sara: no end date."
+    assert api.changes == [("update_user", "u2", {"accessUntil": None})]
+
+
+def test_people_list_says_who_is_limited():
+    class Limited(OwnerApi):
+        def users(self):
+            return [*super().users(), {"id": "u3", "name": "Shazia", "email": "m@x.pk", "role": "GUEST", "rooms": [],
+                                       "access": {"summary": "9:00–17:00 Mon–Sat", "status": "outside"}},
+                    {"id": "u4", "name": "Bilal", "email": "b@x.pk", "role": "GUEST", "rooms": [],
+                     "access": {"summary": "until Sun 25 Oct, 20:00", "status": "expired"}}]
+    out = ListPeopleTool(Limited()).run({})
+    assert "Shazia <m@x.pk>: guest (outside their hours now: 9:00–17:00 Mon–Sat)" in out
+    assert "Bilal <b@x.pk>: guest (access ended: until Sun 25 Oct, 20:00)" in out
 
 
 def test_change_someones_rooms_and_role():

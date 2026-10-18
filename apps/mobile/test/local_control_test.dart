@@ -113,4 +113,19 @@ void main() {
       throwsA(isA<LocalError>().having((e) => e.message, 'message', contains('home’s Wi‑Fi'))),
     );
   });
+
+  test('"who\'s home": at home when a board of this home answers on the Wi‑Fi', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((req) {
+      req.response.headers.contentType = ContentType.json;
+      req.response.write(jsonEncode({'id': 'esp-home1', 'fw': '2.6.0', 'local': true, 'nonce': 'n1'}));
+      req.response.close();
+    });
+    final host = '127.0.0.1:${server.port}';
+    final client = LocalClient();
+    expect(await client.reachesAny([(nodeId: 'esp-home1', ip: host)]), true);
+    // another home's board at that address doesn't count
+    expect(await client.reachesAny([(nodeId: 'esp-other', ip: host)]), false);
+    await server.close(force: true);
+  });
 }

@@ -27,11 +27,13 @@ import '../../state/favourites.dart';
 import '../../state/home_overview.dart';
 import '../../state/local_control.dart';
 import '../../state/people.dart';
+import '../../state/presence.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
 import '../activity/activity_row.dart';
 import '../devices/device_grid.dart';
 import '../devices/device_tile.dart';
+import '../notices/notifications_screen.dart';
 import '../rooms/room_card.dart';
 import '../routines/scene_card.dart';
 import 'home_actions.dart';
@@ -43,6 +45,8 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final blocked = ref.watch(meProvider.select((m) => m.home?.blocked));
+    if (blocked != null) return AccessPausedView(message: blocked);
     final devices = ref.watch(devicesProvider);
     if (devices.value == null) {
       return devices.hasError
@@ -96,6 +100,7 @@ class HomeScreen extends ConsumerWidget {
           _StatusPill(),
           _PowerCard(),
           _Away(),
+          _WhoIsHome(),
           _EnergyCard(),
           _Scenes(),
           _Favourites(),
@@ -166,12 +171,91 @@ class _Header extends ConsumerWidget {
             ),
           ),
         ),
+        const NoticeBell(),
+        const SizedBox(width: 8),
         Pressable(
           onTap: () => context.go(Routes.me),
           semanticLabel: 'Me',
           child: Avatar(me.initials),
         ),
       ],
+    );
+  }
+}
+
+/// Outside a guest's hours (or after their end): the app opens, the home doesn't — and says why.
+class AccessPausedView extends ConsumerWidget {
+  const AccessPausedView({super.key, required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return RefreshIndicator(
+      onRefresh: () => ref.read(sessionProvider.notifier).reload(),
+      child: ListView(
+        padding: EdgeInsets.fromLTRB(18, MediaQuery.paddingOf(context).top + 8, 18, 130),
+        children: [
+          const _Header(),
+          const SizedBox(height: 40),
+          EmptyView(
+            icon: SbIcons.clock,
+            title: 'Not right now',
+            text: message,
+            action: TextButton(
+              onPressed: () => ref.read(sessionProvider.notifier).reload(),
+              child: const Text('Check again'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Who's home, for owners and admins and for the people who share it.
+class _WhoIsHome extends ConsumerWidget {
+  const _WhoIsHome();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final who = ref.watch(whoIsHomeProvider).value;
+    final manages = ref.watch(meProvider.select((m) => m.home?.manages ?? false));
+    if (who == null || who.people.isEmpty || (!manages && !who.sharing)) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: GroupCard(
+        radius: 22,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(color: c.sf2, borderRadius: BorderRadius.circular(12)),
+                  child: Center(child: SbIcon(SbIcons.users, size: 18, color: c.tx)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(who.line ?? 'Who’s home', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
+                      const SizedBox(height: 2),
+                      Text(
+                        who.people.map((p) => '${p.name.split(' ').first}${p.me ? ' (you)' : ''}: ${p.status.label.toLowerCase()}').join(' · '),
+                        style: TextStyle(fontSize: 13, color: c.mu),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
