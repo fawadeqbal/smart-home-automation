@@ -386,9 +386,31 @@ void MqttBridge::runOta() {
     if (pct / 25 != lastPct / 25) { lastPct = pct; Serial.printf("OTA %d%%\n", pct); }
   });
   // The server sends an x-MD5 header; the core checks the image against it before switching.
+  //
+  // Over HTTPS the download gets its own connection with a full-size (16 KB) receive buffer: the web
+  // server in front of the API sends the file in 16 KB TLS records and does not do MFLN (smaller
+  // records on request), so the 4 KB buffer the MQTT link uses would fail a few KB in. The board
+  // has about 40 KB of memory in all, so the MQTT link is closed first to make room (cleanly: the
+  // broker doesn't announce the board offline), and reopened afterwards.
   HTTPUpdateResult r;
-  if (url.startsWith("https")) r = ESPhttpUpdate.update(secure_, url, FIRMWARE_VERSION);
-  else r = ESPhttpUpdate.update(plain_, url, FIRMWARE_VERSION);
+  String sslError;
+  uint32_t blockBefore = 0;
+  if (url.startsWith("https")) {
+    mqtt_.disconnect();
+    secure_.stop();
+    blockBefore = ESP.getMaxFreeBlockSize();
+    LOG_INFO("Downloading over HTTPS (free memory %u bytes, largest block %u)", ESP.getFreeHeap(), blockBefore);
+    BearSSL::WiFiClientSecure download;
+    download.setTrustAnchors(trustAnchor_);
+    download.setBufferSizes(16384, 512);
+    r = ESPhttpUpdate.update(download, url, FIRMWARE_VERSION);
+    if (r == HTTP_UPDATE_FAILED) {
+      char buf[96];
+      if (download.getLastSSLError(buf, sizeof(buf)) != 0) sslError = buf;
+    }
+  } else {
+    r = ESPhttpUpdate.update(plain_, url, FIRMWARE_VERSION);
+  }
 
   JsonDocument doc;
   doc["ota"]["version"] = otaVersion_;
@@ -398,9 +420,12 @@ void MqttBridge::runOta() {
     LOG_INFO("Firmware %s installed: restarting", otaVersion_.c_str());
     rebootAt_ = millis() + 1500;
   } else {
+    String why = r == HTTP_UPDATE_NO_UPDATES ? String("already up to date") : ESPhttpUpdate.getLastErrorString();
+    if (sslError.length()) why += " (TLS: " + sslError + ")";
+    if (blockBefore && blockBefore < 17000) why += " (the board was low on memory for the download: power it off and on, then try again)";
     doc["ota"]["ok"] = false;
-    doc["ota"]["message"] = r == HTTP_UPDATE_NO_UPDATES ? String("already up to date") : ESPhttpUpdate.getLastErrorString();
-    LOG_ERROR("Firmware update failed: %s", ESPhttpUpdate.getLastErrorString().c_str());
+    doc["ota"]["message"] = why.substring(0, 160);
+    LOG_ERROR("Firmware update failed: %s", why.c_str());
   }
   if (!mqtt_.connected()) connect();
   publishJson(topics_->network(), doc, false);

@@ -100,6 +100,11 @@ Everything the board prints to the Serial Monitor is also sent to the server. In
 If you keep `FIRMWARE_VERSION` unchanged, the board installs the file but still reports the old number — the update
 shows as failed with that explanation.
 
+**Updating over HTTPS (the cloud) needs firmware 2.6.2 or newer on the board.** Older firmware downloaded the file
+over its MQTT connection's small (4 KB) TLS buffer; the cloud web server sends 16 KB TLS records, so the download
+stopped after a few KB and the board kept its old firmware. Boards on 2.5.0 – 2.6.1 in the cloud have to be updated
+once over USB (or on a local network over plain HTTP); from 2.6.2 the download uses its own full-size connection.
+
 ## 6d. Phone control without internet (2.5.0+)
 
 When the home's internet is down but its Wi‑Fi works, the phone app switches the board straight over

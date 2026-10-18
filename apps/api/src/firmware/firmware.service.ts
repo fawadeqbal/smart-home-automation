@@ -182,7 +182,7 @@ export class FirmwareService implements OnModuleInit {
     } else if (p.installed) {
       // it installed the file and restarted, but the file was built with another FIRMWARE_VERSION
       this.pending.delete(nodeId);
-      const message = `installed the file and restarted, but reports firmware ${fw}, not ${p.version} — that file was built with FIRMWARE_VERSION "${fw}" in config.h`;
+      const message = `installed the file and restarted, but reports firmware ${fw}, not ${p.version}. Either that file was built with FIRMWARE_VERSION "${fw}" in config.h, or the board went back to its old firmware (check the board's log; a NodeMCU needs Flash Size "4MB (FS:2MB)" so a new image fits)`;
       this.logs.server(nodeId, 'warn', `Firmware update: ${message}`);
       this.realtime.nodeNetwork(homeId, { nodeId, ota: { ok: false, version: p.version, message } });
       this.result(nodeId, false, p.version, message);

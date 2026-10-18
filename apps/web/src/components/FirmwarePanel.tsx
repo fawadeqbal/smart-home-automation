@@ -15,6 +15,8 @@ interface Image { id: string; version: string; notes: string; size: number; md5:
 
 /** Updates over Wi‑Fi need this firmware (or newer) on the board. */
 const OTA_FROM = '2.2';
+/** From here the board downloads over HTTPS with a full-size buffer; older boards can't take a cloud (HTTPS) download. */
+const HTTPS_OTA_FROM = '2.6.2';
 
 const kb = (bytes: number) => `${Math.round(bytes / 1024).toLocaleString()} KB`;
 
@@ -211,6 +213,9 @@ export function FirmwarePanel({ node }: { node: BoardNode }) {
   const latest = sorted[0];
   const running = node.firmware;
   const otaOk = !running || compare(running, OTA_FROM) >= 0;
+  // the board downloads from this site's address: over HTTPS it needs the bigger buffer of 2.6.2
+  const httpsSite = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  const httpsOld = otaOk && httpsSite && !!running && compare(running, HTTPS_OTA_FROM) < 0;
   const behind = !!(latest && running && compare(latest.version, running) > 0);
   const free = node.health?.freeSketchKb;
   const used = node.health?.sketchKb;
@@ -262,6 +267,12 @@ export function FirmwarePanel({ node }: { node: BoardNode }) {
           <div className="net-advice warn">
             <Icon name="alert-triangle" size={15} />
             <span>Updates over Wi‑Fi start with firmware {OTA_FROM}. Flash this board once with a USB cable (Arduino → Upload); after that every update is over Wi‑Fi.</span>
+          </div>
+        )}
+        {httpsOld && (
+          <div className="net-advice warn">
+            <Icon name="alert-triangle" size={15} />
+            <span>This board runs {running}: it can&apos;t download an update from this server over the internet (its connection buffer is too small for HTTPS downloads; fixed in {HTTPS_OTA_FROM}). Flash it once with a USB cable, or update it on your PC&apos;s local server over plain HTTP. After that, updates work over Wi‑Fi.</span>
           </div>
         )}
         <dl className="fw-facts">
