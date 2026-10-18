@@ -15,8 +15,8 @@ interface Image { id: string; version: string; notes: string; size: number; md5:
 
 /** Updates over Wi‑Fi need this firmware (or newer) on the board. */
 const OTA_FROM = '2.2';
-/** From here the board downloads over HTTPS with a full-size buffer; older boards can't take a cloud (HTTPS) download. */
-const HTTPS_OTA_FROM = '2.6.2';
+/** From here the board takes the file in chunks over its MQTT link; older boards download over HTTPS, which fails from a cloud server. */
+const HTTPS_OTA_FROM = '2.6.3';
 
 const kb = (bytes: number) => `${Math.round(bytes / 1024).toLocaleString()} KB`;
 
@@ -272,7 +272,7 @@ export function FirmwarePanel({ node }: { node: BoardNode }) {
         {httpsOld && (
           <div className="net-advice warn">
             <Icon name="alert-triangle" size={15} />
-            <span>This board runs {running}: it can&apos;t download an update from this server over the internet (its connection buffer is too small for HTTPS downloads; fixed in {HTTPS_OTA_FROM}). Flash it once with a USB cable, or update it on your PC&apos;s local server over plain HTTP. After that, updates work over Wi‑Fi.</span>
+            <span>This board runs {running}: it can&apos;t take an update from this server over the internet (its connection buffer is too small for HTTPS downloads; from {HTTPS_OTA_FROM} the file comes over its MQTT link instead). Flash it once with a USB cable, or update it from a server on your PC over plain HTTP. After that, updates work over Wi‑Fi.</span>
           </div>
         )}
         <dl className="fw-facts">

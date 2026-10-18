@@ -234,12 +234,13 @@ test('after downtime: overdue schedules are skipped or run late by the cut-off, 
     const [d, l, g, o] = ran;
     // a missed "lights on at 7:00" is not done at 9:00; it waits for tomorrow
     assert.equal(d.lastStatus, 'skipped');
-    assert.match(d.lastResult, /^Skipped: the server was down at \d\d:\d\d\.$/);
+    // "at 07:00", or "at Sun 18 Oct, 07:00" when the missed time was on another day (the test may run across midnight)
+    assert.match(d.lastResult, /^Skipped: the server was down at (\w{3} \d{1,2} \w{3}, )?\d\d:\d\d\.$/);
     assert.equal(d.enabled, true);
     assert.ok(new Date(d.nextRunAt).getTime() > Date.now());
     // the one set to "run it late" runs, and says how late
     assert.equal(l.lastStatus, 'ok');
-    assert.match(l.lastResult, /^Ran 2 h late \(the server was down at \d\d:\d\d\)\. Done: Lamp off\.$/);
+    assert.match(l.lastResult, /^Ran 2 h late \(the server was down at (\w{3} \d{1,2} \w{3}, )?\d\d:\d\d\)\. Done: Lamp off\.$/);
     // a missed "geyser off" still runs; a missed "lights on" timer doesn't
     assert.equal(g.lastStatus, 'ok');
     assert.match(g.lastResult, /late .*Done: Geyser off\.$/);

@@ -200,7 +200,12 @@ export class RolloutService implements OnModuleInit, OnModuleDestroy {
       const nodes = new Map((await this.prisma.node.findMany({
         where: { id: { in: pending.map((t) => t.nodeId) } }, select: { id: true, online: true, rssi: true, firmware: true, home: { select: { timezone: true } } },
       })).map((n) => [n.id, n]));
-      const image = { id: r.firmwareId, version: r.version };
+      const file = await this.prisma.firmwareImage.findUnique({ where: { id: r.firmwareId }, select: { size: true, md5: true } });
+      if (!file) {
+        for (const t of pending) await this.prisma.rolloutTarget.update({ where: { id: t.id }, data: { status: TargetStatus.FAILED, doneAt: now, note: 'the firmware file was deleted' } });
+        return;
+      }
+      const image = { id: r.firmwareId, version: r.version, size: file.size, md5: file.md5 };
       for (const t of pending) {
         const n = nodes.get(t.nodeId);
         const skip = (note: string) => this.prisma.rolloutTarget.update({ where: { id: t.id }, data: { status: TargetStatus.SKIPPED, note } });

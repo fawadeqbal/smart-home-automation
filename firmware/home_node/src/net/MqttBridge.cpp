@@ -1,6 +1,7 @@
 #include "MqttBridge.h"
 
 #include <ESP8266httpUpdate.h>
+#include <Updater.h>
 
 #include <ArduinoJson.h>
 #include <time.h>
@@ -77,6 +78,7 @@ void MqttBridge::loop() {
   flushLogs();
   reportNetwork();
   if (otaUrl_.length()) runOta();
+  otaLoop();
 
   if (millis() - lastTelemetry_ >= config_.telemetrySec() * 1000UL) publishTelemetry();
 }
@@ -126,6 +128,7 @@ bool MqttBridge::connect() {
   mqtt_.subscribe(topics_->config().c_str(), 1);
   mqtt_.subscribe(topics_->deviceSetFilter().c_str(), 1);
   mqtt_.subscribe(topics_->cmd().c_str(), 1);
+  mqtt_.subscribe(topics_->otaData().c_str(), 1);
 
   // Tell the server where everything stands: after power-on, or what changed while offline.
   if (!everConnected_) publishAllStates("boot");
@@ -140,6 +143,7 @@ bool MqttBridge::connect() {
 // ---------------------------------------------------------------- incoming
 void MqttBridge::onMessage(char* topic, uint8_t* payload, unsigned int length) {
   if (length == 0) return;   // a cleared retained message
+  if (topics_->otaData() == topic) return otaChunk(payload, length);   // binary, not JSON
   JsonDocument doc;
   if (deserializeJson(doc, payload, length) || !doc.is<JsonObject>()) {
     LOG_WARN("Ignoring a message that is not a JSON object on %s", topic);
@@ -244,10 +248,15 @@ void MqttBridge::handleCmd(JsonObjectConst cmd) {
       publishJson(topics_->network(), doc, false);
     }
   } else if (action == "ota") {
-    // Firmware update over Wi-Fi: done from loop(), not inside this MQTT callback.
-    otaUrl_ = cmd["url"] | "";
     otaVersion_ = cmd["version"] | "?";
-    if (!otaUrl_.startsWith("http")) otaUrl_ = "";
+    if (cmd["size"].is<unsigned int>() && cmd["md5"].is<const char*>()) {
+      // 2.6.3+: the file comes over this very connection, in chunks
+      otaStart(cmd["size"].as<unsigned int>(), cmd["md5"].as<const char*>(), cmd["chunk"] | 1024);
+    } else {
+      // an older server: download over Wi-Fi from loop(), not inside this MQTT callback
+      otaUrl_ = cmd["url"] | "";
+      if (!otaUrl_.startsWith("http")) otaUrl_ = "";
+    }
   } else if (action == "local") {
     // local control: the key phones' passes are checked with (never retained on the broker)
     if (local_ && local_->setKey(cmd["key"] | "", cmd["epoch"] | 0L)) publishTelemetry();
@@ -428,6 +437,85 @@ void MqttBridge::runOta() {
     LOG_ERROR("Firmware update failed: %s", why.c_str());
   }
   if (!mqtt_.connected()) connect();
+  publishJson(topics_->network(), doc, false);
+  flushLogs();
+}
+
+// ---------------------------------------------------------------- firmware over the server link (2.6.3+)
+void MqttBridge::otaStart(size_t size, const String& md5, uint16_t chunk) {
+  if (otaActive_) return;
+  LOG_INFO("Updating firmware %s -> %s over the server link (%u KB, about a minute, do not unplug)...",
+           FIRMWARE_VERSION, otaVersion_.c_str(), (unsigned)(size / 1024));
+  if (size > ESP.getFreeSketchSpace()) {
+    otaFinish(false, "not enough free flash for the new firmware (" + String(size / 1024) + " KB, " + String(ESP.getFreeSketchSpace() / 1024) + " KB free)");
+    return;
+  }
+  Update.clearError();
+  if (!Update.begin(size, U_FLASH)) return otaFinish(false, Update.getErrorString());
+  if (!Update.setMD5(md5.c_str())) return otaFinish(false, "the server sent a bad checksum");
+  otaActive_ = true;
+  otaSize_ = size;
+  otaOffset_ = 0;
+  otaChunk_ = constrain((int)chunk, 256, MQTT_BUFFER_BYTES - 256);
+  otaRetries_ = 0;
+  otaPct_ = 0;
+  otaRequest();
+}
+
+/** Asks the server for the next few chunks (a window: fewer round trips than one at a time). */
+void MqttBridge::otaRequest() {
+  const uint8_t window = 6;
+  JsonDocument doc;
+  doc["from"] = otaOffset_;
+  doc["count"] = window;
+  publishJson(topics_->otaReq(), doc, false);
+  otaWindowEnd_ = std::min(otaOffset_ + (size_t)otaChunk_ * window, otaSize_);
+  otaRequestedAt_ = millis();
+}
+
+/** A chunk from the server: 4 bytes of offset (little-endian), then the bytes. */
+void MqttBridge::otaChunk(const uint8_t* payload, unsigned int length) {
+  if (!otaActive_ || length < 4) return;
+  const uint32_t offset = payload[0] | (payload[1] << 8) | (payload[2] << 16) | ((uint32_t)payload[3] << 24);
+  if (offset != otaOffset_) return;   // a repeat or an old one; the gap is covered by the next request
+  const size_t len = length - 4;
+  if (Update.write(const_cast<uint8_t*>(payload) + 4, len) != len) return otaFinish(false, Update.getErrorString());
+  otaOffset_ += len;
+  otaRetries_ = 0;
+  otaRequestedAt_ = millis();
+  const uint8_t pct = otaOffset_ * 100 / otaSize_;
+  if (pct / 25 != otaPct_ / 25) LOG_INFO("Firmware download %u%%", pct);
+  otaPct_ = pct;
+  if (otaOffset_ >= otaSize_) {
+    if (Update.end()) otaFinish(true, "installed, restarting");
+    else otaFinish(false, Update.getErrorString());
+  } else if (otaOffset_ >= otaWindowEnd_) {
+    otaRequest();
+  }
+}
+
+void MqttBridge::otaLoop() {
+  if (!otaActive_ || !mqtt_.connected()) return;   // after a reconnect the timeout below asks again
+  if (millis() - otaRequestedAt_ < 15000UL) return;
+  if (++otaRetries_ > 4) return otaFinish(false, "the server stopped sending the file");
+  LOG_WARN("No firmware data for 15 s: asking again from byte %u", (unsigned)otaOffset_);
+  otaRequest();
+}
+
+void MqttBridge::otaFinish(bool ok, const String& message) {
+  otaActive_ = false;
+  if (!ok && Update.isRunning()) Update.end(false);   // drops what was written so far
+  Update.clearError();
+  JsonDocument doc;
+  doc["ota"]["version"] = otaVersion_;
+  doc["ota"]["ok"] = ok;
+  doc["ota"]["message"] = message.substring(0, 160);
+  if (ok) {
+    LOG_INFO("Firmware %s installed: restarting", otaVersion_.c_str());
+    rebootAt_ = millis() + 1500;
+  } else {
+    LOG_ERROR("Firmware update failed: %s", message.c_str());
+  }
   publishJson(topics_->network(), doc, false);
   flushLogs();
 }

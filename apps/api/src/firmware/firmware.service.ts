@@ -1,9 +1,9 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
-import { topics } from '@home/contracts';
+import { firmwareAtLeast, OTA_CHUNK_BYTES, OTA_OVER_MQTT_MIN_FIRMWARE, otaRequestPayload, topics } from '@home/contracts';
 import { AuthUser } from '../auth/auth.types';
 import { AuditService } from '../common/audit.service';
 import { likelyVersions, versionInBinary, versionStrings } from '../common/version';
@@ -25,15 +25,33 @@ export function lanAddress(): string | null {
   return all.map((a) => a.address).sort((a, b) => rank(a) - rank(b))[0] ?? null;
 }
 
+interface PendingUpdate {
+  version: string;
+  at: number;
+  by: string;
+  installed?: boolean;
+  /** for boards that take the file in chunks over MQTT (2.6.3+) */
+  imageId: string;
+  size: number;
+  data?: Buffer;
+  sentPct?: number;
+}
+
+/** a board that never answers: forget the update (and the file held in memory) after this long */
+const PENDING_TTL_MS = 20 * 60000;
+
 /**
  * Firmware updates over Wi-Fi (OTA). An owner uploads a build (Arduino: Sketch -> Export Compiled Binary),
- * then sends it to a board. The board downloads it with a signed link that expires in 10 minutes;
- * the x-MD5 header lets the board verify the image before switching to it.
+ * then sends it to a board. Boards on 2.6.3+ take the file in chunks over their MQTT link (ota/req ->
+ * ota/data): the cloud web server sends HTTPS in 16 KB TLS records, which a board's small TLS buffer can't
+ * take, while the MQTT broker sends records the board's size. Older boards download with a signed link
+ * that expires in 10 minutes; the x-MD5 header lets them verify the image before switching to it.
  */
 @Injectable()
-export class FirmwareService implements OnModuleInit {
+export class FirmwareService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Firmware');
-  private readonly pending = new Map<string, { version: string; at: number; by: string; installed?: boolean }>();
+  private readonly pending = new Map<string, PendingUpdate>();
+  private cleanup?: NodeJS.Timeout;
   private readonly listeners: ((nodeId: string, ok: boolean, version: string, message: string) => unknown)[] = [];
 
   /** Staged rollouts hear how each update ended (they depend on this service, so they can't be injected into it). */
@@ -56,6 +74,52 @@ export class FirmwareService implements OnModuleInit {
 
   async onModuleInit() {
     await mkdir(this.settings.firmwareDir, { recursive: true });
+    this.mqtt.on('otaReq', (t, p) => this.onChunkRequest(t.nodeId, p));
+    this.cleanup = setInterval(() => {
+      for (const [nodeId, p] of this.pending) {
+        if (Date.now() - p.at > PENDING_TTL_MS) {
+          this.pending.delete(nodeId);
+          this.logs.server(nodeId, 'warn', `Firmware ${p.version}: the board never finished the update`);
+        }
+      }
+    }, 60000);
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.cleanup);
+  }
+
+  /** A board asks for the next chunks of the file it is installing. */
+  private async onChunkRequest(nodeId: string, payload: Record<string, unknown> | null) {
+    const p = this.pending.get(nodeId);
+    if (!p) {
+      this.logs.server(nodeId, 'warn', 'The board asked for firmware data, but no update is running for it');
+      return;
+    }
+    const parsed = otaRequestPayload.safeParse(payload);
+    if (!parsed.success) return;
+    const { from, count } = parsed.data;
+    if (from > p.size) return;
+    if (!p.data) {
+      p.data = await readFile(this.path(p.imageId)).catch(() => undefined);
+      if (!p.data) {
+        this.pending.delete(nodeId);
+        this.logs.server(nodeId, 'error', `Firmware ${p.version}: the file is missing on the server. Upload the build again.`);
+        return;
+      }
+      this.logs.server(nodeId, 'info', `Board is downloading firmware ${p.version} over the server link (${Math.round(p.size / 1024)} KB)`);
+    }
+    p.at = Date.now();
+    for (let i = 0; i < count; i++) {
+      const start = from + i * OTA_CHUNK_BYTES;
+      if (start >= p.size) break;
+      const head = Buffer.alloc(4);
+      head.writeUInt32LE(start);
+      await this.mqtt.publishRaw(topics.otaData(nodeId), Buffer.concat([head, p.data.subarray(start, Math.min(start + OTA_CHUNK_BYTES, p.size))]), { qos: 1 });
+    }
+    const pct = Math.floor(Math.min(from + count * OTA_CHUNK_BYTES, p.size) * 100 / p.size);
+    if (Math.floor(pct / 25) !== Math.floor((p.sentPct ?? 0) / 25)) this.logs.server(nodeId, 'info', `Firmware ${p.version}: ${pct}% sent`);
+    p.sentPct = pct;
   }
 
   /** The organization's builds, plus shared ones uploaded before organizations existed. */
@@ -128,15 +192,25 @@ export class FirmwareService implements OnModuleInit {
     return { version: image.version, url: base };
   }
 
-  /** Tells one board to download and install a build (checks are the caller's). */
-  async send(nodeId: string, image: { id: string; version: string }, by: string) {
+  /**
+   * Tells one board to download and install a build (checks are the caller's). Boards on 2.6.3+ get the
+   * file's size and MD5 and pull it in chunks over MQTT; older ones get a signed download link too.
+   */
+  async send(nodeId: string, image: { id: string; version: string; size: number; md5: string }, by: string) {
     const base = this.settings.publicApiUrl ?? (lanAddress() ? `http://${lanAddress()}:${this.settings.port}` : null);
     if (!base) throw new BadRequestException('Set PUBLIC_API_URL in .env so boards can reach this server.');
+    const node = await this.prisma.node.findUnique({ where: { id: nodeId }, select: { firmware: true } });
+    const overMqtt = firmwareAtLeast(node?.firmware, OTA_OVER_MQTT_MIN_FIRMWARE);
     const exp = Date.now() + LINK_TTL_MS;
     const url = `${base}/api/firmware/${image.id}/download?node=${nodeId}&exp=${exp}&sig=${this.sign(image.id, nodeId, exp)}`;
-    await this.mqtt.publish(topics.cmd(nodeId), { action: 'ota', url, version: image.version }, { qos: 1 });
-    this.pending.set(nodeId, { version: image.version, at: Date.now(), by });
-    this.logs.server(nodeId, 'info', `Firmware ${image.version} sent to the board by ${by} (it downloads from ${base})`);
+    await this.mqtt.publish(topics.cmd(nodeId), {
+      action: 'ota', url, version: image.version,
+      ...(overMqtt ? { size: image.size, md5: image.md5, chunk: OTA_CHUNK_BYTES } : {}),
+    }, { qos: 1 });
+    this.pending.set(nodeId, { version: image.version, at: Date.now(), by, imageId: image.id, size: image.size });
+    this.logs.server(nodeId, 'info', overMqtt
+      ? `Firmware ${image.version} sent to the board by ${by} (it takes the file over its server link)`
+      : `Firmware ${image.version} sent to the board by ${by} (it downloads from ${base})`);
     return base;
   }
 
@@ -162,8 +236,10 @@ export class FirmwareService implements OnModuleInit {
   outcome(nodeId: string, homeId: string, ok: boolean, message: string, version?: string) {
     const p = this.pending.get(nodeId);
     if (!p) return;
-    if (ok) p.installed = true;
-    else {
+    if (ok) {
+      p.installed = true;
+      p.data = undefined;
+    } else {
       this.pending.delete(nodeId);
       this.result(nodeId, false, p.version, message);
     }

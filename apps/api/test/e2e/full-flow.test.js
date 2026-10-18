@@ -932,6 +932,11 @@ test('firmware: upload a build, send it to a board over Wi-Fi, the board verifie
   const sent = await owner.post(`/nodes/${NODE_ID}/update`, { firmwareId: fw.id });
   assert.equal(sent.status, 201);
   await until('board runs the new firmware', async () => (await owner.get('/nodes')).body.find((n) => n.id === NODE_ID)?.firmware === '2.9.0-test', 10000);
+  // a 2.6.3+ board takes the file in chunks over its MQTT link (the cloud web server's HTTPS records are too big for it)
+  const fwLog = JSON.stringify((await owner.get(`/nodes/${NODE_ID}/logs`)).body);
+  assert.match(fwLog, /over the server link/);
+  assert.match(fwLog, /100% sent/);
+  assert.match(fwLog, /now running after restart/);
 
   // an old build without the stamp, labelled 3.0.0: the board installs it but still reports what it was built as
   const legacy = await upload(stamped(null), '3.0.0');

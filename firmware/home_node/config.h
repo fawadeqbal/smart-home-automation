@@ -8,7 +8,7 @@
 // Raise this for every build you upload in the web app (Board → Firmware). It is stamped into the
 // .bin, the web app reads it from the file, and the board reports it after installing — so a build
 // with the same number as the old one looks like "nothing changed".
-#define FIRMWARE_VERSION      "2.6.2"
+#define FIRMWARE_VERSION      "2.6.3"
 
 // The board type reported to the server. Must match packages/contracts/src/boards.ts:
 //   "NODEMCU_V2"  or  "WEMOS_D1_MINI"  (both have the same usable pins)

@@ -18,6 +18,9 @@ class Topics {
   String deviceState(const String& key) const { return base_ + "devices/" + key + "/state"; }
   String deviceSetFilter() const { return base_ + "devices/+/set"; }
   String inputEvent(uint8_t pin) const { return base_ + "inputs/" + String(pin) + "/event"; }
+  /** firmware update over the server link (2.6.3+): the board asks for chunks, the server sends them */
+  String otaReq() const { return base_ + "ota/req"; }
+  String otaData() const { return base_ + "ota/data"; }
 
   /** "home/v1/nodes/<id>/devices/<key>/set" -> "<key>", or "" for any other topic. */
   String keyFromSet(const String& topic) const {

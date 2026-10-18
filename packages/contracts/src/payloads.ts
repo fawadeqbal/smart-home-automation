@@ -59,6 +59,19 @@ export const loginCommand = z.object({
   password: z.string().regex(/^[A-Za-z0-9_-]{24,64}$/),
 });
 
+/**
+ * Firmware update over the server link (firmware 2.6.3+). The ota command carries the file's size and MD5 (and
+ * the chunk size); the board asks for chunks on ota/req and the server answers on ota/data with
+ * 4 bytes of offset (little-endian) followed by the bytes. The MD5 comes over the authenticated MQTT link,
+ * so the board can trust it. Older boards get a download URL instead and fetch it over HTTP(S).
+ */
+export const OTA_OVER_MQTT_MIN_FIRMWARE = '2.6.3';
+export const OTA_CHUNK_BYTES = 1024;
+export const otaRequestPayload = z.object({
+  from: z.number().int().min(0),
+  count: z.number().int().min(1).max(32).default(6),
+});
+
 /** A button press or a wall switch flip, from the board (the switch was already toggled on the board, if it has one). */
 export const inputEventPayload = z.object({
   gesture: z.enum(['single', 'double', 'long', 'flip']),

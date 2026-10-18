@@ -91,11 +91,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     await this.client.publishAsync(topic, payload === null ? '' : JSON.stringify(payload), options);
   }
 
+  /** Bytes as they are (firmware chunks). */
+  async publishRaw(topic: string, payload: Buffer, options: IClientPublishOptions = { qos: 1 }) {
+    if (!this.client) throw new Error('MQTT not started');
+    await this.client.publishAsync(topic, payload, options);
+  }
+
   private dispatch(topic: string, buffer: Buffer) {
     const raw = this.raw.get(topic);
     if (raw) return raw(buffer);
     const parsed = parseTopic(topic);
-    if (!parsed) return;
+    if (!parsed || parsed.kind === 'otaData') return;   // (otaData is our own binary, echoed back by the broker)
     let payload: Record<string, unknown> | null = null;
     if (buffer.length > 0) {
       try {

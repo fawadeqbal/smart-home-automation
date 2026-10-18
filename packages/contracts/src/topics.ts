@@ -13,6 +13,8 @@
  *   home/v1/nodes/{nodeId}/log                    board -> server             one log line (live logs)
  *   home/v1/nodes/{nodeId}/network                board -> server             Wi-Fi scan results / Wi-Fi change result
  *   home/v1/nodes/{nodeId}/inputs/{pin}/event     board -> server             a button press or wall switch flip
+ *   home/v1/nodes/{nodeId}/ota/req                board -> server             {from, count}: send me these firmware chunks (2.6.3+)
+ *   home/v1/nodes/{nodeId}/ota/data               server -> board  binary     4 bytes offset (LE) + the chunk
  */
 export const ROOT = 'home/v1';
 
@@ -28,12 +30,14 @@ export const topics = {
   log: (nodeId: string) => `${ROOT}/nodes/${nodeId}/log`,
   network: (nodeId: string) => `${ROOT}/nodes/${nodeId}/network`,
   inputEvent: (nodeId: string, pin: number) => `${ROOT}/nodes/${nodeId}/inputs/${pin}/event`,
+  otaReq: (nodeId: string) => `${ROOT}/nodes/${nodeId}/ota/req`,
+  otaData: (nodeId: string) => `${ROOT}/nodes/${nodeId}/ota/data`,
   /** What the server subscribes to. */
   allFromNodes: `${ROOT}/nodes/+/#`,
 };
 
 export type ParsedTopic =
-  | { kind: 'status' | 'announce' | 'config' | 'configApplied' | 'telemetry' | 'cmd' | 'log' | 'network'; nodeId: string }
+  | { kind: 'status' | 'announce' | 'config' | 'configApplied' | 'telemetry' | 'cmd' | 'log' | 'network' | 'otaReq' | 'otaData'; nodeId: string }
   | { kind: 'deviceSet' | 'deviceState'; nodeId: string; key: string }
   | { kind: 'inputEvent'; nodeId: string; pin: number };
 
@@ -60,6 +64,10 @@ export function parseTopic(topic: string): ParsedTopic | null {
       return { kind: rest, nodeId };
     case 'config/applied':
       return { kind: 'configApplied', nodeId };
+    case 'ota/req':
+      return { kind: 'otaReq', nodeId };
+    case 'ota/data':
+      return { kind: 'otaData', nodeId };
   }
   if (parts.length === 7 && parts[4] === 'devices' && (parts[6] === 'set' || parts[6] === 'state')) {
     return { kind: parts[6] === 'set' ? 'deviceSet' : 'deviceState', nodeId, key: parts[5] };

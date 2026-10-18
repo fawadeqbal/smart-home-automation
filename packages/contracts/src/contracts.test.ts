@@ -12,6 +12,8 @@ test('topics round-trip through parseTopic', () => {
   assert.equal(parseTopic('home/v1/nodes/x/devices/bulb/other'), null);
   assert.deepEqual(parseTopic(topics.inputEvent('esp-1a2b', 14)), { kind: 'inputEvent', nodeId: 'esp-1a2b', pin: 14 });
   assert.equal(parseTopic('home/v1/nodes/x/inputs/abc/event'), null);
+  assert.deepEqual(parseTopic(topics.otaReq('esp-1a2b')), { kind: 'otaReq', nodeId: 'esp-1a2b' });
+  assert.deepEqual(parseTopic(topics.otaData('esp-1a2b')), { kind: 'otaData', nodeId: 'esp-1a2b' });
 });
 
 test('pin rules', () => {

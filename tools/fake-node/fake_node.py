@@ -47,7 +47,7 @@ except ImportError:
     sys.exit("Install the MQTT library first:  pip install paho-mqtt")
 
 ROOT = "home/v1"
-FIRMWARE = "2.6.0-fake"   # what the fake can do: wall switches, gestures, local control, fans, tanks, own login
+FIRMWARE = "2.6.3-fake"   # what the fake can do: wall switches, gestures, local control, fans, tanks, own login, OTA over MQTT
 # Same rules as packages/contracts/src/boards.ts
 PINS = {5: "D1", 4: "D2", 14: "D5", 12: "D6", 13: "D7", 16: "D0", 15: "D8", 0: "D3", 2: "D4", 3: "RX", 17: "A0"}
 USES = {5: "ois", 4: "ois", 14: "ois", 12: "ois", 13: "ois", 16: "o", 15: "o", 0: "i", 2: "oi", 3: "is", 17: "a"}
@@ -77,6 +77,7 @@ class FakeNode:
         self.offline_src = ""   # set when something changed while the server was away: "local" (phone) or "button"
         self.dropped = False
         self.firmware = FIRMWARE
+        self.ota: dict | None = None   # a firmware update in progress over the server link
         self.devices: dict[str, dict] = {}   # key -> {"type", "pin", "settings", "state"}
         self.inputs: dict[int, str] = {}     # pin -> target key ('' for a button that only runs actions)
         self.saved_switches: dict[str, bool] = {}
@@ -158,7 +159,7 @@ class FakeNode:
         self.publish(self.t("status"), {"online": True, "fw": self.firmware, "ip": self.ip()}, retain=True)
         self.publish(self.t("announce"), {"board": self.board, "fw": self.firmware, "mac": "02:00:00:00:00:01", "ip": self.ip(),
                                           "login": "own" if self.using_own else "shared"}, retain=True)
-        client.subscribe([(self.t("config"), 1), (self.t("devices", "+", "set"), 1), (self.t("cmd"), 1)])
+        client.subscribe([(self.t("config"), 1), (self.t("devices", "+", "set"), 1), (self.t("cmd"), 1), (self.t("ota", "data"), 1)])
         if self.offline_src:   # like the firmware: tell the server what changed while it was away
             with self.lock:
                 for key, d in self.devices.items():
@@ -168,6 +169,8 @@ class FakeNode:
         self.report()   # fresh health right away, like the firmware
 
     def on_message(self, client, userdata, msg):
+        if msg.topic == self.t("ota", "data"):   # binary: 4 bytes offset, then the bytes
+            return self.ota_chunk(msg.payload)
         try:
             payload = json.loads(msg.payload or b"null")
         except ValueError:
@@ -195,7 +198,10 @@ class FakeNode:
         elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "reboot":
             self.say("reboot requested (ignored by the fake board)")
         elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "ota":
-            threading.Thread(target=self.fake_ota, args=(str(payload.get("url", "")), str(payload.get("version", "?"))), daemon=True).start()
+            if isinstance(payload.get("size"), int) and payload.get("md5"):
+                self.ota_start(int(payload["size"]), str(payload["md5"]), str(payload.get("version", "?")), int(payload.get("chunk", 1024)))
+            else:
+                threading.Thread(target=self.fake_ota, args=(str(payload.get("url", "")), str(payload.get("version", "?"))), daemon=True).start()
         elif msg.topic == self.t("cmd") and isinstance(payload, dict) and payload.get("action") == "scan":
             self.say("Wi-Fi scan requested")
             # a real scan takes a few seconds
@@ -528,6 +534,48 @@ class FakeNode:
         self.report()   # once more shortly after start (by then the server usually has it adopted)
         while not self.stop.wait(self.telemetry_sec):
             self.report()
+
+    # ------------------------------------------------------------ firmware over the server link (like firmware 2.6.3)
+    OTA_WINDOW = 6
+
+    def ota_start(self, size: int, md5: str, version: str, chunk: int) -> None:
+        self.say(f"firmware update to {version} over the server link ({size // 1024} KB)")
+        self.ota = {"size": size, "md5": md5, "version": version, "chunk": chunk, "buf": bytearray(), "end": 0}
+        self.ota_request()
+
+    def ota_request(self) -> None:
+        o = self.ota
+        self.publish(self.t("ota", "req"), {"from": len(o["buf"]), "count": self.OTA_WINDOW})
+        o["end"] = min(len(o["buf"]) + o["chunk"] * self.OTA_WINDOW, o["size"])
+
+    def ota_chunk(self, payload: bytes) -> None:
+        o = self.ota
+        if not o or len(payload) < 4:
+            return
+        offset = int.from_bytes(payload[:4], "little")
+        if offset != len(o["buf"]):
+            return   # a repeat; the next request covers the gap
+        o["buf"] += payload[4:]
+        if len(o["buf"]) >= o["size"]:
+            data = bytes(o["buf"])
+            self.ota = None
+            if hashlib.md5(data).hexdigest() != o["md5"]:
+                self.publish(self.t("network"), {"ota": {"ok": False, "version": o["version"], "message": "Verify Binary Failed"}})
+                self.say("firmware update failed: MD5 mismatch", "error")
+                return
+            self.publish(self.t("network"), {"ota": {"ok": True, "version": o["version"], "message": "installed, restarting"}})
+            threading.Timer(0.5, self.ota_restart, args=(data,)).start()
+        elif len(o["buf"]) >= o["end"]:
+            self.ota_request()
+
+    def ota_restart(self, data: bytes) -> None:
+        """Like the real board after restarting: it runs (and reports) the version compiled into the file."""
+        import re
+        stamp = re.search(rb"@@HOMENODE-FW:([\w.+-]{1,40})@@", data)
+        self.firmware = stamp.group(1).decode() if stamp else self.firmware
+        self.publish(self.t("announce"), {"board": self.board, "fw": self.firmware, "mac": "02:00:00:00:00:01", "ip": self.ip(),
+                                          "login": "own" if self.using_own else "shared"}, retain=True)
+        self.say(f"now running firmware {self.firmware}")
 
     def fake_ota(self, url: str, version: str) -> None:
         """Downloads the image like the real board, checks the x-MD5 header, then 'restarts' on the new version."""

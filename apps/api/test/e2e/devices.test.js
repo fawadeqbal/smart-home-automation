@@ -212,3 +212,25 @@ test('boards on older firmware are told to update before getting a fan or tank',
   assert.equal(res.status, 400);
   assert.match(res.body.message, /firmware 2\.6\.0/);
 });
+
+test('a real-size firmware image (560 KB) arrives in chunks over the MQTT link and the board runs it', async () => {
+  await prisma.node.update({ where: { id: NODE_ID }, data: { firmware: '2.6.3-fake' } });
+  const image = new Uint8Array(560 * 1024);
+  for (let i = 0; i < image.length; i++) image[i] = (i * 31) & 0xff;   // not all the same byte: a real file
+  image[0] = 0xe9;
+  image.set(new TextEncoder().encode('@@HOMENODE-FW:2.11.0-test@@'), 100);
+  const form = new FormData();
+  form.append('file', new Blob([image]), 'home_node.ino.bin');
+  const up = await fetch(`${base}/firmware`, { method: 'POST', body: form, headers: { Cookie: owner.cookieHeader } });
+  const upText = await up.text();
+  assert.equal(up.status, 201, upText);
+  const fw = JSON.parse(upText);
+  const t0 = Date.now();
+  assert.equal((await owner.post(`/nodes/${NODE_ID}/update`, { firmwareId: fw.id })).status, 201);
+  await until('board runs 2.11.0-test', async () => (await board())?.firmware === '2.11.0-test', 60000);
+  const seconds = (Date.now() - t0) / 1000;
+  const log = JSON.stringify((await owner.get(`/nodes/${NODE_ID}/logs`)).body);
+  assert.match(log, /over the server link \(560 KB\)/);
+  assert.match(log, /100% sent/);
+  assert.ok(seconds < 45, `took ${seconds} s`);
+});

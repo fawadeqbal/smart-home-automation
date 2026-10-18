@@ -42,6 +42,18 @@ class MqttBridge : public DeviceListener {
   WifiSwitch wifiSwitch_;
   void runOta();
   String otaUrl_, otaVersion_;
+  // Firmware update over the server link (2.6.3+): the file comes in chunks over MQTT, which the board
+  // can take with its small TLS buffer (the cloud web server can't send small enough HTTPS records).
+  void otaStart(size_t size, const String& md5, uint16_t chunk);
+  void otaChunk(const uint8_t* payload, unsigned int length);
+  void otaRequest();
+  void otaLoop();
+  void otaFinish(bool ok, const String& message);
+  bool otaActive_ = false;
+  size_t otaSize_ = 0, otaOffset_ = 0, otaWindowEnd_ = 0;
+  uint16_t otaChunk_ = 1024;
+  uint32_t otaRequestedAt_ = 0;
+  uint8_t otaRetries_ = 0, otaPct_ = 0;
   bool scanning_ = false;
   uint16_t connects_ = 0;   // successful connections since boot (more than 1 = it dropped)
   void onMessage(char* topic, uint8_t* payload, unsigned int length);
