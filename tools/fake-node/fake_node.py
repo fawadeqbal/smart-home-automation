@@ -38,6 +38,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 try:
     import paho.mqtt.client as mqtt
@@ -485,8 +486,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--id", default="esp-fake01", help="node id (the real board uses esp-<chip id>)")
     parser.add_argument("--board", default="NODEMCU_V2")
-    parser.add_argument("--host", default="localhost")
-    parser.add_argument("--port", type=int, default=1883)
+    # defaults from MQTT_URL (mqtt://host:port), like the API
+    broker = urlparse(os.environ.get("MQTT_URL") or env.get("MQTT_URL") or "mqtt://localhost:1883")
+    parser.add_argument("--host", default=broker.hostname or "localhost")
+    parser.add_argument("--port", type=int, default=broker.port or 1883)
     parser.add_argument("--user", default="node")
     parser.add_argument("--password", default=env.get("MQTT_NODE_PASSWORD", ""))
     parser.add_argument("--keepalive", type=int, default=15, help="seconds; the broker declares the board offline after 1.5x this")
