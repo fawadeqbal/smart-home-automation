@@ -42,7 +42,9 @@ class SectionHeader extends StatelessWidget {
             style: TextButton.styleFrom(
               foregroundColor: c.acText,
               minimumSize: const Size(44, 36),
+              // a button's text style replaces the theme's, so it must name the app font itself
               textStyle: const TextStyle(
+                fontFamily: SbFonts.sans,
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
