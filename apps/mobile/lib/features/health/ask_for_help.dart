@@ -300,6 +300,13 @@ class _RequestState extends ConsumerState<_Request> {
                     ),
                   ),
           const SizedBox(height: 12),
+          if (t.done && (t.canRate || t.rating != null)) ...[
+            _RateHelp(ticket: t, onRated: () {
+              ref.invalidate(_ticketProvider(widget.id));
+              ref.invalidate(ticketsProvider);
+            }),
+            const SizedBox(height: 12),
+          ],
           if (t.done)
             BigButton(label: 'Still a problem? Open it again', busy: _busy, onTap: () => _reply(solved: false))
           else ...[
@@ -307,6 +314,112 @@ class _RequestState extends ConsumerState<_Request> {
             BigButton(label: 'Send', icon: SbIcons.paperPlane, busy: _busy, onTap: _reply),
             const SizedBox(height: 6),
             TextButton(onPressed: _busy ? null : () => _reply(solved: true), child: Text('It’s solved', style: TextStyle(color: c.okText))),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// "How was the help you got?": 1 to 5 stars and a few words, once the request is solved.
+/// Only the person who asked can rate it; they can change it for 7 days.
+class _RateHelp extends ConsumerStatefulWidget {
+  const _RateHelp({required this.ticket, required this.onRated});
+  final Ticket ticket;
+  final VoidCallback onRated;
+
+  @override
+  ConsumerState<_RateHelp> createState() => _RateHelpState();
+}
+
+class _RateHelpState extends ConsumerState<_RateHelp> {
+  late int _stars = widget.ticket.rating ?? 0;
+  late final _comment = TextEditingController(text: widget.ticket.ratingComment ?? '');
+  late bool _editing = widget.ticket.rating == null;
+  bool _busy = false;
+
+  static const _words = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Excellent'];
+
+  @override
+  void dispose() {
+    _comment.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_stars == 0) return;
+    setState(() => _busy = true);
+    final toast = ref.read(toastProvider.notifier);
+    try {
+      await ref.read(homeRepositoryProvider).rateTicket(widget.ticket.id, _stars, comment: _comment.text);
+      if (mounted) setState(() => _editing = false);
+      toast.show('Thank you for rating the help.');
+      widget.onRated();
+    } catch (e) {
+      toast.show(ApiException.from(e).message, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _starRow(BuildContext context, {required bool editable}) {
+    final c = context.sb;
+    return Row(
+      children: [
+        for (var n = 1; n <= 5; n++)
+          Semantics(
+            button: editable,
+            selected: n == _stars,
+            label: '$n star${n == 1 ? '' : 's'}: ${_words[n]}',
+            child: InkResponse(
+              onTap: editable && !_busy ? () => setState(() => _stars = n) : null,
+              radius: 24,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: SbIcon(SbIcons.star, size: 30, color: n <= _stars ? c.on : c.mu, weight: n <= _stars ? IconWeight.fill : IconWeight.regular),
+              ),
+            ),
+          ),
+        const SizedBox(width: 8),
+        if (_stars > 0) Text(_words[_stars], style: TextStyle(fontSize: 14, color: c.mu)),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sb;
+    final t = widget.ticket;
+    final until = t.rateUntil;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: c.sf2, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(_editing ? 'How was the help you got?' : 'Your rating', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
+          const SizedBox(height: 6),
+          _starRow(context, editable: _editing),
+          if (_editing) ...[
+            TextField(
+              controller: _comment,
+              minLines: 1,
+              maxLines: 3,
+              maxLength: 500,
+              decoration: const InputDecoration(hintText: 'A few words (optional)'),
+            ),
+            BigButton(label: t.rating == null ? 'Send rating' : 'Save rating', busy: _busy, onTap: _stars == 0 ? null : _send),
+          ] else ...[
+            if ((t.ratingComment ?? '').isNotEmpty)
+              Text('“${t.ratingComment}”', style: TextStyle(fontSize: 14, color: c.mu)),
+            if (t.canRate)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(() => _editing = true),
+                  child: Text(until == null ? 'Change it' : 'Change it (until ${until.day}/${until.month})', style: TextStyle(color: c.acText)),
+                ),
+              ),
           ],
         ],
       ),

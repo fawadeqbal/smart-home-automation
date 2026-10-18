@@ -20,7 +20,19 @@ class TicketMessage {
 
 /// A help request from this home (`/support/tickets`).
 class Ticket {
-  const Ticket({required this.id, required this.number, required this.title, this.status = 'OPEN', this.statusText = '', this.updatedAt, this.messages = const []});
+  const Ticket({
+    required this.id,
+    required this.number,
+    required this.title,
+    this.status = 'OPEN',
+    this.statusText = '',
+    this.updatedAt,
+    this.messages = const [],
+    this.rating,
+    this.ratingComment,
+    this.canRate = false,
+    this.rateUntil,
+  });
 
   factory Ticket.fromJson(Json j) => Ticket(
         id: str(j['id']),
@@ -30,6 +42,10 @@ class Ticket {
         statusText: str(j['statusText']),
         updatedAt: dateOrNull(j['updatedAt']),
         messages: asJsonList(j['messages']).map(TicketMessage.fromJson).toList(),
+        rating: switch (j['rating']) { final num n when n >= 1 && n <= 5 => n.round(), _ => null },
+        ratingComment: strOrNull(j['ratingComment']),
+        canRate: boolean(j['canRate']),
+        rateUntil: dateOrNull(j['rateUntil']),
       );
 
   final String id;
@@ -39,6 +55,14 @@ class Ticket {
   final String statusText;
   final DateTime? updatedAt;
   final List<TicketMessage> messages;
+
+  /// 1 to 5 stars from the person who asked, once it is solved (null: not rated).
+  final int? rating;
+  final String? ratingComment;
+
+  /// This person may rate it now (they asked, it is solved, and 7 days haven't passed since rating).
+  final bool canRate;
+  final DateTime? rateUntil;
 
   bool get done => status == 'RESOLVED' || status == 'CLOSED';
   bool get waitingForYou => status == 'WAITING';

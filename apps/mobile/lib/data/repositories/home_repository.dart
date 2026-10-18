@@ -36,6 +36,10 @@ class HomeRepository {
 
   Future<Ticket> replyToTicket(String id, String body, {bool? solved}) async =>
       Ticket.fromJson(asJson(await _api.post<Object?>('/support/tickets/$id/reply', {'body': body, 'solved': ?solved})));
+
+  /// Rates the help on a solved request (the person who asked; can be changed for 7 days).
+  Future<Ticket> rateTicket(String id, int stars, {String? comment}) async => Ticket.fromJson(asJson(
+      await _api.post<Object?>('/support/tickets/$id/rating', {'stars': stars, if (comment != null && comment.trim().isNotEmpty) 'comment': comment.trim()})));
 }
 
 final homeRepositoryProvider = Provider<HomeRepository>(
