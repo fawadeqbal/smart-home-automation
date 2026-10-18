@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import { clientIp } from '../common/client-ip';
 import { ZodPipe } from '../common/zod';
 import { MqttService } from '../mqtt/mqtt.service';
 import { UsersService } from '../users/users.service';
@@ -63,14 +64,14 @@ export class AuthController {
   @Post('forgot')
   @HttpCode(200)
   forgot(@Body(new ZodPipe(forgotSchema)) body: z.infer<typeof forgotSchema>, @Req() req: Request) {
-    return this.passwords.forgot(body.email, req.ip ?? '');
+    return this.passwords.forgot(body.email, clientIp(req));
   }
 
   /** What the reset page shows: whose account, until when. */
   @Public()
   @Get('reset/:token')
-  resetInfo(@Param('token') token: string) {
-    return this.passwords.info(token);
+  resetInfo(@Param('token') token: string, @Req() req: Request) {
+    return this.passwords.info(token, clientIp(req));
   }
 
   /** A new password from a link; signs them in here and out everywhere else. */
@@ -79,7 +80,7 @@ export class AuthController {
   @HttpCode(200)
   async reset(@Param('token') token: string, @Body(new ZodPipe(resetSchema)) body: z.infer<typeof resetSchema>,
               @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const user = await this.passwords.reset(token, body.password, res, req.headers['user-agent']);
+    const user = await this.passwords.reset(token, body.password, res, req.headers['user-agent'], clientIp(req));
     if (user.totpEnabledAt) return { twoFactor: true, signIn: true };
     return this.users.me(user.id);
   }
@@ -98,7 +99,7 @@ export class AuthController {
   async signup(@Body(new ZodPipe(signupSchema)) body: z.infer<typeof signupSchema>, @Req() req: Request,
                @Res({ passthrough: true }) res: Response) {
     const user = await this.auth.signup(body);
-    await this.auth.startSession(user, res, req.headers['user-agent']);
+    await this.auth.startSession(user, res, req.headers['user-agent'], clientIp(req));
     await this.mqtt.resubscribe(); // a first organization picks up boards that announced before it existed
     return this.users.me(user.id);
   }
@@ -109,7 +110,7 @@ export class AuthController {
   async setup(@Body(new ZodPipe(setupSchema)) body: z.infer<typeof setupSchema>, @Req() req: Request,
               @Res({ passthrough: true }) res: Response) {
     const user = await this.auth.setup(body);
-    await this.auth.startSession(user, res, req.headers['user-agent']);
+    await this.auth.startSession(user, res, req.headers['user-agent'], clientIp(req));
     await this.mqtt.resubscribe(); // pick up boards that announced before the home existed
     return this.users.me(user.id);
   }
@@ -119,9 +120,10 @@ export class AuthController {
   @HttpCode(200)
   async login(@Body(new ZodPipe(loginSchema)) body: z.infer<typeof loginSchema>, @Req() req: Request,
               @Res({ passthrough: true }) res: Response) {
-    const user = await this.auth.login(body.email, body.password);
+    const ip = clientIp(req);
+    const user = await this.auth.login(body.email, body.password, ip);
     if (user.totpEnabledAt) return { twoFactor: true, ticket: await this.twoFactor.ticket(user) };
-    await this.auth.startSession(user, res, req.headers['user-agent'], req.ip);
+    await this.auth.startSession(user, res, req.headers['user-agent'], ip);
     return this.users.me(user.id);
   }
 
@@ -130,8 +132,9 @@ export class AuthController {
   @Post('login/code')
   @HttpCode(200)
   async loginCode(@Body(new ZodPipe(codeSchema)) body: z.infer<typeof codeSchema>, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const r = await this.twoFactor.check(body.ticket, body.code);
-    await this.auth.startSession(r.user, res, req.headers['user-agent'], req.ip);
+    const ip = clientIp(req);
+    const r = await this.twoFactor.check(body.ticket, body.code, ip);
+    await this.auth.startSession(r.user, res, req.headers['user-agent'], ip);
     return { ...(await this.users.me(r.user.id)), ...(r.usedRecovery ? { recoveryLeft: r.left } : {}) };
   }
 
@@ -202,7 +205,7 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(200)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const user = await this.auth.refresh(req.cookies?.[REFRESH_COOKIE], res, req.ip);
+    const user = await this.auth.refresh(req.cookies?.[REFRESH_COOKIE], res, clientIp(req));
     return this.users.me(user.id);
   }
 

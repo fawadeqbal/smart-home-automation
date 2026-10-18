@@ -5,6 +5,7 @@ import { verify } from '@node-rs/argon2';
 import { Access, Prisma, Role, StaffRole } from '@prisma/client';
 import { AuthService, randomToken, sha256 } from '../auth/auth.service';
 import { AuthUser, canSetup, isAdmin } from '../auth/auth.types';
+import { LoginLimiter } from '../auth/login-limiter';
 import { AuditService } from '../common/audit.service';
 import { LocalService } from '../hardware/local.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +22,7 @@ export class UsersService {
     private readonly audit: AuditService,
     private readonly realtime: RealtimeService,
     private readonly local: LocalService,
+    private readonly limiter: LoginLimiter,
   ) {}
 
   /**
@@ -220,8 +222,11 @@ export class UsersService {
   }
 
   // ---------------------------------------------------------------- accepting any invite (home or staff)
-  private async openInvite(token: string) {
+  /** An invite link that works. Links that never existed are counted per network (someone may be guessing them). */
+  private async openInvite(token: string, ip: string) {
+    await this.limiter.check('token', null, ip);
     const invite = await this.prisma.invite.findUnique({ where: { tokenHash: sha256(token) }, include: { home: true, org: true } });
+    if (!invite) await this.limiter.fail('token', null, ip);
     if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
       throw new GoneException('This invite link is no longer valid. Ask for a new one.');
     }
@@ -229,8 +234,8 @@ export class UsersService {
   }
 
   /** What the invite page shows: who invites you where, and (for a home) what is waiting there. */
-  async describeInvite(token: string) {
-    const invite = await this.openInvite(token);
+  async describeInvite(token: string, ip = 'unknown') {
+    const invite = await this.openInvite(token, ip);
     const existing = await this.prisma.user.findUnique({ where: { email: invite.email }, select: { id: true, name: true } });
     const inviter = invite.createdBy ? await this.prisma.user.findUnique({ where: { id: invite.createdBy }, select: { name: true } }) : null;
     const orgId = invite.orgId ?? invite.home?.orgId ?? null;
@@ -253,11 +258,17 @@ export class UsersService {
   }
 
   /** New people choose a name and password; people with an account confirm with their password. */
-  async acceptInvite(token: string, name: string | undefined, password: string) {
-    const invite = await this.openInvite(token);
+  async acceptInvite(token: string, name: string | undefined, password: string, ip = 'unknown') {
+    const invite = await this.openInvite(token, ip);
     let user = await this.prisma.user.findUnique({ where: { email: invite.email } });
     if (user) {
-      if (!(await verify(user.passwordHash, password))) throw new UnauthorizedException('Wrong password for this account.');
+      // the account's password, like signing in: limited the same way
+      await this.limiter.check('login', user.email, ip);
+      if (!(await verify(user.passwordHash, password))) {
+        const { left } = await this.limiter.fail('login', user.email, ip);
+        throw new UnauthorizedException(`Wrong password for this account.${left <= 3 ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}`);
+      }
+      await this.limiter.clear(['login'], user.email, ip);
       if (user.disabled) throw new ForbiddenException('This account is disabled.');
     } else if (!name?.trim()) {
       throw new BadRequestException('Enter your name.');

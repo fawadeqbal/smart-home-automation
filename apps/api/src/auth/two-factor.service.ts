@@ -9,6 +9,7 @@ import { MailService } from '../mail/mail.service';
 import { PlatformService } from '../platform/platform.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from './auth.types';
+import { LoginLimiter } from './login-limiter';
 import { hashRecovery, newSecret, otpauthUri, recoveryCodes, seal, unseal, verifyCode } from './totp';
 
 const TICKET_TTL_SEC = 5 * 60;
@@ -30,6 +31,7 @@ export class TwoFactorService {
     private readonly mail: MailService,
     private readonly platform: PlatformService,
     @Inject(SETTINGS) private readonly settings: Settings,
+    private readonly limiter: LoginLimiter,
   ) {}
 
   async status(userId: string) {
@@ -87,7 +89,11 @@ export class TwoFactorService {
     return this.jwt.signAsync({ sub: user.id, typ: '2fa' }, { expiresIn: TICKET_TTL_SEC });
   }
 
-  async check(ticket: string, code: string): Promise<{ user: User; usedRecovery: boolean; left: number }> {
+  /**
+   * The second step. Wrong codes are limited like passwords (per account and network, per network, per
+   * account: in the database), and a ticket stops working after MAX_TRIES wrong codes.
+   */
+  async check(ticket: string, code: string, ip = 'unknown'): Promise<{ user: User; usedRecovery: boolean; left: number }> {
     let sub: string;
     try {
       const claims = await this.jwt.verifyAsync<{ sub: string; typ: string }>(ticket);
@@ -96,25 +102,34 @@ export class TwoFactorService {
     } catch {
       throw new UnauthorizedException('That took too long. Sign in again.');
     }
-    const tries = (this.tries.get(ticket) ?? 0) + 1;
-    this.tries.set(ticket, tries);
-    if (tries > MAX_TRIES) throw new HttpException('Too many wrong codes. Sign in again.', HttpStatus.TOO_MANY_REQUESTS);
     const u = await this.prisma.user.findUnique({ where: { id: sub } });
     if (!u || u.disabled || !u.totpSecret) throw new UnauthorizedException('Sign in again.');
+    await this.limiter.check('code', u.email, ip);
+    const tries = (this.tries.get(ticket) ?? 0) + 1;
+    if (tries > MAX_TRIES) throw new HttpException('Too many wrong codes. Sign in again.', HttpStatus.TOO_MANY_REQUESTS);
+    const wrong = async () => {
+      this.tries.set(ticket, tries);
+      if (this.tries.size > 5000) this.tries.clear(); // tickets last 5 minutes: an old one is harmless to forget
+      const { left } = await this.limiter.fail('code', u.email, ip);
+      const n = Math.min(left, MAX_TRIES - tries);
+      return new UnauthorizedException(`That code isn’t right.${n <= 2 ? ` ${n} ${n === 1 ? 'try' : 'tries'} left.` : ''}`);
+    };
     const typed = code.trim();
     if (/^\d{3}\s?\d{3}$/.test(typed)) {
       const step = verifyCode(unseal(u.totpSecret, this.settings.jwtSecret), typed, Date.now(), u.totpLastStep);
-      if (step === null) throw new UnauthorizedException(`That code isn’t right.${MAX_TRIES - tries <= 2 ? ` ${MAX_TRIES - tries} ${MAX_TRIES - tries === 1 ? 'try' : 'tries'} left.` : ''}`);
+      if (step === null) throw await wrong();
       await this.prisma.user.update({ where: { id: u.id }, data: { totpLastStep: step } });
       this.tries.delete(ticket);
+      await this.limiter.clear(['code'], u.email, ip);
       return { user: u, usedRecovery: false, left: u.recoveryHashes.length };
     }
     const h = hashRecovery(typed);
-    if (!u.recoveryHashes.includes(h)) throw new UnauthorizedException('That code isn’t right.');
+    if (!u.recoveryHashes.includes(h)) throw await wrong();
     const left = u.recoveryHashes.filter((x) => x !== h);
     await this.prisma.user.update({ where: { id: u.id }, data: { recoveryHashes: left } });
     await this.audit.record(null, u.id, 'user.2fa_recovery_used', u.id, { left: left.length });
     this.tries.delete(ticket);
+    await this.limiter.clear(['code'], u.email, ip);
     return { user: u, usedRecovery: true, left: left.length };
   }
 

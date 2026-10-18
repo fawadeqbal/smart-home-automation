@@ -1,5 +1,5 @@
 import {
-  ConflictException, ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, UnauthorizedException,
+  ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { hash, verify } from '@node-rs/argon2';
@@ -8,6 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { CookieOptions, Response } from 'express';
 import { SETTINGS, Settings } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
+import { LoginLimiter } from './login-limiter';
 import {
   ACCESS_COOKIE, ACCESS_TTL_SEC, AccessClaims, AuthUser, ON_BEHALF_TTL_SEC, REFRESH_COOKIE, REFRESH_TTL_SEC, SESSION_MARKER_COOKIE,
 } from './auth.types';
@@ -22,21 +23,19 @@ export interface HomeContext {
   readOnly: boolean;
 }
 
-const MAX_FAILED_LOGINS = 5;
-const LOCK_MS = 15 * 60 * 1000;
-
 export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 export const randomToken = () => randomBytes(32).toString('base64url');
 
+/** Compared against when the email has no account, so a wrong email takes as long as a wrong password. */
+let decoyHash: Promise<string> | null = null;
+
 @Injectable()
 export class AuthService {
-  /** email -> failed attempts. In memory: fine for one API instance. */
-  private readonly failures = new Map<string, { count: number; lockedUntil: number }>();
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     @Inject(SETTINGS) private readonly settings: Settings,
+    private readonly limiter: LoginLimiter,
   ) {}
 
   // ---------------------------------------------------------------- passwords
@@ -84,29 +83,28 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------- sign in
-  async login(email: string, password: string): Promise<User> {
+  /**
+   * Email and password. Wrong tries are limited per email and network, per network, and per account
+   * (see login-limiter.ts); a right one forgets this email's failures from this network.
+   */
+  async login(email: string, password: string, ip = 'unknown'): Promise<User> {
     const key = email.toLowerCase();
-    const state = this.failures.get(key);
-    if (state && state.lockedUntil > Date.now()) {
-      throw new HttpException('Too many failed attempts. Try again in 15 minutes.', HttpStatus.TOO_MANY_REQUESTS);
-    }
+    await this.limiter.check('login', key, ip);
     const user = await this.prisma.user.findUnique({ where: { email: key } });
-    const ok = user ? await verify(user.passwordHash, password) : false;
+    decoyHash ??= hash(randomToken());
+    const ok = user ? await verify(user.passwordHash, password) : (await verify(await decoyHash, password), false);
     if (!user || !ok) {
-      const count = (state?.count ?? 0) + 1;
-      this.failures.set(key, { count, lockedUntil: count >= MAX_FAILED_LOGINS ? Date.now() + LOCK_MS : 0 });
-      const left = MAX_FAILED_LOGINS - count;
-      if (left <= 0) throw new HttpException('Too many failed attempts. For your safety, sign-in is paused for 15 minutes.', HttpStatus.TOO_MANY_REQUESTS);
+      const { left } = await this.limiter.fail('login', key, ip);
       throw new UnauthorizedException(`Wrong email or password.${left <= 3 ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}`);
     }
     if (user.disabled) throw new ForbiddenException('This account is disabled. Ask the home owner or your administrator.');
-    this.failures.delete(key);
+    await this.limiter.clear(['login'], key, ip);
     return user;
   }
 
-  /** A new password ends any sign-in lock-out for that email. */
-  clearFailures(email: string) {
-    this.failures.delete(email.toLowerCase());
+  /** A new password ends any sign-in wait for that email, from every network. */
+  async clearFailures(email: string) {
+    await this.limiter.clear(['login', 'code'], email, null);
   }
 
   /** Creates a session (refresh token) and sets both cookies. */

@@ -7,6 +7,7 @@ import { AuthService } from '../auth/auth.service';
 import { PasswordsService } from '../auth/passwords.service';
 import { AuthUser } from '../auth/auth.types';
 import { CurrentUser, Public, Roles } from '../auth/decorators';
+import { clientIp } from '../common/client-ip';
 import { ZodPipe } from '../common/zod';
 import { UsersService } from './users.service';
 
@@ -86,19 +87,20 @@ export class UsersController {
 
   @Public()
   @Get('invites/:token')
-  describe(@Param('token') token: string) {
-    return this.users.describeInvite(token);
+  describe(@Param('token') token: string, @Req() req: Request) {
+    return this.users.describeInvite(token, clientIp(req));
   }
 
   @Public()
   @Post('invites/:token/accept')
   async accept(@Param('token') token: string, @Body(new ZodPipe(acceptSchema)) body: z.infer<typeof acceptSchema>,
                @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const { existingAccount } = await this.users.describeInvite(token);
+    const ip = clientIp(req);
+    const { existingAccount } = await this.users.describeInvite(token, ip);
     const strong = passwordSchema.safeParse(body.password);
     if (!existingAccount && !strong.success) throw new BadRequestException(strong.error.issues[0].message);
-    const user = await this.users.acceptInvite(token, body.name, body.password);
-    await this.auth.startSession(user, res, req.headers['user-agent']);
+    const user = await this.users.acceptInvite(token, body.name, body.password, ip);
+    await this.auth.startSession(user, res, req.headers['user-agent'], ip);
     return this.users.me(user.id);
   }
 }
