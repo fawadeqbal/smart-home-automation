@@ -418,7 +418,7 @@ class StaffOutagesScreen extends ConsumerWidget {
                     iconFg: c.onText,
                     title: a.place,
                     subtitle:
-                        '${a.homes.length} homes · ${durationText(a.seconds)}${a.startedAt != null ? ' · ${Fmt.when(a.startedAt!)}' : ''} — probably the area’s electricity',
+                        '${Fmt.plural(a.homes.length, 'home')} · ${durationText(a.seconds)}${a.startedAt != null ? ' · ${Fmt.when(a.startedAt!)}' : ''} — probably the area’s electricity',
                   ),
               ],
             ),

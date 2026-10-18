@@ -25,6 +25,18 @@ abstract final class Routes {
   static const family = 'family';
   static const energy = 'energy';
   static const notifications = 'notifications';
+
+  // home-mobile: the rest of the web's home pages, also opened inside a tab
+  static const device = 'device/:deviceId';
+  static const billing = 'billing';
+  static const account = 'account';
+  static const help = 'help';
+  static const summary = 'summary';
+  static const installation = 'installation';
+  static const alerts = 'alerts';
+  static String deviceOf(String id) => 'device/$id';
+  static String invoiceOf(String id) => 'billing/$id';
+  static String articleOf(String id) => 'help/$id';
 }
 
 extension TabNavigation on BuildContext {

@@ -107,6 +107,13 @@ class RulesController extends AsyncNotifier<List<Rule>> {
     }
   }
 
+  Future<Rule> save(RuleInput rule, {String? id}) async {
+    final saved = await ref.read(automationRepositoryProvider).saveRule(rule, id: id);
+    final list = state.value ?? const <Rule>[];
+    state = AsyncData(id == null ? [saved, ...list] : [for (final r in list) r.id == id ? saved : r]);
+    return saved;
+  }
+
   Future<void> remove(String id) async {
     final before = state.value;
     state = AsyncData([...?before?.where((r) => r.id != id)]);

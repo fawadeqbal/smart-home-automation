@@ -13,6 +13,7 @@ import '../../state/people.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
 import 'ask_for_help.dart';
+import 'boards_section.dart';
 
 /// Is everything answering? Which rooms aren't, what to try, and who to ask.
 class HealthScreen extends ConsumerStatefulWidget {
@@ -30,6 +31,7 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
     final before = ref.read(homeHealthProvider).down.length;
     try {
       await ref.read(devicesProvider.notifier).refresh();
+      ref.invalidate(boardsProvider);
       final after = ref.read(homeHealthProvider).down.length;
       ref
           .read(toastProvider.notifier)
@@ -220,6 +222,7 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
                 ),
             ],
           ),
+        const BoardsSection(),
         const SizedBox(height: 16),
         const _PowerAndInternet(),
         if (welcome?.installer != null && welcome!.installer != ref.watch(meProvider).name) ...[

@@ -144,12 +144,94 @@ class Shedding {
   final NextCut? next;
   final bool loaded;
 
-  String get how => switch (source) {
-        'typed' => 'From the schedule you typed in (used instead of the learned one).',
-        'area' => 'Learned from other homes in ${place ?? 'your area'}: this home has too few days of its own yet.',
-        'learned' => 'Learned from the power cuts of the last $observedDays days: a time counts when the power went then on at least $needed of them.',
-        _ => 'A time shows up here once the power goes at about the same time on $needed or more of the last $observedDays days.',
-      };
+  String get how => sheddingHow(source, observedDays: observedDays, needed: needed, place: place);
+}
+
+/// How the load-shedding times were found, in words. A new home has only a day or two of its own: then
+/// it says how many days it still needs, not "on 2 or more of the last 1 days".
+String sheddingHow(String source, {required int observedDays, required int needed, String? place}) {
+  String days(int n) => n == 1 ? '1 day' : '$n days';
+  return switch (source) {
+    'typed' => 'From the schedule you typed in (used instead of the learned one).',
+    'area' => 'Learned from other homes in ${place ?? 'your area'}: this home has too few days of its own yet.',
+    'learned' => 'Learned from the power cuts of the last ${days(observedDays)}: a time counts when the power went then on at least $needed of them.',
+    _ when observedDays < needed =>
+      'A time shows up here once the power goes at about the same time on $needed different days. '
+          'This home has ${days(observedDays)} of power history so far.',
+    _ => 'A time shows up here once the power goes at about the same time on $needed or more of the last ${days(observedDays)}.',
+  };
+}
+
+/// One price band of the electricity bill: units up to [upTo] (null: everything above) at [rate] rupees.
+class Slab {
+  const Slab({this.upTo, required this.rate});
+
+  factory Slab.fromJson(Json j) => Slab(upTo: j['upTo'] is num ? integer(j['upTo']) : null, rate: _num(j['rate']));
+
+  final int? upTo;
+  final double rate;
+
+  Json toJson() => {'upTo': upTo, 'rate': rate};
+
+  /// "Up to 100 units: Rs 22" / "Above that: Rs 45".
+  static List<String> describe(List<Slab> slabs) {
+    final out = <String>[];
+    int? before;
+    for (final s in slabs) {
+      final r = 'Rs ${s.rate == s.rate.roundToDouble() ? s.rate.round() : s.rate}';
+      out.add(s.upTo == null ? '${before == null ? 'Every unit' : 'Above $before units'}: $r a unit' : '${before == null ? 'Up to' : '${before + 1} to'} ${s.upTo} units: $r a unit');
+      before = s.upTo ?? before;
+    }
+    return out;
+  }
+
+  /// Adds a band the way the web does: the open-ended one moves 100 units up.
+  static List<Slab> addBand(List<Slab> slabs, double defaultRate) {
+    final bounded = slabs.where((s) => s.upTo != null).toList();
+    final last = bounded.isEmpty ? 0 : bounded.last.upTo!;
+    final open = slabs.where((s) => s.upTo == null).firstOrNull;
+    final rate = open?.rate ?? defaultRate;
+    return [...bounded, Slab(upTo: last + 100, rate: rate), Slab(rate: rate)];
+  }
+
+  /// What the server takes: bands in order, the last one open-ended, every rate above 0.
+  static String? problem(List<Slab> slabs) {
+    int? before;
+    for (final (i, s) in slabs.indexed) {
+      if (!(s.rate > 0)) return 'Give every band a price above Rs 0.';
+      final last = i == slabs.length - 1;
+      if (!last && s.upTo == null) return 'Only the last band is “above that”.';
+      if (s.upTo != null && before != null && s.upTo! <= before) return 'Each band must go higher than the one before.';
+      before = s.upTo ?? before;
+    }
+    return null;
+  }
+}
+
+/// UPS mode (`/power/grid`): the grid sensor, and which heavy loads switch off when the grid goes.
+class GridSettings {
+  const GridSettings({this.sensor, this.off = false, this.since, this.loads = const [], this.restore = false, this.switches = const [], this.loaded = false});
+
+  factory GridSettings.fromJson(Json j) => GridSettings(
+        sensor: strOrNull(asJson(j['sensor'])['name']),
+        off: boolean(j['off']),
+        since: dateOrNull(j['since']),
+        loads: strList(j['loads']),
+        restore: boolean(j['restore']),
+        switches: [for (final s in asJsonList(j['switches'])) (id: str(s['id']), name: str(s['name']), room: strOrNull(s['room']), heavy: boolean(s['heavy']))],
+        loaded: true,
+      );
+
+  /// The grid sensor's name; null without one.
+  final String? sensor;
+  final bool off;
+  final DateTime? since;
+  final List<String> loads;
+  final bool restore;
+  final List<({String id, String name, String? room, bool heavy})> switches;
+  final bool loaded;
+
+  List<String> get loadNames => [for (final id in loads) ...switches.where((s) => s.id == id).map((s) => s.name)];
 }
 
 /// One meter reading the owner typed.
@@ -190,6 +272,13 @@ class Bill {
     this.topDevices = const [],
     this.lastMonth,
     this.latestKwh,
+    this.latestAt,
+    this.cycleStart,
+    this.cycleEnd,
+    this.tariff = 0,
+    this.tariffSet = false,
+    this.slabs = const [],
+    this.timezone = 'Asia/Karachi',
     this.loaded = false,
   });
 
@@ -214,6 +303,13 @@ class Bill {
       topDevices: [for (final d in asJsonList(j['topDevices'])) (str(d['name']), _num(d['kwh']))],
       lastMonth: _numOrNull(j['lastMonth']),
       latestKwh: _numOrNull(latest['kwh']),
+      latestAt: dateOrNull(latest['readAt']),
+      cycleStart: dateOrNull(cycle['start']),
+      cycleEnd: dateOrNull(cycle['end']),
+      tariff: _num(j['tariff']),
+      tariffSet: boolean(j['tariffSet']),
+      slabs: asJsonList(j['slabs']).map(Slab.fromJson).toList(),
+      timezone: str(j['timezone'], 'Asia/Karachi'),
       loaded: true,
     );
   }
@@ -234,6 +330,15 @@ class Bill {
   final int daysLeft;
   final List<(String, double)> topDevices;
   final double? lastMonth, latestKwh;
+  final DateTime? latestAt, cycleStart, cycleEnd;
+
+  /// One price for every unit (when there are no [slabs]) and whether the owner set it.
+  final double tariff;
+  final bool tariffSet;
+
+  /// Price bands from the bill, cheapest first; empty: [tariff] for every unit.
+  final List<Slab> slabs;
+  final String timezone;
   final bool loaded;
 
   bool get warn => over || heading;

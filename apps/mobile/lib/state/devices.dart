@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/realtime/live_client.dart';
 import '../data/models/device.dart';
+import '../data/models/device_detail.dart';
 import '../data/models/json.dart';
 import '../data/repositories/devices_repository.dart';
 import 'session.dart';
@@ -180,3 +181,17 @@ final roomsProvider = FutureProvider<List<Room>>((ref) async {
 final deviceProvider = Provider.family<Device?, String>(
   (ref, id) => ref.watch(devicesProvider).value?.where((d) => d.id == id).firstOrNull,
 );
+
+/// A device's own page: its settings (safety, power), reloaded when it's changed.
+final deviceDetailProvider = FutureProvider.autoDispose.family<DeviceDetail, String>((ref, id) async {
+  final sub = ref.watch(liveClientProvider).on('devices.changed').listen((_) => ref.invalidateSelf());
+  ref.onDispose(sub.cancel);
+  return ref.read(devicesRepositoryProvider).detail(id);
+});
+
+/// A device's raw history (newest first), for a sensor's chart; reloads on its own changes.
+final deviceRawHistoryProvider = FutureProvider.autoDispose.family<List<Json>, String>((ref, id) async {
+  final sub = ref.watch(liveClientProvider).on('device.state').where((e) => e.map['id'] == id).listen((_) => ref.invalidateSelf());
+  ref.onDispose(sub.cancel);
+  return ref.read(devicesRepositoryProvider).rawHistory(id, limit: 400);
+});

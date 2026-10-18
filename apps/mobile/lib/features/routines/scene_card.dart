@@ -55,11 +55,15 @@ class SceneCard extends ConsumerStatefulWidget {
     required this.index,
     this.compact = false,
     this.subtitle,
+    this.onLongPress,
   });
   final Scene scene;
   final int index;
   final bool compact;
   final String? subtitle;
+
+  /// Routines: hold a scene to delete it.
+  final VoidCallback? onLongPress;
 
   @override
   ConsumerState<SceneCard> createState() => _SceneCardState();
@@ -82,6 +86,7 @@ class _SceneCardState extends ConsumerState<SceneCard> {
     final compact = widget.compact;
     return Pressable(
       onTap: widget.scene.canRun ? _run : null,
+      onLongPress: widget.onLongPress,
       semanticLabel: 'Run ${widget.scene.name}',
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),

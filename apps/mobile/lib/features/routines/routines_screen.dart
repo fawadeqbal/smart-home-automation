@@ -18,6 +18,8 @@ import '../../state/toast.dart';
 import '../devices/device_kinds.dart';
 import 'last_one_out.dart';
 import 'new_routine_sheet.dart';
+import 'new_scene_sheet.dart';
+import 'rule_editor.dart';
 import 'scene_card.dart';
 
 /// The Routines tab: scenes (many things in one tap) and schedules (things that happen on their own).
@@ -59,9 +61,11 @@ class RoutinesScreen extends ConsumerWidget {
                 : null,
           ),
           const SizedBox(height: 22),
-          const SectionHeader(
+          SectionHeader(
             'Scenes',
-            subtitle: 'Many things at once, in one tap',
+            subtitle: 'Many things at once, in one tap · hold one to delete it',
+            action: canMake ? 'New scene' : null,
+            onAction: () => showNewSceneSheet(context),
           ),
           const SizedBox(height: 10),
           scenes.when(
@@ -71,10 +75,17 @@ class RoutinesScreen extends ConsumerWidget {
               onRetry: () => ref.invalidate(scenesProvider),
             ),
             data: (list) => list.isEmpty
-                ? const EmptyView(
+                ? EmptyView(
                     icon: SbIcons.sparkle,
                     title: 'No scenes yet',
-                    text: 'Ask your installer to set up “Good night” or “Away” — one tap turns many things on or off.',
+                    text: 'Make “Good night” or “Away” — one tap turns many things on or off.',
+                    action: canMake
+                        ? TextButton(
+                            onPressed: () => showNewSceneSheet(context),
+                            style: TextButton.styleFrom(foregroundColor: c.acText),
+                            child: const Text('New scene'),
+                          )
+                        : null,
                   )
                 : LayoutBuilder(
                     builder: (context, box) {
@@ -87,7 +98,7 @@ class RoutinesScreen extends ConsumerWidget {
                           for (final (i, s) in list.indexed)
                             SizedBox(
                               width: w,
-                              child: SceneCard(scene: s, index: i),
+                              child: SceneCard(scene: s, index: i, onLongPress: () => confirmDeleteScene(context, ref, s)),
                             ),
                         ],
                       );
@@ -127,9 +138,11 @@ class RoutinesScreen extends ConsumerWidget {
                   ),
           ),
           const SizedBox(height: 22),
-          const SectionHeader(
+          SectionHeader(
             'Rules',
             subtitle: 'When this happens, do that',
+            action: (ref.watch(devicesProvider).value ?? const []).isNotEmpty && !(ref.watch(meProvider).home?.readOnly ?? true) ? 'New rule' : null,
+            onAction: () => showRuleEditor(context),
           ),
           const SizedBox(height: 10),
           rules.when(
@@ -139,10 +152,15 @@ class RoutinesScreen extends ConsumerWidget {
               onRetry: () => ref.invalidate(rulesProvider),
             ),
             data: (list) => list.isEmpty
-                ? const EmptyView(
+                ? EmptyView(
                     icon: SbIcons.zap,
                     title: 'No rules yet',
-                    text: 'Ask the assistant: “when the gate opens at night, turn the porch light on for 5 minutes and tell me”.',
+                    text: 'Try: when the gate opens at night, turn the porch light on for 5 minutes and tell me. Or ask the assistant.',
+                    action: TextButton(
+                      onPressed: () => showRuleEditor(context),
+                      style: TextButton.styleFrom(foregroundColor: c.acText),
+                      child: const Text('New rule'),
+                    ),
                   )
                 : GroupCard(
                     radius: 22,
@@ -335,10 +353,13 @@ class _RuleRow extends ConsumerWidget {
     final r = rule;
     final me = ref.watch(meProvider);
     final mine = me.home!.manages || r.createdById == me.id;
-    final last = r.lastFiredAt != null ? 'Last ran ${Fmt.when(r.lastFiredAt!).toLowerCase()}' : 'Hasn’t run yet';
+    final last = r.lastFiredAt != null
+        ? 'Last ran ${Fmt.when(r.lastFiredAt!).toLowerCase()}${r.lastResult != null ? ': ${r.lastResult}' : ''}'
+        : 'Hasn’t run yet';
     return Opacity(
       opacity: r.enabled ? 1 : .55,
       child: InkWell(
+        onTap: mine && r.trigger != null ? () => showRuleEditor(context, rule: r) : null,
         onLongPress: mine ? () => _confirmDelete(context, ref) : null,
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -358,6 +379,8 @@ class _RuleRow extends ConsumerWidget {
                     Text(r.name, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
                     if (r.summary.isNotEmpty && r.summary != r.name)
                       Text(r.summary, style: TextStyle(fontSize: 13, color: c.mu)),
+                    for (final p in r.problems)
+                      Text(p, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: c.onText)),
                     Text(
                       last,
                       maxLines: 1,

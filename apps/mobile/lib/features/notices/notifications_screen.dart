@@ -101,9 +101,22 @@ class NotificationsScreen extends ConsumerWidget {
                 ? const EmptyView(
                     icon: SbIcons.bell,
                     title: 'No notifications yet',
-                    text: 'A water leak, a door at night or a board going offline shows up here. Choose what you get on the Me tab.',
+                    text: 'A water leak, a door at night or a board going offline shows up here. Choose what you get in the settings below.',
                   )
                 : GroupCard(children: [for (final n in list.items) NoticeRow(notice: n)]),
+          ),
+          const SizedBox(height: 10),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => context.openInTab(Routes.alerts),
+              icon: SbIcon(SbIcons.bell, size: 16, color: c.acText),
+              label: const Text('Notification settings'),
+              style: TextButton.styleFrom(
+                foregroundColor: c.acText,
+                minimumSize: const Size(44, 44),
+                textStyle: const TextStyle(fontFamily: 'Geist', fontSize: 14.5, fontWeight: FontWeight.w600),
+              ),
+            ),
           ),
         ],
       ),

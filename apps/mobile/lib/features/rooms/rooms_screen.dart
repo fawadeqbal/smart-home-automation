@@ -3,9 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/routing/routes.dart';
 import '../../core/theme/sb_icons.dart';
+import '../../core/theme/sb_icons_more.dart';
 import '../../shared/widgets/common.dart';
+import '../../shared/widgets/pill.dart';
 import '../../state/devices.dart';
 import '../../state/home_overview.dart';
+import '../../state/session.dart';
+import '../devices/device_kinds.dart';
+import '../devices/device_screen.dart';
+import 'manage_rooms.dart';
 import 'room_card.dart';
 
 /// The Rooms tab: every room you can use, as cards.
@@ -15,6 +21,8 @@ class RoomsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rooms = ref.watch(roomSummariesProvider);
+    final manages = ref.watch(meProvider.select((m) => m.home?.manages ?? false));
+    final loose = rooms.where((r) => r.room.id == '_other').firstOrNull?.devices ?? const [];
     final loading = ref.watch(roomsProvider).isLoading && rooms.isEmpty;
     final error = ref.watch(roomsProvider).error;
     return RefreshIndicator(
@@ -30,7 +38,12 @@ class RoomsScreen extends ConsumerWidget {
           130,
         ),
         children: [
-          const PageTitle('Rooms'),
+          PageTitle(
+            'Rooms',
+            trailing: manages
+                ? RoundButton(icon: MoreIcons.pencil, label: 'Add, rename or reorder rooms', dark: true, onTap: () => showManageRooms(context))
+                : null,
+          ),
           const SizedBox(height: 18),
           if (loading)
             const LoadingView()
@@ -65,6 +78,23 @@ class RoomsScreen extends ConsumerWidget {
                 );
               },
             ),
+          if (manages && loose.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            const SectionHeader('Devices without a room', subtitle: 'Only owners and admins see these until they are placed'),
+            const SizedBox(height: 10),
+            GroupCard(
+              radius: 22,
+              children: [
+                for (final d in loose)
+                  InfoRow(
+                    icon: DeviceKinds.of(d).icon(d),
+                    title: d.name,
+                    subtitle: 'Tap to choose a room',
+                    onTap: () => showMoveDevice(context, deviceId: d.id, name: d.name),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

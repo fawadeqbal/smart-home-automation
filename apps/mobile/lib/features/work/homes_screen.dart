@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
+import '../../core/util/format.dart';
 import '../../data/models/work/homes.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
@@ -53,7 +54,7 @@ class _HomesScreenState extends ConsumerState<HomesScreen> {
               ? 'Homes you’re installing or looking after.'
               : list == null
               ? 'Every customer’s home.'
-              : '${n('all')} homes · ${n('attention')} need a look · ${n('setup')} being installed',
+              : '${Fmt.plural(n('all'), 'home')} · ${n('attention')} need a look · ${n('setup')} being installed',
         ),
         const SizedBox(height: 14),
         TextField(
@@ -193,7 +194,7 @@ class _HomeCard extends StatelessWidget {
                         icon: WorkIcons.cpu,
                         text: h.boardsInstalled == 0 && h.boardsTotal == 0
                             ? 'No boards yet'
-                            : '${h.boardsOnline} of ${h.boardsInstalled} boards online',
+                            : '${h.boardsOnline} of ${Fmt.plural(h.boardsInstalled, 'board')} online',
                         warn: h.boardsOnline < h.boardsInstalled,
                       ),
                       if (h.boardsWaiting > 0)

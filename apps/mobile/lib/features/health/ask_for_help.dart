@@ -9,6 +9,7 @@ import '../../data/models/ticket.dart';
 import '../../data/repositories/home_repository.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
+import '../../shared/widgets/sb_chip.dart';
 import '../../shared/widgets/sheet.dart';
 import '../../state/people.dart';
 import '../../state/session.dart';
@@ -173,6 +174,92 @@ class _AskForHelpState extends ConsumerState<_AskForHelp> {
   }
 }
 
+/// What a request is about, as the web offers it.
+const ticketCategories = [
+  ('fault', 'Something isn’t working'),
+  ('installation', 'New work or a change'),
+  ('billing', 'Billing'),
+  ('question', 'A question'),
+  ('other', 'Something else'),
+];
+
+/// "Ask for help" for anyone in the home (like the web's form): what it's about, a title, the details.
+class _NewRequest extends ConsumerStatefulWidget {
+  const _NewRequest();
+
+  @override
+  ConsumerState<_NewRequest> createState() => _NewRequestState();
+}
+
+class _NewRequestState extends ConsumerState<_NewRequest> {
+  final _title = TextEditingController();
+  final _body = TextEditingController();
+  String _category = 'fault';
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _body.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_body.text.trim().length < 3) {
+      ref.read(toastProvider.notifier).show('Say what’s wrong or what you need, in a few words.', error: true);
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      final t = await ref.read(homeRepositoryProvider).askForHelp(_body.text.trim(), title: _title.text.trim(), category: _category);
+      ref.invalidate(ticketsProvider);
+      if (mounted) Navigator.of(context).pop();
+      ref.read(toastProvider.notifier).show('Request #${t.number} sent. Answers come here.');
+    } catch (e) {
+      ref.read(toastProvider.notifier).show(ApiException.from(e).message, error: true);
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sb;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Ask for help', style: SbText.title.copyWith(color: c.tx)),
+        const SizedBox(height: 4),
+        Text('Say what’s wrong or what you need. Your installer’s team gets it right away.', style: TextStyle(fontSize: 14.5, color: c.mu)),
+        const SizedBox(height: 14),
+        Text('What is it about?', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: c.tx)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final (k, label) in ticketCategories) SbChip(label: label, selected: _category == k, height: 38, onTap: () => setState(() => _category = k)),
+          ],
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _title,
+          maxLength: 100,
+          decoration: const InputDecoration(hintText: 'Short title (optional), e.g. Kitchen light doesn’t switch on', counterText: ''),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _body,
+          minLines: 3,
+          maxLines: 6,
+          maxLength: 4000,
+          decoration: const InputDecoration(hintText: 'Tell us more: what happens, since when, which room.', counterText: ''),
+        ),
+        const SizedBox(height: 12),
+        BigButton(label: 'Send', icon: SbIcons.paperPlane, busy: _sending, onTap: _send),
+      ],
+    );
+  }
+}
 
 /// The home's help requests; tap one for its conversation.
 Future<void> showHelpRequests(BuildContext context) => showSbSheet<void>(context, builder: (_) => const _Requests());
@@ -187,13 +274,28 @@ class _Requests extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Help requests', style: SbText.title.copyWith(color: c.tx)),
+        Row(
+          children: [
+            Expanded(child: Text('Help requests', style: SbText.title.copyWith(color: c.tx))),
+            if (!(ref.watch(meProvider).home?.readOnly ?? true))
+              TextButton.icon(
+                onPressed: () => showSbSheet<void>(context, builder: (_) => const _NewRequest()),
+                icon: SbIcon(SbIcons.plus, size: 15, color: c.acText),
+                label: const Text('Ask for help'),
+                style: TextButton.styleFrom(
+                  foregroundColor: c.acText,
+                  minimumSize: const Size(44, 44),
+                  textStyle: const TextStyle(fontFamily: SbFonts.sans, fontSize: 14.5, fontWeight: FontWeight.w600),
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 12),
         list.when(
           loading: () => const LoadingView(),
           error: (e, _) => ErrorView(error: e, onRetry: () => ref.invalidate(ticketsProvider)),
           data: (rows) => rows.isEmpty
-              ? Text('No requests yet. “Message your expert” starts one.', style: TextStyle(color: c.mu))
+              ? Text('No requests yet. “Ask for help” starts one: your installer’s team answers here.', style: TextStyle(color: c.mu))
               : Column(
                   children: [
                     for (final t in rows)
