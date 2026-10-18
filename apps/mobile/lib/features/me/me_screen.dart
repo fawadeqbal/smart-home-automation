@@ -30,6 +30,9 @@ const _alertGroups = [
   ),
   ('Water, doors and heat', ['leak', 'doorAtNight', 'temperature']),
   ('Movement at night', ['motionAtNight']),
+  ('On UPS, and the bill', ['ups', 'bill']),
+  ('Load-shedding is due (15 min before)', ['cutSoon']),
+  ('Meter reading day reminder', ['meterReading']),
 ];
 
 /// The Me tab: you, your home, alerts, appearance, sign out.
@@ -161,6 +164,14 @@ class MeScreen extends ConsumerWidget {
               SbIcons.pulse,
               'Activity',
               onTap: () => context.openInTab(Routes.activity),
+            ),
+            row(
+              SbIcons.zap,
+              'Electricity',
+              value: manages ? 'Bill & load-shedding' : 'Load-shedding',
+              bg: c.onSoft,
+              fg: c.onText,
+              onTap: () => context.openInTab(Routes.energy),
             ),
             if (manages && welcome?.installer != null && welcome!.installer != me.name)
               row(

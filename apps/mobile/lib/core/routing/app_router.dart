@@ -8,6 +8,7 @@ import '../../features/auth/login_screen.dart';
 import '../../features/auth/no_home_screen.dart';
 import '../../features/auth/server_screen.dart';
 import '../../features/auth/splash_screen.dart';
+import '../../features/energy/energy_screen.dart';
 import '../../features/family/family_screen.dart';
 import '../../features/health/health_screen.dart';
 import '../../features/home/home_screen.dart';
@@ -32,6 +33,7 @@ List<RouteBase> _insideTab() => [
   GoRoute(path: Routes.activity, builder: (_, _) => const ActivityScreen()),
   GoRoute(path: Routes.health, builder: (_, _) => const HealthScreen()),
   GoRoute(path: Routes.family, builder: (_, _) => const FamilyScreen()),
+  GoRoute(path: Routes.energy, builder: (_, _) => const EnergyScreen()),
 ];
 
 StatefulShellBranch _tab(String path, Widget screen) => StatefulShellBranch(

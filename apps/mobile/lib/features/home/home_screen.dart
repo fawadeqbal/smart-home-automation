@@ -76,6 +76,7 @@ class HomeScreen extends ConsumerWidget {
         ref.invalidate(roomsProvider);
         ref.invalidate(scenesProvider);
         ref.invalidate(activityProvider);
+        ref.invalidate(powerStatusProvider);
         await ref.read(devicesProvider.notifier).refresh();
       },
       child: ListView(
@@ -93,6 +94,7 @@ class HomeScreen extends ConsumerWidget {
           _OfflineBanner(),
           SizedBox(height: 22),
           _StatusPill(),
+          _PowerCard(),
           _Away(),
           _EnergyCard(),
           _Scenes(),
@@ -423,6 +425,55 @@ class _OfflineBannerState extends ConsumerState<_OfflineBanner> {
   }
 }
 
+/// "On UPS/solar since 2:03 pm" while the grid is off, or "Next expected cut: today around 2:00 pm".
+class _PowerCard extends ConsumerWidget {
+  const _PowerCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final p = ref.watch(powerStatusProvider).value;
+    final headline = p?.headline;
+    if (p == null || headline == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: GroupCard(
+        radius: 22,
+        children: [
+          InkWell(
+            onTap: () => context.openInTab(Routes.energy),
+            child: Container(
+              color: p.gridOff ? c.onSoft : null,
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(color: p.gridOff ? c.on : c.sf2, borderRadius: BorderRadius.circular(12)),
+                    child: Center(child: SbIcon(p.gridOff ? SbIcons.zap : SbIcons.clock, size: 18, color: p.gridOff ? SbColors.onInk : c.tx)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(headline, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.tx)),
+                        Text(p.detail, style: TextStyle(fontSize: 13, color: c.mu)),
+                      ],
+                    ),
+                  ),
+                  SbIcon(SbIcons.caretRight, size: 16, color: c.mu),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Away mode: one switch. While on, doors and motion alert at any hour.
 class _Away extends ConsumerWidget {
   const _Away();
@@ -585,6 +636,18 @@ class _EnergyCard extends ConsumerWidget {
                 ),
               ),
             if (rows.isEmpty) Text('Nothing was on this week.', style: TextStyle(color: c.mu)),
+            const SizedBox(height: 14),
+            BigButton(
+              label: 'Bill, meter readings and load-shedding',
+              icon: SbIcons.zap,
+              height: 50,
+              color: c.sf2,
+              foreground: c.tx,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                context.openInTab(Routes.energy);
+              },
+            ),
           ],
         );
       },
