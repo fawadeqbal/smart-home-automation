@@ -12,6 +12,4 @@ export function InvoiceStatus({ i }: { i: Invoice }) {
   return i.late ? <Badge tone="bad">Overdue</Badge> : <Badge tone="warn">Due</Badge>;
 }
 
-/** The text sent on WhatsApp for a bill. */
-export const invoiceText = (i: Invoice, company: string) =>
-  `*${company} — invoice ${i.number}*\n${i.description}\nAmount: ${rs(i.amount)}\nDue by: ${day(i.dueOn)}${i.status === 'PAID' ? `\nPaid on ${day(i.paidOn!)} — thank you!` : ''}`;
+// The WhatsApp text for a bill is in lib/whatsapp.ts (MESSAGES.invoiceReminder), with every other message.

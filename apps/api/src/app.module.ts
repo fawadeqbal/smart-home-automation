@@ -61,6 +61,14 @@ import { MailService } from './mail/mail.service';
 import { OutagesService } from './monitoring/outages.service';
 import { VisitsController } from './visits/visits.controller';
 import { VisitsService } from './visits/visits.service';
+// service workstream: quotes, the installer's day, stock warnings, customer phone numbers
+import { QuotesController } from './quotes/quotes.controller';
+import { QuotesService } from './quotes/quotes.service';
+import { PlannerController } from './planner/planner.controller';
+import { PlannerService } from './planner/planner.service';
+import { StockService } from './platform/stock.service';
+import { StaffNoticesService } from './common/staff-notices.service';
+import { PhoneController } from './users/phone.controller';
 
 /**
  * Composition root. Shared infrastructure (database, broker, live updates, access rules, audit)
@@ -83,10 +91,12 @@ export function createAppModule(settings: Settings) {
     ],
     controllers: [
       HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, RulesController, EnergyController, MemoryController, TicketsController, InstallationController, BillingController, BackupController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
+      QuotesController, PlannerController, PhoneController,
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
       AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, BillingService, RolloutService, TwoFactorService, BackupService, InputsService, LocalService, BoardLoginService, TankService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      QuotesService, PlannerService, StockService, StaffNoticesService,
     ],
   })
   class AppModule {}

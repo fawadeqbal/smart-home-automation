@@ -6,7 +6,9 @@ import { NodeStatus, OrgStatus, Plan, Prisma, Role, StaffRole, VisitStatus } fro
 import { randomToken, sha256 } from '../auth/auth.service';
 import { AuthUser, ROLE_LABEL, STAFF_LABEL } from '../auth/auth.types';
 import { AuditService, auditCategory } from '../common/audit.service';
+import { normalisePhone } from '../common/phone';
 import { compareVersions, highestVersion } from '../common/version';
+import { StockService } from './stock.service';
 import { VISIT_STATUS_LABEL } from '../visits/visits.service';
 import { Settings, SETTINGS } from '../config';
 import { NodesService } from '../hardware/nodes.service';
@@ -75,6 +77,7 @@ export class PlatformService {
     private readonly mqtt: MqttService,
     private readonly audit: AuditService,
     private readonly realtime: RealtimeService,
+    private readonly stock: StockService,
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
@@ -393,7 +396,7 @@ export class PlatformService {
       where: { ...this.homeWhere(user), id },
       include: {
         installer: { select: { id: true, name: true, email: true } },
-        memberships: { include: { user: { select: { id: true, name: true, email: true } } } },
+        memberships: { include: { user: { select: { id: true, name: true, email: true, phone: true } } } },
         invites: { where: { usedAt: null, expiresAt: { gt: new Date() } }, select: { id: true, email: true, name: true, role: true, createdAt: true } },
         rooms: { orderBy: [{ order: 'asc' }, { name: 'asc' }], include: { devices: { include: { state: true, node: { select: { id: true, name: true, online: true } } } } } },
         nodes: { include: { _count: { select: { devices: true, inputs: true } } }, orderBy: [{ status: 'asc' }, { createdAt: 'asc' }] },
@@ -446,7 +449,7 @@ export class PlatformService {
     return {
       home: {
         id: home.id, name: home.name, city: home.city, timezone: home.timezone, archived: !!home.archivedAt, createdAt: home.createdAt,
-        owner: owner ? { id: owner.id, name: owner.name, email: owner.email } : null,
+        owner: owner ? { id: owner.id, name: owner.name, email: owner.email, phone: owner.phone ?? null } : null,
         ownerInvite: ownerInvite ? { email: ownerInvite.email, name: ownerInvite.name, sentAt: ownerInvite.createdAt } : null,
         installer: home.installer, status,
         statusLabel: status === 'live' ? 'Live' : status === 'setup' ? 'Setting up' : status === 'archived' ? 'Archived' : worst!.condText.startsWith('Offline') ? 'Board offline' : worst!.condText,
@@ -486,6 +489,7 @@ export class PlatformService {
       }),
       homes, installers, currentFirmware: fw,
       models: Object.values(BOARDS).map((b) => ({ type: b.type, name: b.name })),
+      stock: await this.stock.level(orgId),
     };
   }
 
@@ -515,6 +519,7 @@ export class PlatformService {
       await this.nodes.publishConfig(id);
     }
     if (fresh.length) await this.audit.record(null, user.id, 'board.stock', fresh.join(', '), { count: fresh.length, board }, orgId);
+    await this.stock.check(orgId);
     this.realtime.inventoryChanged(orgId);
     return { added: fresh.length, skipped: clean.length - fresh.length };
   }
@@ -539,6 +544,7 @@ export class PlatformService {
     await this.nodes.publishConfig(id);
     const who = installer ? (await this.prisma.user.findUnique({ where: { id: installer }, select: { name: true } }))?.name : null;
     await this.audit.record(homeId, user.id, 'board.assign', id, { home: home.name, installer: who });
+    await this.stock.check(orgId);
     this.realtime.inventoryChanged(orgId);
     this.realtime.nodesChanged(homeId, id);
     this.realtime.homesChanged(orgId);
@@ -551,6 +557,7 @@ export class PlatformService {
     if (node.status !== NodeStatus.ASSIGNED) throw new BadRequestException('Only assigned boards can go back to stock here. Installed boards are removed from the home’s Boards tab.');
     await this.nodes.release(id);
     await this.audit.record(node.homeId, user.id, 'board.unassign', id, {}, orgId);
+    await this.stock.check(orgId);
     this.realtime.inventoryChanged(orgId);
     if (node.homeId) this.realtime.nodesChanged(node.homeId, id);
     return { ok: true };
@@ -562,6 +569,7 @@ export class PlatformService {
     const wasIn = node.homeId;
     await this.nodes.release(id, undefined, NodeStatus.FAULTY, note || 'Marked faulty');
     await this.audit.record(wasIn, user.id, 'board.faulty', id, { note }, orgId);
+    await this.stock.check(orgId);
     this.realtime.inventoryChanged(orgId);
     if (wasIn) { this.realtime.nodesChanged(wasIn, id); this.realtime.devicesChanged(wasIn); }
     return { ok: true };
@@ -573,6 +581,7 @@ export class PlatformService {
     if (node.status !== NodeStatus.FAULTY) throw new BadRequestException('Only faulty boards can be put back in stock.');
     await this.prisma.node.update({ where: { id }, data: { status: NodeStatus.STOCK, note: null } });
     await this.audit.record(null, user.id, 'board.restock', id, {}, orgId);
+    await this.stock.check(orgId);
     this.realtime.inventoryChanged(orgId);
     return { ok: true };
   }
@@ -585,6 +594,7 @@ export class PlatformService {
     await this.nodes.release(id);
     await this.prisma.node.delete({ where: { id } });
     await this.audit.record(null, user.id, 'board.retire', id, { note: node.note }, orgId);
+    await this.stock.check(orgId);
     this.realtime.inventoryChanged(orgId);
   }
 
@@ -767,6 +777,8 @@ export class PlatformService {
       id: org.id, name: org.name, plan: org.plan, status: org.status, trialEndsAt: org.trialEndsAt,
       billingEmail: org.billingEmail, billingName: org.billingName, taxId: org.taxId, country: org.country, createdAt: org.createdAt,
       logo: org.logo, cities: org.cities, teamSize: org.teamSize, onboarded: !!org.onboardedAt,
+      bankAccount: org.bankAccount, jazzcashNumber: org.jazzcashNumber, easypaisaNumber: org.easypaisaNumber,
+      baseLat: org.baseLat, baseLng: org.baseLng, stockMin: org.stockMin,
       usage: { homes, boards, staff },
       selfHosted: org.selfHosted,
       limits: org.selfHosted
@@ -780,9 +792,17 @@ export class PlatformService {
   async updateOrganization(user: AuthUser, input: {
     name?: string; billingEmail?: string | null; billingName?: string | null; taxId?: string | null; country?: string | null;
     logo?: string | null; cities?: string[]; teamSize?: string | null; onboarded?: boolean;
+    bankAccount?: string | null; jazzcashNumber?: string | null; easypaisaNumber?: string | null;
+    baseLat?: number | null; baseLng?: number | null; stockMin?: number;
   }) {
     const orgId = this.org(user);
     const { onboarded, cities, ...rest } = input;
+    if ((input.baseLat === undefined) !== (input.baseLng === undefined) || (input.baseLat === null) !== (input.baseLng === null)) {
+      throw new BadRequestException('Give both the latitude and the longitude of your base.');
+    }
+    for (const k of ['jazzcashNumber', 'easypaisaNumber'] as const) {
+      if (input[k] && !normalisePhone(input[k])) throw new BadRequestException(`That ${k === 'jazzcashNumber' ? 'JazzCash' : 'Easypaisa'} number doesn't look right. Write it like 0300 1234567.`);
+    }
     await this.prisma.organization.update({
       where: { id: orgId },
       data: { ...rest, ...(cities ? { cities: [...new Set(cities)] } : {}), ...(onboarded !== undefined ? { onboardedAt: onboarded ? new Date() : null } : {}) },
@@ -792,6 +812,7 @@ export class PlatformService {
     if ('logo' in logged) logged.logo = input.logo ? 'changed' : 'removed';
     await this.audit.record(null, user.id, 'org.update', orgId, logged, orgId);
     if (input.name !== undefined || input.logo !== undefined) this.realtime.homesChanged(orgId);
+    if (input.stockMin !== undefined) await this.stock.check(orgId);
     return this.organization(user);
   }
 

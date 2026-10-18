@@ -8,7 +8,8 @@ import { ZodPipe } from '../common/zod';
 import { InstallationService } from './installation.service';
 
 const update = z.object({
-  items: z.array(z.object({ key: z.string().max(40), done: z.boolean(), note: z.string().max(300).optional() })).max(40).optional(),
+  // `at`: when the tick was made on the phone (it may arrive later, after the installer is back online)
+  items: z.array(z.object({ key: z.string().max(40), done: z.boolean(), note: z.string().max(300).optional(), at: z.string().datetime().optional() })).max(40).optional(),
   notes: z.string().max(4000).optional(),
 });
 const sign = z.object({ name: z.string().trim().min(2).max(80), signature: z.string().max(400_000) });

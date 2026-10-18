@@ -2,6 +2,8 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { Prisma, StaffRole, TicketPriority, TicketStatus } from '@prisma/client';
 import { AuthUser, isAdmin } from '../auth/auth.types';
 import { AuditService } from '../common/audit.service';
+import { homeContact } from '../common/contacts';
+import { normalisePhone } from '../common/phone';
 import { SETTINGS, Settings } from '../config';
 import { MailService } from '../mail/mail.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
@@ -16,6 +18,20 @@ export const STATUS_TEXT: Record<TicketStatus, string> = {
   OPEN: 'Open', IN_PROGRESS: 'Being worked on', WAITING: 'Waiting for you', RESOLVED: 'Solved', CLOSED: 'Closed',
 };
 const OPEN_STATES: TicketStatus[] = [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING];
+/** A rating can be changed for this long after it was first given. */
+export const RATING_CHANGE_DAYS = 7;
+const DAY = 24 * HOUR;
+
+/**
+ * Whether this person may rate the ticket now: only the one who opened it, once it is solved or
+ * closed; a rating already given can be changed for 7 days. Returns why not, or null when they may.
+ */
+export function ratingRefusal(t: { openedById: string; status: TicketStatus; ratedAt: Date | null }, userId: string, now = new Date()): string | null {
+  if (t.openedById !== userId) return 'Only the person who asked for help can rate the answer.';
+  if (t.status !== TicketStatus.RESOLVED && t.status !== TicketStatus.CLOSED) return 'You can rate it once it is solved.';
+  if (t.ratedAt && now.getTime() - t.ratedAt.getTime() > RATING_CHANGE_DAYS * DAY) return 'A rating can only be changed in the first 7 days.';
+  return null;
+}
 
 /** A first guess at the priority from the words (a leak or smoke is urgent; "not working" is high). */
 export function guessPriority(text: string): TicketPriority {
@@ -77,7 +93,7 @@ export class TicketsService {
       orderBy: [{ updatedAt: 'desc' }],
     });
     const names = await this.names(rows.flatMap((r) => [r.openedById, r.assigneeId, ...r.messages.map((m) => m.authorId)]));
-    return rows.map((r) => this.homeView(r, names));
+    return rows.map((r) => this.homeView(r, names, user.readOnly ? undefined : user.id));
   }
 
   async homeTicket(user: AuthUser, id: string) {
@@ -86,7 +102,7 @@ export class TicketsService {
       include: { home: { select: { name: true, city: true } }, messages: { where: { internal: false }, orderBy: { createdAt: 'asc' } } },
     });
     if (!r) throw new NotFoundException('No such ticket.');
-    return this.homeView(r, await this.names([r.openedById, ...r.messages.map((m) => m.authorId)]));
+    return this.homeView(r, await this.names([r.openedById, ...r.messages.map((m) => m.authorId)]), user.readOnly ? undefined : user.id);
   }
 
   async homeReply(user: AuthUser, id: string, body: string, solved?: boolean) {
@@ -107,6 +123,48 @@ export class TicketsService {
       body: `${user.name}: ${(body.trim() || (status === TicketStatus.RESOLVED ? 'Marked as solved.' : '')).slice(0, 300)}`, link: `/console/tickets/${id}`,
     });
     return this.homeTicket(user, id);
+  }
+
+  /** The person who opened it rates the help they got: 1 to 5 stars and a few words. */
+  async rate(user: AuthUser, id: string, input: { stars: number; comment?: string }) {
+    // a person of the home (staff looking in can't rate their own team)
+    const member = await this.prisma.membership.findUnique({ where: { userId_homeId: { userId: user.id, homeId: user.homeId } }, select: { userId: true } });
+    if (user.readOnly || !member) throw new ForbiddenException('Only the person who asked for help can rate it.');
+    const t = await this.prisma.ticket.findFirst({ where: { id, homeId: user.homeId }, select: { id: true, number: true, title: true, openedById: true, status: true, ratedAt: true, assigneeId: true, homeId: true, home: { select: { name: true } } } });
+    if (!t) throw new NotFoundException('No such ticket.');
+    const why = ratingRefusal(t, user.id);
+    if (why) throw new ForbiddenException(why);
+    const stars = Math.round(input.stars);
+    if (!(stars >= 1 && stars <= 5)) throw new BadRequestException('Pick 1 to 5 stars.');
+    const comment = input.comment?.trim().slice(0, 500) || null;
+    await this.prisma.ticket.update({ where: { id }, data: { rating: stars, ratingComment: comment, ...(t.ratedAt ? {} : { ratedAt: new Date() }) } });
+    await this.audit.record(t.homeId, user.id, 'ticket.rated', id, { number: t.number, stars, changed: !!t.ratedAt });
+    if (!t.ratedAt && t.assigneeId) {
+      await this.monitoring.notify(t.homeId, [t.assigneeId], {
+        kind: 'supportRequest', severity: 'INFO', title: `#${t.number} rated ${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}`,
+        body: `${t.home.name}: ${comment ?? t.title}`.slice(0, 300), link: `/console/tickets/${id}`,
+      });
+    }
+    return this.homeTicket(user, id);
+  }
+
+  /** Average rating per person who handled the tickets, and for the whole company. Installers see their own. */
+  async ratings(staff: AuthUser) {
+    const where: Prisma.TicketWhereInput = { home: this.platform.homeWhere(staff), rating: { not: null } };
+    const [all, byPerson] = await Promise.all([
+      this.prisma.ticket.aggregate({ where, _avg: { rating: true }, _count: { rating: true } }),
+      this.prisma.ticket.groupBy({ by: ['assigneeId'], where: { ...where, assigneeId: { not: null } }, _avg: { rating: true }, _count: { rating: true } }),
+    ]);
+    const ids = byPerson.map((b) => b.assigneeId!).filter((x) => staff.staffRole !== StaffRole.INSTALLER || x === staff.id);
+    const people = ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, staffRole: true } }) : [];
+    const round = (n: number | null) => (n === null ? null : Math.round(n * 10) / 10);
+    return {
+      company: { average: round(all._avg.rating), count: all._count.rating },
+      people: byPerson.filter((b) => ids.includes(b.assigneeId!)).map((b) => {
+        const p = people.find((x) => x.id === b.assigneeId);
+        return { id: b.assigneeId!, name: p?.name ?? 'Former staff', staffRole: p?.staffRole ?? null, average: round(b._avg.rating), count: b._count.rating };
+      }).sort((a, b) => (b.average ?? 0) - (a.average ?? 0) || b.count - a.count),
+    };
   }
 
   // ---------------------------------------------------------------- staff side (the console)
@@ -137,7 +195,11 @@ export class TicketsService {
       where: { orgId: r.orgId, disabled: false, staffRole: { not: null } }, select: { id: true, name: true, staffRole: true }, orderBy: { name: 'asc' },
     });
     const node = r.nodeId ? await this.prisma.node.findUnique({ where: { id: r.nodeId }, select: { id: true, name: true, online: true } }) : null;
-    return { ...this.staffView(r, names), staff: staffList, node };
+    // who to send a WhatsApp update to: the person who asked (if they gave a number), else the home's contact
+    const opener = await this.prisma.user.findUnique({ where: { id: r.openedById }, select: { name: true, phone: true, staffRole: true } });
+    const contact = opener && !opener.staffRole && normalisePhone(opener.phone) ? { name: opener.name, whatsapp: normalisePhone(opener.phone) } : await homeContact(this.prisma, r.homeId);
+    const company = await this.prisma.organization.findUnique({ where: { id: r.orgId }, select: { name: true } });
+    return { ...this.staffView(r, names), staff: staffList, node, contact, company: company?.name ?? '' };
   }
 
   async staffReply(staff: AuthUser, id: string, input: { body: string; internal?: boolean; status?: TicketStatus }) {
@@ -257,6 +319,7 @@ export class TicketsService {
       id: r.id, number: r.number, title: r.title, category: r.category, status: r.status, statusText: STATUS_TEXT[r.status], priority: r.priority,
       homeId: r.homeId, home: r.home.name, city: r.home.city, nodeId: r.nodeId, openedById: r.openedById, assigneeId: r.assigneeId,
       dueAt: r.dueAt, overdue: open && !!r.dueAt && r.dueAt.getTime() < Date.now(), createdAt: r.createdAt, updatedAt: r.updatedAt, resolvedAt: r.resolvedAt,
+      rating: r.rating, ratingComment: r.ratingComment, ratedAt: r.ratedAt,
     };
   }
 
@@ -267,10 +330,13 @@ export class TicketsService {
     };
   }
 
-  private homeView(r: Row, names?: Map<string, { name: string; staff: boolean }>) {
+  private homeView(r: Row, names?: Map<string, { name: string; staff: boolean }>, viewerId?: string) {
     const n = names ?? new Map<string, { name: string; staff: boolean }>();
     return {
       ...this.base(r), assignee: null, openedBy: n.get(r.openedById)?.name ?? null,
+      // the stars show to the one who asked once it is solved (and can be changed for 7 days)
+      canRate: !!viewerId && ratingRefusal(r, viewerId) === null,
+      rateUntil: r.ratedAt ? new Date(r.ratedAt.getTime() + RATING_CHANGE_DAYS * DAY) : null,
       messages: r.messages.filter((m) => !m.internal).map((m) => ({ id: m.id, body: m.body, event: m.event, at: m.createdAt, mine: m.authorId === r.openedById, by: m.authorId ? n.get(m.authorId)?.name ?? null : null, staff: !!m.authorId && m.authorId !== r.openedById && (n.get(m.authorId)?.staff ?? false) })),
     };
   }

@@ -100,17 +100,19 @@ export function Shell({ children }: { children: ReactNode }) {
       const help: NavItem = { href: '/console/help', label: 'Help Center', icon: 'help' };
       const outages: NavItem = { href: '/console/outages', label: 'Power & outages', icon: 'zap' };
       const tickets: NavItem = { href: '/console/tickets', label: 'Tickets', icon: 'message', count: counts?.tickets ? String(counts.tickets) : null };
-      if (staffRole === 'INSTALLER') return [homesItem, tickets, outages, help];
+      const myDay: NavItem = { href: '/console/day', label: 'My day', icon: 'map-pin' };
+      if (staffRole === 'INSTALLER') return [myDay, homesItem, tickets, outages, help];
       const base: NavItem[] = [
         { href: '/console', label: 'Overview', icon: 'layout-grid', exact: true, count: counts?.attention ? String(counts.attention) : null, countBad: true },
         homesItem,
       ];
       const billing: NavItem = { href: '/console/billing', label: 'Contracts & invoices', icon: 'wallet' };
       const visits: NavItem = { href: '/console/requests', label: 'Visit requests', icon: 'phone', count: counts?.visits ? String(counts.visits) : null };
-      if (staffRole === 'SUPPORT') return [...base, tickets, outages, visits, billing, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, help, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
+      if (staffRole === 'SUPPORT') return [...base, tickets, { ...myDay, label: 'Installers’ day' }, outages, visits, billing, { href: '/console/inventory', label: 'Inventory', icon: 'package' }, help, { href: '/console/audit', label: 'Audit log', icon: 'file-text' }, { href: '/console/roles', label: 'Roles & permissions', icon: 'key' }];
       return [
         ...base,
         tickets,
+        { ...myDay, label: 'Installers’ day' },
         outages,
         visits,
         billing,

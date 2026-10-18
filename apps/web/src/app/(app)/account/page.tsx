@@ -4,7 +4,7 @@ import { passwordRules, strongEnough, WEAK_PASSWORD } from '@/components/auth/pa
 import { Icon } from '@/components/Icon';
 import { useCrumbs } from '@/components/Shell';
 import { Avatar, ErrorBox, PageHead, useAction } from '@/components/ui';
-import { del, post } from '@/lib/api';
+import { del, patch, post } from '@/lib/api';
 import { useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
 import { Sessions, TwoStep } from '@/components/account/Security';
@@ -28,11 +28,36 @@ export default function AccountPage() {
           {where.length > 0 && <span className="small muted">{where.join(' · ')}</span>}
         </div>
       </section>
+      <PhoneNumber />
       {home && !home.readOnly && <Memories />}
       <ChangePassword />
       <TwoStep />
       <Sessions />
     </div>
+  );
+}
+
+/** Their mobile number, so the company can send them WhatsApp messages (optional). */
+function PhoneNumber() {
+  const { me, reload } = useSession();
+  const [phone, setPhone] = useState(me.phone ?? '');
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    const res = await run(() => patch<{ phone: string | null }>('/account/phone', { phone: phone.trim() || null }));
+    if (res) { setPhone(res.phone ?? ''); setSaved(true); setTimeout(() => setSaved(false), 2000); void reload(); }
+  };
+  return (
+    <form className="card card-pad stack" onSubmit={save}>
+      <div className="row" style={{ gap: 8 }}><Icon name="phone" size={17} /><b className="grow">Mobile number</b><span className="small muted">optional</span></div>
+      <p className="small muted" style={{ margin: 0 }}>For WhatsApp messages from {me.staff ? 'your company' : 'your installer’s team'}: visit times, answers to your requests and bills.</p>
+      <div className="row" style={{ gap: 8 }}>
+        <input className="grow" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={24} placeholder="0300 1234567" aria-label="Mobile number" />
+        <button className="btn" disabled={busy || (!saved && phone.trim() === (me.phone ?? ''))}>{saved ? 'Saved ✓' : 'Save'}</button>
+      </div>
+      <ErrorBox error={error} />
+    </form>
   );
 }
 

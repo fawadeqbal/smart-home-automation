@@ -3,6 +3,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { errorText } from '@/lib/api';
 import type { Tone } from '@/lib/types';
+import { shareMessage } from '@/lib/whatsapp';
 import { Icon } from './Icon';
 
 export function initials(name: string) {
@@ -183,6 +184,30 @@ export function WhatsAppShare({ text, label = 'Send on WhatsApp', small = false 
     <a className={`btn btn-wa ${small ? 'btn-sm' : ''}`} href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer noopener">
       <Icon name="send" size={14} />{label}
     </a>
+  );
+}
+
+/**
+ * Sends a ready-made message to a customer: straight to their WhatsApp when we know their number,
+ * else the phone's share sheet, else a copy to paste (the texts are in lib/whatsapp.ts).
+ */
+export function MessageButton({ text, whatsapp, label = 'WhatsApp', small = false, title }: {
+  text: string; whatsapp?: string | null; label?: string; small?: boolean; title?: string;
+}) {
+  const [note, setNote] = useState<string | null>(null);
+  async function send() {
+    // no await before this: WhatsApp (a new tab) and the share sheet need the click to still count
+    const how = await shareMessage(text, whatsapp);
+    if (how === 'copied') { setNote('Copied — paste it in WhatsApp'); setTimeout(() => setNote(null), 2500); }
+  }
+  return (
+    <span className="msg-btn">
+      <button type="button" className={`btn btn-wa ${small ? 'btn-sm' : ''}`} onClick={() => void send()}
+              title={title ?? (whatsapp ? `Opens WhatsApp to +${whatsapp} with the message ready` : 'No number saved: pick who to send it to')}>
+        <Icon name="send" size={14} />{label}
+      </button>
+      {note && <span className="small muted" role="status">{note}</span>}
+    </span>
   );
 }
 

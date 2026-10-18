@@ -34,6 +34,13 @@ const orgSchema = z.object({
   cities: z.array(z.string().trim().min(1).max(40)).max(30).optional(),
   teamSize: z.string().trim().max(20).nullable().optional(),
   onboarded: z.boolean().optional(),
+  // how customers pay (in invoice reminders), where the installers start their day, the low-stock warning
+  bankAccount: z.string().trim().max(300).nullable().optional(),
+  jazzcashNumber: z.string().trim().max(24).nullable().optional(),
+  easypaisaNumber: z.string().trim().max(24).nullable().optional(),
+  baseLat: z.number().min(-90).max(90).nullable().optional(),
+  baseLng: z.number().min(-180).max(180).nullable().optional(),
+  stockMin: z.number().int().min(0).max(10_000).optional(),
 });
 
 const ALL = [StaffRole.SUPERADMIN, StaffRole.INSTALLER, StaffRole.SUPPORT] as const;

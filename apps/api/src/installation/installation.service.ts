@@ -9,8 +9,25 @@ import { SETTINGS, Settings } from '../config';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { PlatformService } from '../platform/platform.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { acceptedItems, QuoteLine } from '../quotes/quote-math';
 
-export interface Item { key: string; label: string; done: boolean; note?: string }
+export interface Item { key: string; label: string; done: boolean; note?: string; at?: string }
+
+/**
+ * Checklist changes, each with the time it was made on the phone. A phone that lost signal on site
+ * sends its ticks later: per item, the newest change wins (a change dated in the future counts as now,
+ * so a phone with a wrong clock can't lock an item).
+ */
+export function mergeItems(items: Item[], changes: { key: string; done: boolean; note?: string; at?: string }[], now = new Date()): Item[] {
+  return items.map((i) => {
+    const change = changes.find((x) => x.key === i.key);
+    if (!change) return i;
+    const at = Math.min(change.at ? Date.parse(change.at) || now.getTime() : now.getTime(), now.getTime());
+    const had = i.at ? Date.parse(i.at) || 0 : 0;
+    if (at < had) return i; // someone changed it after this phone did
+    return { ...i, done: change.done, ...(change.note !== undefined ? { note: change.note.slice(0, 300) } : {}), at: new Date(at).toISOString() };
+  });
+}
 
 /** What every installation checks before the customer signs (the order the work is done in). */
 export const CHECKLIST: { key: string; label: string; auto?: string }[] = [
@@ -69,7 +86,10 @@ export class InstallationService {
   async forStaff(staff: AuthUser, homeId: string) {
     const home = await this.staffHome(staff, homeId, false);
     const canEdit = staff.staffRole === StaffRole.SUPERADMIN || home.installerId === staff.id;
-    return { ...(await this.view(await this.report(home), home.name)), canEdit, canReopen: staff.staffRole === StaffRole.SUPERADMIN };
+    // what the customer accepted in their quote(s): the installer's list of things to put in
+    const quotes = await this.prisma.quote.findMany({ where: { homeId: home.id, status: 'ACCEPTED' }, orderBy: { number: 'asc' }, select: { number: true, decidedAt: true, items: true } });
+    const toInstall = acceptedItems(quotes.map((q) => ({ number: q.number, decidedAt: q.decidedAt, items: q.items as unknown as QuoteLine[] })));
+    return { ...(await this.view(await this.report(home), home.name)), canEdit, canReopen: staff.staffRole === StaffRole.SUPERADMIN, toInstall };
   }
 
   async forHome(user: AuthUser) {
@@ -120,14 +140,11 @@ export class InstallationService {
   }
 
   // ---------------------------------------------------------------- the installer's work
-  async update(staff: AuthUser, homeId: string, input: { items?: { key: string; done: boolean; note?: string }[]; notes?: string }) {
+  async update(staff: AuthUser, homeId: string, input: { items?: { key: string; done: boolean; note?: string; at?: string }[]; notes?: string }) {
     const home = await this.staffHome(staff, homeId, true);
     const r = await this.report(home);
     if (r.signedAt) throw new BadRequestException('The customer has signed this report. A super admin can open it again to change it.');
-    const items = (r.items as unknown as Item[]).map((i) => {
-      const change = input.items?.find((x) => x.key === i.key);
-      return change ? { ...i, done: change.done, ...(change.note !== undefined ? { note: change.note.slice(0, 300) } : {}) } : i;
-    });
+    const items = mergeItems(r.items as unknown as Item[], input.items ?? []);
     await this.prisma.installationReport.update({
       where: { id: r.id }, data: { items: items as unknown as Prisma.InputJsonValue, ...(input.notes !== undefined ? { notes: input.notes.slice(0, 4000) } : {}), installerId: r.installerId ?? home.installerId },
     });

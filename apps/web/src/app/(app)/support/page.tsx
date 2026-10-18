@@ -42,6 +42,7 @@ export default function SupportPage() {
                 <b className="truncate">#{t.number} · {t.title}</b>
                 <span className="small muted truncate">
                   {CATEGORY[t.category] ?? t.category} · {t.openedBy ?? ''} · updated {timeAgo(t.updatedAt)}
+                  {t.canRate && !t.rating ? ' · rate the help you got' : ''}
                 </span>
               </span>
               <StatusBadge t={t} />

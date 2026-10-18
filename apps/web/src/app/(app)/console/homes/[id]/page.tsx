@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { ConnectGuide } from '@/components/console/ConnectGuide';
+import { CustomerCard } from '@/components/service/CustomerCard';
 import { EditHomeDialog, InvitePersonDialog } from '@/components/console/Dialogs';
 import { ActivityView } from '@/components/home/ActivityView';
 import { DiagnosticsView } from '@/components/home/DiagnosticsView';
@@ -130,6 +131,7 @@ export default function HomeWorkspace() {
               <Kpi small label="Devices" value={ws.stats.devices} />
               <Kpi small label="People" value={ws.stats.people} />
             </section>
+            <CustomerCard ws={ws} canEdit={canSetup} onChanged={() => void reload()} />
             <section className="panel">
               <div className="panel-head"><h2>What the owner gets</h2><Link href="/console/roles" className="link-btn">Roles</Link></div>
               {ownerGets.map(([icon, t, d, k, kicon, tone]) => (

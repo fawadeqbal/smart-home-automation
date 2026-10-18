@@ -26,6 +26,8 @@ export interface Me {
   email: string;
   /** two-step sign-in is on */
   twoFactor?: boolean;
+  /** mobile number for WhatsApp messages from the company (optional) */
+  phone?: string | null;
   staff: {
     role: StaffRole;
     org: { id: string; name: string; plan: Plan; planName: string; status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED'; trialEndsAt: string | null;
@@ -75,7 +77,7 @@ export interface WorkspaceBoard {
 export interface Workspace {
   home: {
     id: string; name: string; city: string; timezone: string; archived: boolean; createdAt: string;
-    owner: { id: string; name: string; email: string } | null;
+    owner: { id: string; name: string; email: string; phone?: string | null } | null;
     ownerInvite: { email: string; name: string | null; sentAt: string } | null;
     installer: { id: string; name: string; email: string } | null;
     status: HomeRow['status']; statusLabel: string; tone: Tone;
@@ -104,6 +106,8 @@ export interface Inventory {
   installers: { id: string; name: string; staffRole: StaffRole }[];
   currentFirmware: string | null;
   models: { type: string; name: string }[];
+  /** boards in stock against the warning level (min 0: no warning) */
+  stock?: { inStock: number; min: number; low: boolean };
 }
 
 export interface AuditRow {
@@ -126,6 +130,8 @@ export interface OrgDetails {
   selfHosted?: boolean;
   plans: { id: Plan; name: string; priceUsd: number; homes: number | null; boards: number | null; staff: number | null; blurb: string }[];
   paymentsConnected: boolean;
+  bankAccount?: string | null; jazzcashNumber?: string | null; easypaisaNumber?: string | null;
+  baseLat?: number | null; baseLng?: number | null; stockMin?: number;
 }
 
 export interface Invite { id: string; email: string; name: string | null; role: Role; expiresAt: string; createdAt: string }
@@ -307,6 +313,8 @@ export type VisitStatus = 'NEW' | 'CONTACTED' | 'SCHEDULED' | 'CUSTOMER' | 'CLOS
 export interface VisitRequest {
   id: string; name: string; phone: string; city: string; homeSize: string; status: VisitStatus; statusLabel: string;
   note: string; createdAt: string; updatedAt: string; home: { id: string; name: string } | null; handledBy: string | null;
+  /** the phone as WhatsApp digits; the booked visit and who goes */
+  whatsapp?: string | null; visitAt?: string | null; assigneeId?: string | null; assignee?: string | null;
 }
 export interface VisitList { counts: Record<VisitStatus, number>; requests: VisitRequest[] }
 
@@ -448,6 +456,11 @@ export interface Ticket {
   last?: { by: string | null; text: string; internal: boolean; at: string } | null;
   staff?: { id: string; name: string; staffRole: string }[];
   node?: { id: string; name: string; online: boolean } | null;
+  rating?: number | null; ratingComment?: string | null; ratedAt?: string | null;
+  /** the home's side: may rate it now, and until when a rating can be changed */
+  canRate?: boolean; rateUntil?: string | null;
+  /** the team's side: who to send a WhatsApp update to */
+  contact?: Contact | null; company?: string;
 }
 export interface TicketQueue { tickets: Ticket[]; open: number; overdue: number }
 
@@ -471,6 +484,8 @@ export interface InstallReport {
   canEdit?: boolean;
   canReopen?: boolean;
   canSign?: boolean;
+  /** what the customer accepted in their quote(s) */
+  toInstall?: { quotes: { ref: string; acceptedAt: string | null }[]; items: { name: string; unit: string; qty: number }[] };
 }
 
 // billing
@@ -486,12 +501,14 @@ export interface Invoice {
 export interface BillingOverview {
   kpis: { perMonth: number; active: number; due: number; dueCount: number; late: number; lateCount: number; paidThisMonth: number };
   contracts: Contract[]; invoices: Invoice[]; canEdit: boolean;
+  company?: { name: string; pay: PayDetails }; contacts?: Record<string, Contact>; renewals?: number;
 }
-export interface HomeBilling { company: string; contract: Contract | null; invoices: Invoice[]; due: number }
+export interface HomeBilling { company: string; contract: Contract | null; invoices: Invoice[]; due: number; pay?: PayDetails }
 export interface PrintableInvoice extends Invoice {
   company: { name: string; billingEmail: string | null; taxId: string | null; logo: string | null };
   billTo: { home: string; city: string; owner: { name: string; email: string } | null };
   contract: { plan: string; period: BillingPeriod } | null;
+  pay?: PayDetails; contact?: Contact | null;
 }
 
 // staged firmware rollouts
@@ -514,4 +531,48 @@ export type InputAction = { type: 'device'; deviceId: string; on?: boolean } | {
 export interface BoardInput {
   id: string; type: 'toggle_button' | 'wall_switch' | string; pin: number; name: string; targetId: string | null; targetName: string | null;
   settings: Record<string, unknown>; actions: Partial<Record<InputGesture, InputAction>>; lastEventAt: string | null;
+}
+
+// ---------------------------------------------------------------- service: WhatsApp, renewals, quotes, the day, ratings
+/** Who to message about a home, and their number as WhatsApp digits (null: use the share sheet). */
+export interface Contact { name: string | null; whatsapp: string | null }
+export interface PayDetails { bank: string | null; jazzcash: string | null; easypaisa: string | null }
+
+export interface Renewal extends Contract { daysLeft: number; ended: boolean; contact: Contact | null }
+export interface RenewalList { windowDays: number; lapsedDays: number; company: { name: string; pay: PayDetails }; canEdit: boolean; contracts: Renewal[] }
+
+export interface PriceItem { id: string; name: string; unit: string; price: number }
+export type QuoteStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'DECLINED';
+export interface QuoteLine { priceItemId: string | null; name: string; unit: string; qty: number; price: number; total?: number }
+export interface Quote {
+  id: string; number: number; ref: string; status: QuoteStatus; customerName: string; city: string;
+  items: QuoteLine[]; subtotal: number; discount: number; total: number; note: string; validUntil: string | null;
+  sentAt: string | null; decidedAt: string | null; decidedName: string | null; declineReason: string | null; convertedAt: string | null;
+  home: { id: string; name: string; installerId: string | null } | null; createdBy: string | null; company: string;
+  whatsapp: string | null; path: string; visitRequestId: string | null; homeId: string | null; createdAt: string; updatedAt: string;
+}
+export interface QuoteList { quotes: Quote[]; canEdit: boolean; canConvert: boolean }
+/** The customer's page (by the secret link). */
+export interface PublicQuote {
+  id: string; number: number; ref: string; status: QuoteStatus; customerName: string; city: string;
+  items: (QuoteLine & { total: number })[]; subtotal: number; discount: number; total: number; note: string; validUntil: string | null;
+  sentAt: string | null; decidedAt: string | null; decidedName: string | null;
+  company: { name: string; logo: string | null; billingEmail: string | null }; expired: boolean; canAnswer: boolean;
+}
+
+export interface DayJob { type: 'visit' | 'install' | 'ticket'; title: string; detail: string; at: string | null; link: string; priority?: string }
+export interface DayStop {
+  key: string; n: number; kind: 'home' | 'visit'; name: string; city: string; lat: number | null; lng: number | null; located: boolean;
+  homeId: string | null; visitRequestId: string | null; phone: string | null; whatsapp: string | null; legKm: number | null;
+  directions: string | null; jobs: DayJob[];
+}
+export interface InstallerDay {
+  date: string; installer: { id: string; name: string } | null; installers: { id: string; name: string; staffRole: StaffRole }[];
+  base: { lat: number; lng: number } | null; baseSet: boolean; totalKm: number; mapsUrl: string | null; stops: DayStop[];
+  counts: { visits: number; installs: number; tickets: number };
+}
+
+export interface Ratings {
+  company: { average: number | null; count: number };
+  people: { id: string; name: string; staffRole: StaffRole | null; average: number | null; count: number }[];
 }

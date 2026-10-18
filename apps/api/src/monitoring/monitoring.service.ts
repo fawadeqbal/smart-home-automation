@@ -30,6 +30,10 @@ export const NOTICE_KINDS = {
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
   tank: { label: 'The water motor was stopped: the tank isn\'t filling, or it ran too long', default: true, adminsOnly: false },
   tankLevel: { label: 'The water tank is full, or running low', default: false, adminsOnly: false },
+  contractEnding: { label: 'A maintenance contract ends in 30 or 7 days (staff)', default: true, adminsOnly: true },
+  stockLow: { label: 'Boards in stock dropped below the minimum (staff)', default: true, adminsOnly: true },
+  quoteAnswered: { label: 'A customer accepted or declined a quote (staff)', default: true, adminsOnly: true },
+  newJob: { label: 'A new installation job for me (installers)', default: true, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
 

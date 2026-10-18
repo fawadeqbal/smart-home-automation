@@ -5,7 +5,9 @@ import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
 import { CATEGORY, PRIORITY, ReplyBox, StatusBadge, Thread } from '@/components/tickets/parts';
-import { ErrorBox, useAction } from '@/components/ui';
+import { starsText } from '@/components/service/Stars';
+import { ErrorBox, MessageButton, useAction } from '@/components/ui';
+import { MESSAGES } from '@/lib/whatsapp';
 import { patch, post } from '@/lib/api';
 import { timeAgo, useLoad } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
@@ -26,6 +28,9 @@ export default function ConsoleTicketPage() {
   const change = (body: Record<string, unknown>) => run(async () => { await patch(`/platform/tickets/${id}`, body); await t.reload(); });
   const setStatus = (status: TicketStatus) => run(async () => { await post(`/platform/tickets/${id}/reply`, { body: '', status }); await t.reload(); });
   const due = d.dueAt ? new Date(d.dueAt) : null;
+  // the last thing the team told the home (not team-only notes), for a WhatsApp update
+  const lastReply = [...d.messages].reverse().find((m) => !m.event && !m.internal && m.staff)?.body ?? null;
+  const update = MESSAGES.ticketUpdate({ name: d.contact?.name, number: d.number, title: d.title, company: d.company ?? '', status: d.statusText, reply: lastReply, homeId: d.homeId, id: d.id });
 
   return (
     <div className="stack">
@@ -78,6 +83,17 @@ export default function ConsoleTicketPage() {
             </Link>
           )}
           <Link className="btn btn-sm" href={`/console/homes/${d.homeId}`}><Icon name="house" size={14} />Open the home</Link>
+          <div className="stack-tight small">
+            <span className="muted">Tell {d.contact?.name?.split(' ')[0] ?? 'the home'} on WhatsApp</span>
+            <MessageButton small label="Send update" whatsapp={d.contact?.whatsapp} text={update} />
+          </div>
+          {d.rating ? (
+            <div className="stack-tight small">
+              <span className="muted">Rated by {d.openedBy ?? 'the home'}</span>
+              <span className="stars-text" style={{ fontSize: 16 }} aria-label={`${d.rating} out of 5`}>{starsText(d.rating)}</span>
+              {d.ratingComment && <span>“{d.ratingComment}”</span>}
+            </div>
+          ) : (d.status === 'RESOLVED' || d.status === 'CLOSED') ? <span className="small muted">Not rated yet. The person who asked can rate it in their app.</span> : null}
           <ErrorBox error={error} />
         </aside>
       </div>

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import { BillingPeriod, ContractStatus, InvoiceStatus } from '@prisma/client';
 import { z } from 'zod';
 import { AuthUser } from '../auth/auth.types';
@@ -17,6 +17,7 @@ const contractUpdate = z.object({
   visitsIncluded: z.number().int().min(0).max(52).optional(), notes: z.string().max(1000).optional(), endsOn: day.nullable().optional(),
 });
 const invoice = z.object({ homeId: z.string().min(1), description: z.string().trim().min(1).max(200), amount: rupees, dueInDays: z.number().int().min(0).max(90).optional() });
+const renew = z.object({ months: z.union([z.literal(3), z.literal(6), z.literal(12)]).optional(), until: day.optional(), amount: rupees.optional() });
 const invoiceSet = z.object({ status: z.nativeEnum(InvoiceStatus), method: z.enum(METHODS).optional(), reference: z.string().max(80).optional(), paidOn: day.optional() });
 
 /** Maintenance contracts and invoices: the team's view (/platform/billing…) and the home's (/billing…). */
@@ -40,6 +41,20 @@ export class BillingController {
   @Patch('platform/billing/contracts/:id')
   updateContract(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(contractUpdate)) body: z.infer<typeof contractUpdate>) {
     return this.billing.updateContract(user, id, body);
+  }
+
+  /** Contracts ending in the next 60 days, and ones that ended without a renewal. */
+  @Staff('SUPERADMIN', 'SUPPORT')
+  @Get('platform/billing/renewals')
+  renewals(@CurrentUser() user: AuthUser) {
+    return this.billing.renewals(user);
+  }
+
+  @Staff('SUPERADMIN')
+  @Post('platform/billing/contracts/:id/renew')
+  @HttpCode(200)
+  renew(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(renew)) body: z.infer<typeof renew>) {
+    return this.billing.renew(user, id, body);
   }
 
   @Staff('SUPERADMIN')

@@ -4,6 +4,7 @@ import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
 import { Badge, Confirm, ErrorBox, PageHead, useAction } from '@/components/ui';
+import { PriceList, ServiceSettings } from '@/components/service/ServiceSettings';
 import { patch, post } from '@/lib/api';
 import { useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
@@ -89,6 +90,11 @@ export default function SettingsPage() {
             <div className="row"><button className="btn btn-primary" disabled={busy}>{saved ? 'Saved ✓' : 'Save details'}</button></div>
           </form>
         </section>
+      </div>
+
+      <div className="grid-2 mb20">
+        <ServiceSettings org={data} onSaved={setData} />
+        <PriceList />
       </div>
 
       {!own && <>

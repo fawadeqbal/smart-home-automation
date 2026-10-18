@@ -94,6 +94,8 @@ model User {
   totpEnabledAt  DateTime?
   totpLastStep   Int       @default(-1)
   recoveryHashes String[]  @default([])
+  /// a mobile number for WhatsApp messages from the company (home people; optional), e.g. "0300 1234567"
+  phone          String?
 }
 
 /// A person's place in one home. One OWNER per home; ADMIN, MEMBER and GUEST as many as needed.
@@ -146,6 +148,20 @@ model Organization {
   invoiceSeq   Int             @default(0)
   rollouts     Rollout[]
   createdAt    DateTime        @default(now())
+  /// how customers pay (shown in invoice reminders): bank account text, JazzCash and Easypaisa numbers
+  bankAccount     String?
+  jazzcashNumber  String?
+  easypaisaNumber String?
+  /// where the installers start their day (the office or store), for the day planner's driving order
+  baseLat         Float?
+  baseLng         Float?
+  /// warn super admins when boards in stock drop below this (0: never), and when they were warned
+  /// (cleared once stock is back up, so the next drop warns again)
+  stockMin        Int             @default(0)
+  stockAlertAt    DateTime?
+  quoteSeq        Int             @default(0)
+  priceItems      PriceItem[]
+  quotes          Quote[]
 }
 
 /// What a MEMBER or GUEST may do in a room. OWNER and ADMIN may do everything.
@@ -646,6 +662,9 @@ model VisitRequest {
   /// the home made for this customer, once there is one
   homeId      String?
   handledById String?
+  /// the booked visit: when (an instant; shown in Asia/Karachi) and who goes
+  visitAt     DateTime?
+  assigneeId  String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -740,6 +759,11 @@ model Ticket {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   messages    TicketMessage[]
+  /// the opener's rating once it is solved: 1-5 stars and a comment; ratedAt is the first rating
+  /// (it can be changed for 7 days after that)
+  rating        Int?
+  ratingComment String?
+  ratedAt       DateTime?
 
   @@unique([orgId, number])
   @@index([orgId, status])
@@ -833,6 +857,9 @@ model Contract {
   createdById    String?
   createdAt      DateTime       @default(now())
   invoices       Invoice[]
+  /// when the super admins were told it ends in 30 and in 7 days (once each; cleared on renewal)
+  remind30At     DateTime?
+  remind7At      DateTime?
 
   @@index([orgId, status])
   @@index([homeId])
@@ -926,4 +953,70 @@ model RolloutTarget {
 
   @@unique([rolloutId, nodeId])
   @@index([nodeId, status])
+}
+
+// ---------------------------------------------------------------- quotes
+/// What a company charges for things it installs, in rupees (starter items are added on first use;
+/// removed items are kept archived so they don't come back).
+model PriceItem {
+  id         String       @id @default(cuid())
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name       String
+  /// "each", "board", "point"
+  unit       String       @default("each")
+  price      Int
+  order      Int          @default(0)
+  archivedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([orgId])
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+}
+
+/// A price for a customer's installation, made from a visit request or a home. The customer opens it
+/// by its secret link (no sign-in) and accepts or declines; an accepted one becomes an installation job.
+model Quote {
+  id             String       @id @default(cuid())
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// numbered per company, like invoices
+  number         Int
+  visitRequestId String?
+  homeId         String?
+  customerName   String
+  customerPhone  String?
+  city           String       @default("")
+  status         QuoteStatus  @default(DRAFT)
+  /// [{ priceItemId?, name, unit, qty, price }]
+  items          Json         @default("[]")
+  /// rupees off the subtotal
+  discount       Int          @default(0)
+  subtotal       Int          @default(0)
+  total          Int          @default(0)
+  note           String       @default("")
+  validUntil     DateTime?
+  /// the link's secret, kept so staff can share the same link again (it opens only this quote)
+  token          String       @unique
+  sentAt         DateTime?
+  /// the customer's answer on the public page
+  decidedAt      DateTime?
+  decidedName    String?
+  declineReason  String?
+  /// when staff turned it into an installation job
+  convertedAt    DateTime?
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([orgId, number])
+  @@index([orgId, status])
+  @@index([homeId])
+  @@index([visitRequestId])
 }
