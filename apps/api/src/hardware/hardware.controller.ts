@@ -96,8 +96,9 @@ export class HardwareController {
 
   @Post('devices/:id/commands')
   @HttpCode(200)
-  command(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
-    return this.devices.command(user, id, body);
+  command(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown, @Query('confirm') confirm?: string) {
+    // ?confirm=ups: the person saw "the home is on UPS" and wants it on anyway
+    return this.devices.command(user, id, body, { confirmed: confirm ? confirm.split(',') : [] });
   }
 
   @Patch('devices/:id')

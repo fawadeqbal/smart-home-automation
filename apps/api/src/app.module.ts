@@ -59,6 +59,8 @@ import { MailService } from './mail/mail.service';
 import { OutagesService } from './monitoring/outages.service';
 import { VisitsController } from './visits/visits.controller';
 import { VisitsService } from './visits/visits.service';
+import { PowerController } from './power/power.controller';
+import { PowerService } from './power/power.service';
 
 /**
  * Composition root. Shared infrastructure (database, broker, live updates, access rules, audit)
@@ -81,10 +83,12 @@ export function createAppModule(settings: Settings) {
     ],
     controllers: [
       HealthController, AuthController, UsersController, RoomsController, HardwareController, AssistantController, AutomationController, RulesController, EnergyController, MemoryController, TicketsController, InstallationController, BillingController, BackupController, PlatformController, HomeController, MonitoringController, FirmwareController, VisitsController, HelpController,
+      PowerController,
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
       AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, BillingService, RolloutService, TwoFactorService, BackupService, InputsService, LocalService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      PowerService,
     ],
   })
   class AppModule {}

@@ -28,6 +28,10 @@ export const NOTICE_KINDS = {
   installation: { label: 'The installation was signed off', default: true, adminsOnly: true },
   ticketReply: { label: 'An answer to my help request', default: true, adminsOnly: false },
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
+  ups: { label: 'The grid power goes (on UPS or solar) and comes back', default: true, adminsOnly: true },
+  cutSoon: { label: 'Load-shedding is due in about 15 minutes (run the motor or iron now)', default: false, adminsOnly: false },
+  bill: { label: 'The electricity bill is heading past the protected limit', default: true, adminsOnly: true },
+  meterReading: { label: 'A reminder to type the meter reading on the billing day', default: false, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
 

@@ -52,6 +52,12 @@ export type StateListener = (
   before: Record<string, unknown> | null, now: Record<string, unknown>,
 ) => unknown;
 
+/** Checked before a command goes to the board; throws to stop it (e.g. a heavy load while on UPS). */
+export type CommandGuard = (
+  user: AuthUser, device: { id: string; name: string; type: string; nodeId: string; node: { homeId: string | null } },
+  command: Record<string, unknown>, opts: { confirmed: string[] },
+) => Promise<void>;
+
 interface Pending {
   resolve: (state: Record<string, unknown>) => void;
   reject: (err: Error) => void;
@@ -70,6 +76,7 @@ export class DevicesService implements OnModuleInit {
   private readonly log = new Logger('Devices');
   private readonly pending = new Map<string, Pending>();
   private readonly listeners: StateListener[] = [];
+  private readonly guards: CommandGuard[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -91,6 +98,11 @@ export class DevicesService implements OnModuleInit {
   /** Rules and safety timers listen here (they depend on this service, so they can't be injected into it). */
   onStateChange(fn: StateListener) {
     this.listeners.push(fn);
+  }
+
+  /** UPS mode checks commands here (it depends on this service too). */
+  beforeCommand(fn: CommandGuard) {
+    this.guards.push(fn);
   }
 
   // ---------------------------------------------------------------- reading
@@ -286,7 +298,7 @@ export class DevicesService implements OnModuleInit {
 
   // ---------------------------------------------------------------- commands
   /** Sends a command and waits for the board to confirm it (or says why not). */
-  async command(user: AuthUser, id: string, body: unknown) {
+  async command(user: AuthUser, id: string, body: unknown, opts: { confirmed?: string[] } = {}) {
     const { device, level } = await this.load(user, id, Access.CONTROL);
     const def = DEVICE_TYPES[device.type];
     if (!def?.controllable) throw new BadRequestException(`${device.name} is a sensor; it cannot be switched.`);
@@ -297,6 +309,7 @@ export class DevicesService implements OnModuleInit {
       throw new ForbiddenException(`${device.name} has child lock on: only the owner or an admin can switch it.`);
     }
     if (!device.node.online) throw new ServiceUnavailableException(`${device.name} is offline: its board is not connected.`);
+    for (const guard of this.guards) await guard(user, device, parsed.data, { confirmed: opts.confirmed ?? [] });
 
     const cid = `c_${randomBytes(6).toString('hex')}`;
     await this.prisma.command.create({

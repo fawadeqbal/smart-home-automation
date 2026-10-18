@@ -12,7 +12,7 @@ import { PlaceService } from './place.service';
 import { sunOn } from './sun';
 import { localDate, parseHhMm, zoneOffsetMinutes } from './time';
 
-export type TriggerEvent = 'on' | 'off' | 'opens' | 'closes' | 'above' | 'below';
+export type TriggerEvent = 'on' | 'off' | 'opens' | 'closes' | 'above' | 'below' | 'gridOff' | 'gridOn';
 export interface Trigger { deviceId: string; event: TriggerEvent; value?: number; field?: 'temperature' | 'humidity' | 'level' }
 export interface Conditions { from?: string; to?: string; days?: number[]; away?: boolean }
 export type RuleAction =
@@ -26,9 +26,11 @@ type DeviceRow = { id: string; name: string; type: string; roomId: string | null
 const TICK_MS = Number(process.env.RULES_TICK_MS) || 20_000;
 const AWAY_END = '23:30';
 
-/** Which events a device can trigger, and the reading they look at. */
-export function eventsFor(type: string): TriggerEvent[] {
+/** Which events a device can trigger, and the reading they look at. A mains-sense sensor (kind "mains"):
+ *  the grid goes / comes back — not "opens", which would read like a door. */
+export function eventsFor(type: string, settings?: unknown): TriggerEvent[] {
   if (type === 'switch') return ['on', 'off'];
+  if (type === 'contact' && (settings as { kind?: string } | null)?.kind === 'mains') return ['gridOff', 'gridOn'];
   if (type === 'contact') return ['opens', 'closes'];
   if (type === 'dht' || type === 'analog') return ['above', 'below'];
   return [];
@@ -41,6 +43,9 @@ export function fires(t: Trigger, before: Record<string, unknown> | null, now: R
     case 'off': return now.on === false && before?.on === true;
     case 'opens': return now.active === true && before?.active !== true;
     case 'closes': return now.active === false && before?.active === true;
+    // the mains sensor is active while the grid is on
+    case 'gridOff': return now.active === false && before?.active === true;
+    case 'gridOn': return now.active === true && before?.active === false;
     case 'above':
     case 'below': {
       const field = t.field ?? (typeof now.level === 'number' && typeof now.temperature !== 'number' ? 'level' : 'temperature');
@@ -156,11 +161,11 @@ export class RulesService implements OnModuleInit, OnModuleDestroy {
 
   private async check(user: AuthUser, input: RuleInput) {
     const t = input.trigger;
-    const dev = await this.prisma.device.findFirst({ where: { id: t?.deviceId, node: { homeId: user.homeId } }, select: { id: true, type: true, roomId: true, name: true } });
+    const dev = await this.prisma.device.findFirst({ where: { id: t?.deviceId, node: { homeId: user.homeId } }, select: { id: true, type: true, roomId: true, name: true, settings: true } });
     if (!dev) throw new BadRequestException('Pick the device that starts the rule.');
     await this.access.require(user, dev.roomId, Access.VIEW);
-    const allowed = eventsFor(dev.type);
-    if (!allowed.includes(t.event)) throw new BadRequestException(`${dev.name} can start a rule when: ${allowed.join(', ') || 'nothing'}.`);
+    const allowed = eventsFor(dev.type, dev.settings);
+    if (!allowed.includes(t.event)) throw new BadRequestException(`${dev.name} can start a rule when: ${allowed.map((e) => EVENT_TEXT[e]).join(', ') || 'nothing'}.`);
     const trigger: Trigger = { deviceId: dev.id, event: t.event };
     if (t.event === 'above' || t.event === 'below') {
       if (typeof t.value !== 'number' || !Number.isFinite(t.value)) throw new BadRequestException('Say the value, e.g. above 30.');
@@ -434,13 +439,18 @@ export class RulesService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-const EVENT_TEXT: Record<TriggerEvent, string> = { on: 'turns on', off: 'turns off', opens: 'opens', closes: 'closes', above: 'goes above', below: 'goes below' };
+const EVENT_TEXT: Record<TriggerEvent, string> = {
+  on: 'turns on', off: 'turns off', opens: 'opens', closes: 'closes', above: 'goes above', below: 'goes below',
+  gridOff: 'the grid goes', gridOn: 'the grid comes back',
+};
 
 /** "When the Main door opens between 22:00 and 06:00: Hall light on for 5 min, tell me". */
 export function describeRule(t: Trigger, c: Conditions, actions: RuleAction[], names: Map<string, string>, scenes: Map<string, string>) {
   const dev = names.get(t.deviceId) ?? 'a device';
   const unit = t.field === 'humidity' || t.field === 'level' ? '%' : '°C';
-  const when = `When ${dev} ${t.event === 'opens' && /motion/i.test(dev) ? 'sees movement' : EVENT_TEXT[t.event]}${t.value !== undefined ? ` ${t.value}${unit}` : ''}`;
+  const when = t.event === 'gridOff' || t.event === 'gridOn'
+    ? `When ${EVENT_TEXT[t.event]}`
+    : `When ${dev} ${t.event === 'opens' && /motion/i.test(dev) ? 'sees movement' : EVENT_TEXT[t.event]}${t.value !== undefined ? ` ${t.value}${unit}` : ''}`;
   const window = c.from && c.to ? ` between ${c.from} and ${c.to}` : '';
   const away = c.away === true ? ' while away' : c.away === false ? ' while home' : '';
   const does = actions.map((a) => a.type === 'device' ? `${names.get(a.deviceId) ?? 'a device'} ${a.on ? 'on' : 'off'}${a.forMinutes ? ` for ${a.forMinutes} min` : ''}`
@@ -449,6 +459,7 @@ export function describeRule(t: Trigger, c: Conditions, actions: RuleAction[], n
 }
 
 function describeTrigger(d: DeviceRow, now: Record<string, unknown>) {
+  if (d.type === 'contact' && (d.settings as { kind?: string } | null)?.kind === 'mains') return now.active ? 'The grid power is back' : 'The grid power went: the home is on UPS or solar';
   if (d.type === 'contact') return now.active ? `${d.name} was triggered` : `${d.name} went back to normal`;
   if (d.type === 'switch') return `${d.name} turned ${now.on ? 'on' : 'off'}`;
   const v = now.temperature ?? now.level ?? now.humidity;
