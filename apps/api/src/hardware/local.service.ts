@@ -94,12 +94,21 @@ export class LocalService implements OnModuleInit {
     await this.mqtt.publish(topics.cmd(nodeId), { action: 'local-off' }, { qos: 1 });
   }
 
-  /** The passes the phone keeps for this person: one per board, for what they may see and switch. */
-  async passes(user: AuthUser): Promise<{ homeId: string; epoch: number; boards: LocalBoard[] }> {
+  /**
+   * The passes the phone keeps for this person: one per board, for what they may see and switch.
+   * Time-limited people (outside their hours or past the end they get none: the guard stops them first)
+   * get passes that stop at the end of the stretch they're in; when that time comes the home's epoch goes
+   * up (`expirePasses`), so a board without a clock refuses them too.
+   */
+  async passes(user: AuthUser): Promise<{ homeId: string; epoch: number; expiresAt: Date | null; boards: LocalBoard[] }> {
     const home = await this.prisma.home.findUniqueOrThrow({ where: { id: user.homeId }, select: { id: true, localEpoch: true } });
     // only people who belong to the home (staff who don't live there work through the internet)
-    const member = await this.prisma.membership.findUnique({ where: { userId_homeId: { userId: user.id, homeId: user.homeId } }, select: { role: true } });
-    if (!member) return { homeId: home.id, epoch: home.localEpoch, boards: [] };
+    const member = await this.prisma.membership.findUnique({ where: { userId_homeId: { userId: user.id, homeId: user.homeId } }, select: { role: true, passUntil: true } });
+    if (!member || user.blocked) return { homeId: home.id, epoch: home.localEpoch, expiresAt: null, boards: [] };
+    const ends = user.accessEndsAt ?? null;
+    if (ends && (!member.passUntil || member.passUntil < ends)) {
+      await this.prisma.membership.update({ where: { userId_homeId: { userId: user.id, homeId: user.homeId } }, data: { passUntil: ends } });
+    }
     const levels = await this.access.roomLevels(user);
     const nodes = await this.prisma.node.findMany({
       where: { homeId: user.homeId, status: NodeStatus.ADOPTED },
@@ -122,6 +131,7 @@ export class LocalService implements OnModuleInit {
       const pass = makePass({
         n: node.id, e: home.localEpoch, u: user.id,
         v: devices.map((d) => d.key), c: devices.filter((d) => d.control).map((d) => d.key),
+        ...(ends ? { x: Math.floor(ends.getTime() / 1000) } : {}),
       });
       const supported = supportsLocal(node.firmware);
       const ready = supported && node.localReported === localTag(key, home.localEpoch);
@@ -131,7 +141,21 @@ export class LocalService implements OnModuleInit {
         pass, passKey: passKey(key, pass), devices,
       });
     }
-    return { homeId: home.id, epoch: home.localEpoch, boards };
+    return { homeId: home.id, epoch: home.localEpoch, expiresAt: ends, boards };
+  }
+
+  /**
+   * Time-limited passes that have run out (the guest's end, the maid's 17:00): the home's epoch goes up so
+   * every board stops taking them, also the ones that don't know the time. Called every minute.
+   */
+  async expirePasses(now = new Date()) {
+    const due = await this.prisma.membership.findMany({ where: { passUntil: { lte: now } }, select: { userId: true, homeId: true } });
+    if (!due.length) return;
+    await this.prisma.membership.updateMany({ where: { passUntil: { lte: now } }, data: { passUntil: null } });
+    for (const homeId of new Set(due.map((d) => d.homeId))) {
+      this.log.log(`Time-limited phone passes ran out in home ${homeId}: retiring them`);
+      await this.revoke(homeId).catch((e) => this.log.warn(`retire passes in ${homeId}: ${e}`));
+    }
   }
 
   /** For the web app's board pages: can the phone switch this board over Wi-Fi? */

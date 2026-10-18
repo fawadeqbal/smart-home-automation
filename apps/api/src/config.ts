@@ -46,6 +46,8 @@ export interface Settings {
   publicUrl: string;
   /** Outgoing email (Gmail: smtp.gmail.com, 465, the address, an app password). null: email is off. */
   smtp: { host: string; port: number; user: string; pass: string; from: string } | null;
+  /** Phone push: a Firebase service account key (the JSON, or base64 of it). null: phones get no push. */
+  fcmServiceAccount: string | null;
 }
 
 export function loadSettings(): Settings {
@@ -83,6 +85,7 @@ export function loadSettings(): Settings {
       pass: process.env.SMTP_PASS.replace(/\s+/g, ''),
       from: process.env.MAIL_FROM || `Switchboard <${process.env.SMTP_USER}>`,
     } : null,
+    fcmServiceAccount: process.env.FCM_SERVICE_ACCOUNT?.trim() || null,
   };
 }
 

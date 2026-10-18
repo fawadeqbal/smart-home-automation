@@ -6,6 +6,7 @@ import { hash, verify } from '@node-rs/argon2';
 import { OrgStatus, Role, StaffRole, User } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import type { CookieOptions, Response } from 'express';
+import { AccessReason, blockedMessage, checkAccess } from '../access/access-window';
 import { SETTINGS, Settings } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -20,6 +21,10 @@ export interface HomeContext {
   role: Role;
   viaStaff: boolean;
   readOnly: boolean;
+  /** time-limited access: outside the hours or past the end (they may open the app, nothing in the home) */
+  blocked?: { reason: AccessReason; message: string } | null;
+  /** when the stretch of access they're in now ends (null: no limit) */
+  accessEndsAt?: Date | null;
 }
 
 const MAX_FAILED_LOGINS = 5;
@@ -197,6 +202,7 @@ export class AuthService {
       id: user.id, name: user.name, email: user.email, orgId: user.orgId, staffRole: user.staffRole,
       channel: claims.typ === 'obo' ? 'voice' : 'web',
       homeId: home?.homeId ?? '', role: home?.role ?? Role.GUEST, viaStaff: home?.viaStaff ?? false, readOnly: home?.readOnly ?? false,
+      blocked: home?.blocked ?? null, accessEndsAt: home?.accessEndsAt ?? null,
     };
   }
 
@@ -205,18 +211,22 @@ export class AuthService {
    * installers only on homes assigned to them), or both — whichever gives more.
    * With no home asked for: the last home they used, else their first one, else none.
    * A home they may not open is "not found", so its existence does not leak.
+   *
+   * Time-limited members and guests (an end time, allowed hours) are checked here, to the second, for
+   * every request, the assistant and live updates alike: outside their access the context says
+   * `blocked`, and the guard lets them reach only their own account.
    */
   async resolveHome(user: Pick<User, 'id' | 'orgId' | 'staffRole' | 'lastHomeId'>, requested?: string): Promise<HomeContext | null> {
     if (!requested) {
       const memberships = await this.prisma.membership.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'asc' } });
       const pick = memberships.find((m) => m.homeId === user.lastHomeId) ?? memberships[0];
-      if (pick) return user.staffRole ? this.resolveHome(user, pick.homeId) : { homeId: pick.homeId, role: pick.role, viaStaff: false, readOnly: false };
+      if (pick) return this.resolveHome(user, pick.homeId);
       if (user.staffRole && user.lastHomeId) return this.resolveHome(user, user.lastHomeId).catch(() => null);
       return null;
     }
     const [membership, home] = await Promise.all([
       this.prisma.membership.findUnique({ where: { userId_homeId: { userId: user.id, homeId: requested } } }),
-      this.prisma.home.findUnique({ where: { id: requested }, select: { orgId: true, installerId: true } }),
+      this.prisma.home.findUnique({ where: { id: requested }, select: { orgId: true, installerId: true, name: true, timezone: true } }),
     ]);
     if (!home) throw new NotFoundException('No such home.');
     let staff: HomeContext | null = null;
@@ -225,8 +235,18 @@ export class AuthService {
       else if (user.staffRole === StaffRole.INSTALLER && home.installerId === user.id) staff = { homeId: requested, role: Role.ADMIN, viaStaff: true, readOnly: false };
       else if (user.staffRole === StaffRole.SUPPORT) staff = { homeId: requested, role: Role.ADMIN, viaStaff: true, readOnly: true };
     }
-    const own: HomeContext | null = membership ? { homeId: requested, role: membership.role, viaStaff: false, readOnly: false } : null;
+    let own: HomeContext | null = null;
+    if (membership) {
+      own = { homeId: requested, role: membership.role, viaStaff: false, readOnly: false, blocked: null, accessEndsAt: null };
+      // only members and guests can be time-limited (an owner or admin always gets in)
+      if (membership.role === Role.MEMBER || membership.role === Role.GUEST) {
+        const check = checkAccess(membership, home.timezone);
+        if (!check.ok) own.blocked = { reason: check.reason, message: blockedMessage(home.name, membership, check.reason, home.timezone) };
+        else own.accessEndsAt = check.endsAt;
+      }
+    }
     if (staff && own) {
+      if (own.blocked) return staff; // their staff role still lets them work in the home
       if (staff.readOnly) return own; // a member's own rights beat read-only support access
       return { ...staff, role: RANK[own.role] > RANK[staff.role] ? own.role : staff.role };
     }
@@ -245,7 +265,8 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.disabled) return null;
     const home = await this.resolveHome(user, homeId).catch(() => null);
-    if (!home) return null;
+    // a guest's timers and rules wait like they do: nothing outside their hours or after the end
+    if (!home || home.blocked) return null;
     return { id: user.id, name: user.name, email: user.email, orgId: user.orgId, staffRole: user.staffRole, channel, ...home };
   }
 

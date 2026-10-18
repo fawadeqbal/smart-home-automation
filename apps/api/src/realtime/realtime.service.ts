@@ -88,6 +88,11 @@ export class RealtimeService {
     this.server?.to(`org:${orgId}`).emit('homes.changed', {});
   }
 
+  /** Someone came home or left (or started or stopped sharing it): "who's home" reloads. */
+  presenceChanged(homeId: string) {
+    this.server?.to(`home:${homeId}`).emit('presence.changed', {});
+  }
+
   /** Rights changed: drop the person's sockets so they reconnect with the new rooms. */
   accessChanged(userId: string) {
     this.server?.to(`user:${userId}`).emit('access.changed', {});

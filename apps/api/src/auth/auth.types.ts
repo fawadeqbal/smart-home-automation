@@ -25,6 +25,13 @@ export interface AuthUser {
   viaStaff: boolean;
   /** Support staff: may read everything in the home, change nothing. */
   readOnly: boolean;
+  /**
+   * Time-limited access (members and guests): set while they're outside their hours or past the end.
+   * They may still use their own account (sign in, notifications); everything in the home says `message`.
+   */
+  blocked?: { reason: 'expired' | 'hours'; message: string } | null;
+  /** When the stretch of access they're in now ends (null or missing: no limit). */
+  accessEndsAt?: Date | null;
 }
 
 export const ACCESS_COOKIE = 'access';

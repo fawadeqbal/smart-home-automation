@@ -3,6 +3,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <bearssl/bearssl.h>
+#include <time.h>
 
 #include "../../config.h"
 #include "../core/Log.h"
@@ -117,10 +118,13 @@ bool LocalServer::authorized(JsonDocument& pass) {
     fail(401, "unknown or used nonce");
     return false;
   }
+  const time_t now = time(nullptr);
   const LocalCheck result = auth_.check(nodeId_.c_str(), passText.c_str(), nonce.c_str(), sig.c_str(),
-                                        server_.uri().c_str(), body.c_str(), body.length(), pass);
+                                        server_.uri().c_str(), body.c_str(), body.length(), pass,
+                                        now > 1700000000 ? (long)now : 0);   // 0 until NTP has answered
   switch (result) {
     case LocalCheck::Ok: return true;
+    case LocalCheck::Expired: fail(401, "this pass has run out"); break;
     case LocalCheck::NoKey: fail(401, "no local key yet"); break;
     case LocalCheck::OldPass: fail(401, "old pass"); break;
     case LocalCheck::OtherBoard: fail(401, "pass for another board"); break;

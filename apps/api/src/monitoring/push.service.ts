@@ -5,19 +5,43 @@ import webpush from 'web-push';
 import { AuthUser } from '../auth/auth.types';
 import { Settings, SETTINGS } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
+import { FcmClient, PushNotice, readServiceAccount } from './fcm';
 
 interface Keys { publicKey: string; privateKey: string }
 
 /**
- * Web Push: notices reach phones and computers even when the app is closed (browsers need https,
- * or http://localhost). The VAPID key pair is created once and kept next to the firmware folder.
+ * Push notifications when the app is closed:
+ *  - Web Push for browsers (https, or http://localhost). The VAPID key pair is created once and kept next
+ *    to the firmware folder.
+ *  - Firebase Cloud Messaging for the phone app, once FCM_SERVICE_ACCOUNT is set (see docs/push.md).
+ *    Without it phones still register, and nothing is sent.
  */
 @Injectable()
 export class PushService implements OnModuleInit {
   private readonly log = new Logger('Push');
   private keys: Keys | null = null;
+  private fcm: FcmClient | null = null;
 
-  constructor(private readonly prisma: PrismaService, @Inject(SETTINGS) private readonly settings: Settings) {}
+  constructor(private readonly prisma: PrismaService, @Inject(SETTINGS) private readonly settings: Settings) {
+    try {
+      const sa = readServiceAccount(settings.fcmServiceAccount);
+      if (sa) {
+        this.fcm = new FcmClient(sa);
+        this.log.log(`Phone push on (Firebase project ${sa.project_id})`);
+      }
+    } catch (err) {
+      this.log.warn(`Phone push off: ${(err as Error).message}`);
+    }
+  }
+
+  /** For tests: talk to a fake Google. */
+  useFcm(client: FcmClient | null) {
+    this.fcm = client;
+  }
+
+  get phonePushOn() {
+    return !!this.fcm;
+  }
 
   async onModuleInit() {
     try {
@@ -58,16 +82,62 @@ export class PushService implements OnModuleInit {
   }
 
   async count(user: AuthUser) {
-    return { devices: await this.prisma.pushSubscription.count({ where: { userId: user.id } }) };
+    const [devices, phones] = await Promise.all([
+      this.prisma.pushSubscription.count({ where: { userId: user.id } }),
+      this.prisma.phoneToken.count({ where: { userId: user.id } }),
+    ]);
+    return { devices, phones, phonePush: this.phonePushOn };
   }
 
-  /** Sends to every browser the person enabled; forgets ones the push service says are gone. */
-  async send(userId: string, payload: { title: string; body: string; link?: string | null; severity: string; id: string }) {
+  // ---------------------------------------------------------------- phones (Firebase)
+  /**
+   * The phone app signed in, or Firebase gave it a new token: remember it for this person. A token
+   * belongs to one phone, so it moves to whoever signed in on that phone last.
+   */
+  async registerPhone(user: AuthUser, input: { token: string; platform: string; appVersion?: string | null; replaces?: string | null }) {
+    if (input.replaces && input.replaces !== input.token) {
+      await this.prisma.phoneToken.deleteMany({ where: { token: input.replaces, userId: user.id } });
+    }
+    await this.prisma.phoneToken.upsert({
+      where: { token: input.token },
+      create: { userId: user.id, token: input.token, platform: input.platform, appVersion: input.appVersion ?? null },
+      update: { userId: user.id, platform: input.platform, appVersion: input.appVersion ?? null, lastSeenAt: new Date() },
+    });
+    return { ok: true, phonePush: this.phonePushOn };
+  }
+
+  /** Signed out on the phone: no more notices to it. */
+  async unregisterPhone(user: AuthUser, token: string) {
+    await this.prisma.phoneToken.deleteMany({ where: { token, userId: user.id } });
+  }
+
+  /** Sends to every browser and phone the person enabled; forgets ones the push service says are gone. */
+  async send(userId: string, payload: PushNotice) {
+    await Promise.all([this.sendWeb(userId, payload), this.sendPhones(userId, payload)]);
+  }
+
+  private async sendPhones(userId: string, payload: PushNotice) {
+    const fcm = this.fcm;
+    if (!fcm) return;
+    const phones = await this.prisma.phoneToken.findMany({ where: { userId } });
+    await Promise.all(phones.map(async (p) => {
+      try {
+        const r = await fcm.send(p.token, payload);
+        if (r.result === 'gone') await this.prisma.phoneToken.delete({ where: { id: p.id } }).catch(() => undefined);
+        else if (r.result === 'failed') this.log.warn(`Phone push failed (${r.status}): ${r.error ?? 'no reason given'}`);
+      } catch (err) {
+        this.log.warn(`Phone push failed: ${(err as Error).message}`);
+      }
+    }));
+  }
+
+  private async sendWeb(userId: string, payload: PushNotice) {
     if (!this.keys) return;
     const subs = await this.prisma.pushSubscription.findMany({ where: { userId } });
     await Promise.all(subs.map(async (s) => {
       try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), {
+        const { id, title, body, link, severity } = payload;
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ id, title, body, link, severity }), {
           TTL: 3600, urgency: payload.severity === 'ALERT' ? 'high' : 'normal',
         });
       } catch (err) {

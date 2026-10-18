@@ -83,6 +83,8 @@ model User {
   rules             Rule[]
   notifications     Notification[]
   pushSubscriptions PushSubscription[]
+  phoneTokens       PhoneToken[]
+  presence          Presence[]
   /// which notices this person wants: { "leak": true, "motionAtNight": false, ... }
   notifyPrefs       Json               @default("{}")
   createdAt         DateTime           @default(now())
@@ -106,6 +108,18 @@ model Membership {
   createdAt DateTime @default(now())
   /// when this person finished the first-visit tour of the home (owners see it once)
   onboardedAt DateTime?
+  /// Time-limited access (members and guests: a weekend guest, the maid, the driver). It stops at
+  /// accessUntil, and works only from accessFrom to accessTo ("09:00", "17:00" in the home's time zone;
+  /// "22:00" to "06:00" crosses midnight) on accessDays (0 = Sunday; empty = every day). Null: no limit.
+  accessUntil DateTime?
+  accessFrom  String?
+  accessTo    String?
+  accessDays  Int[]     @default([])
+  /// when the end of their access was handled (phone passes retired, owners told); cleared when extended
+  expiredAt   DateTime?
+  /// the latest end written into a phone pass for them (local control): when it passes, the home's
+  /// epoch goes up so boards without a clock stop taking the pass too
+  passUntil   DateTime?
 
   @@id([userId, homeId])
   @@index([homeId])
@@ -202,6 +216,11 @@ model Invite {
   staffRole StaffRole?
   /// Room rights given on joining: [{ "roomId", "access" }]
   rooms     Json          @default("[]")
+  /// Time-limited access given on joining (see Membership)
+  accessUntil DateTime?
+  accessFrom  String?
+  accessTo    String?
+  accessDays  Int[]       @default([])
   tokenHash String        @unique
   createdBy String
   expiresAt DateTime
@@ -265,6 +284,8 @@ model Home {
   installation  InstallationReport?
   contracts     Contract[]
   invoices      Invoice[]
+  presence      Presence[]
+  presenceRule  PresenceRule?
 }
 
 model Room {
@@ -621,6 +642,68 @@ model PushSubscription {
   auth      String
   userAgent String?
   createdAt DateTime @default(now())
+}
+
+/// A phone with the Switchboard app, for push notifications through Firebase Cloud Messaging.
+model PhoneToken {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// the FCM registration token (a new one replaces it when Firebase rotates it)
+  token      String   @unique
+  /// "android" | "ios"
+  platform   String
+  appVersion String?
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// "Share when I'm home": a row exists only while the person shares it for this home. The phone app says
+/// whether it can reach one of the home's boards on the Wi‑Fi; a report older than 3 hours counts as unknown.
+model Presence {
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  homeId     String
+  home       Home      @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  /// when they turned sharing on
+  sharedAt   DateTime  @default(now())
+  /// the latest report (null: none yet), when it came, and since when it has said the same
+  atHome     Boolean?
+  reportedAt DateTime?
+  since      DateTime?
+
+  @@id([userId, homeId])
+  @@index([homeId])
+}
+
+/// "When the last person leaves / the first comes home" for a home (owners and admins). Runs with the
+/// rights of the person who set it up; only people who share when they're home count.
+model PresenceRule {
+  homeId         String    @id
+  home           Home      @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  enabled        Boolean   @default(true)
+  /// when everyone has left: "none" | "lights" (lights and fans) | "chosen" (offDevices)
+  switchOff      String    @default("lights")
+  offDevices     String[]  @default([])
+  /// ... and turn on away mode, and tell the person who set it up
+  awayMode       Boolean   @default(false)
+  notify         Boolean   @default(true)
+  /// when the first person comes home: run this scene (and away mode goes off if this rule turned it on)
+  arriveSceneId  String?
+  createdById    String
+  /// everyone counted as out (set when "left" ran; cleared when someone comes home)
+  out            Boolean   @default(false)
+  outSince       DateTime?
+  /// this rule turned away mode on (so coming home turns it off again)
+  awayByRule     Boolean   @default(false)
+  /// "left" | "arrived", when, and what was done
+  lastEvent      String?
+  lastEventAt    DateTime?
+  lastResult     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 /// Where a request for a free home visit (from the public landing page) stands.

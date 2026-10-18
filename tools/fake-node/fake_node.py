@@ -447,6 +447,9 @@ class FakeNode:
         want = hmac.new(key.encode(), f"{nonce}\n{path}\n{body}".encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(want, sig):
             return None, "bad signature"
+        # a time-limited pass (a guest's): the fake always knows the time, like a board after NTP
+        if isinstance(info.get("x"), int) and info["x"] > 0 and time.time() >= info["x"]:
+            return None, "this pass has run out"
         return info, ""
 
     def local_command(self, info: dict, command: dict) -> tuple[int, dict]:

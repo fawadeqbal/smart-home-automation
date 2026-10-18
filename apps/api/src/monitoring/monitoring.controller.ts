@@ -11,6 +11,13 @@ import { PushService } from './push.service';
 import { SummaryService } from './summary.service';
 
 const subscription = z.object({ endpoint: z.string().url().max(1000), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) });
+const phone = z.object({
+  token: z.string().trim().min(10).max(4096),
+  platform: z.enum(['android', 'ios']),
+  appVersion: z.string().trim().max(40).nullable().optional(),
+  /** the token it had before (Firebase rotated it) */
+  replaces: z.string().trim().max(4096).nullable().optional(),
+});
 
 @Controller()
 export class MonitoringController {
@@ -70,6 +77,22 @@ export class MonitoringController {
   @HttpCode(204)
   unsubscribe(@CurrentUser() user: AuthUser, @Body(new ZodPipe(z.object({ endpoint: z.string().max(1000) }))) body: { endpoint: string }) {
     return this.push.unsubscribe(user, body.endpoint);
+  }
+
+  /** The phone app after sign-in, and whenever Firebase gives it a new token. */
+  @NoHome()
+  @Post('push/phone')
+  @HttpCode(200)
+  registerPhone(@CurrentUser() user: AuthUser, @Body(new ZodPipe(phone)) body: z.infer<typeof phone>) {
+    return this.push.registerPhone(user, body);
+  }
+
+  /** The phone app when signing out. */
+  @NoHome()
+  @Post('push/phone/remove')
+  @HttpCode(204)
+  unregisterPhone(@CurrentUser() user: AuthUser, @Body(new ZodPipe(z.object({ token: z.string().trim().min(1).max(4096) }))) body: { token: string }) {
+    return this.push.unregisterPhone(user, body.token);
   }
 
   @NoHome()

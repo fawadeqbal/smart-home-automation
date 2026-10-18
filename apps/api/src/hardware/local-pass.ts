@@ -8,7 +8,9 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
  *
  *   board key   64 hex characters, random per board and home; the board keeps it in flash
  *   pass        base64url (no padding) of {"n": board, "e": epoch, "u": user, "v": [...], "c": [...]}
- *               v = device keys they may see, c = device keys they may switch
+ *               v = device keys they may see, c = device keys they may switch; time-limited people's
+ *               passes also carry "x": when it stops working (unix seconds; boards that know the time
+ *               check it, and the server raises the epoch then for those that don't)
  *   pass key    hex HMAC-SHA256(key = board key, "pass:" + pass): only the server and the board can
  *               make it, so a pass can't be edited or made up
  *   request     headers X-Pass, X-Nonce (from GET /local/hello, used once), X-Sig =
@@ -23,6 +25,8 @@ export interface PassBody {
   u: string;
   v: string[];
   c: string[];
+  /** unix seconds the pass stops working (time-limited access only) */
+  x?: number;
 }
 
 export const newBoardKey = () => randomBytes(32).toString('hex');
