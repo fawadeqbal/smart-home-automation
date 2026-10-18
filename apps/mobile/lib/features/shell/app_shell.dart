@@ -15,6 +15,7 @@ import '../../state/presence.dart';
 import '../../state/session.dart';
 import '../../voice/hands_free.dart';
 import '../../voice/hands_free_ui.dart';
+import '../work/work_shell.dart';
 import 'toast_host.dart';
 
 /// The four tabs under a floating glass bar, with the mic beside it and toasts above it.
@@ -48,7 +49,8 @@ class AppShell extends ConsumerWidget {
         // the stack its size (an invisible 0×0 one squeezed every screen to nothing)
         fit: StackFit.expand,
         children: [
-          Positioned.fill(child: shell),
+          // a customer's home opened from work shows a bar back to work
+          Positioned.fill(child: CustomerViewFrame(child: shell)),
           const Positioned(left: 0, top: 0, child: PushAskOnce()),
           Positioned(
             left: 16,

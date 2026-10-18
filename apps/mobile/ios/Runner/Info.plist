@@ -4,6 +4,10 @@
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Switchboard listens when you tap the mic, so you can switch things by voice.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Staff take installation photos for the customer's report.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Staff add installation photos from the gallery to the customer's report.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Switchboard connects to your home's server on your Wi‑Fi.</string>
 	<key>NSAppTransportSecurity</key>
