@@ -19,6 +19,8 @@ import '../../state/toast.dart';
 import '../../voice/hands_free_ui.dart';
 import '../health/ask_for_help.dart';
 import '../home/home_actions.dart';
+import '../work/work_icons.dart';
+import '../work/work_me_screen.dart';
 import 'change_password.dart';
 import 'sharing.dart';
 
@@ -139,7 +141,7 @@ class MeScreen extends ConsumerWidget {
           ),
         ),
         Text(
-          '${home.viaStaff ? 'Looking in as ${me.staff?.role.toLowerCase() ?? 'staff'}' : home.role.label} · ${home.name}',
+          '${home.viaStaff && !me.homes.any((h) => h.id == home.id) ? 'Looking in as ${me.staff?.role.toLowerCase() ?? 'staff'}' : home.role.label} · ${home.name}',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, color: c.mu),
         ),
@@ -205,6 +207,16 @@ class MeScreen extends ConsumerWidget {
                 'Switch home',
                 value: '${me.homes.length} homes',
                 onTap: () => showHomePicker(context, ref),
+              ),
+            // staff: the installer's screens (the app remembers which one was used last)
+            if (me.staff != null)
+              row(
+                WorkIcons.briefcase,
+                me.homes.any((h) => h.id == home.id) ? 'Switch to Work' : 'Back to work',
+                value: me.staff!.orgName,
+                bg: c.acSoft,
+                fg: c.acText,
+                onTap: () => switchToWork(ref),
               ),
           ],
         ),

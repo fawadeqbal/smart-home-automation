@@ -56,6 +56,10 @@ dependencies:
   flutter_local_notifications: ^22.3.2
   # "who's home": check again when the phone changes network
   connectivity_plus: ^7.3.2
+  # staff mode: call / WhatsApp the customer and open the day's route in Google Maps
+  url_launcher: ^6.3.2
+  # staff mode: installation photos from the camera or the gallery
+  image_picker: ^1.2.0
 
 dev_dependencies:
   flutter_test:

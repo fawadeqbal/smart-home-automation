@@ -19,7 +19,9 @@ import '../../features/rooms/room_screen.dart';
 import '../../features/rooms/rooms_screen.dart';
 import '../../features/routines/routines_screen.dart';
 import '../../features/shell/app_shell.dart';
+import '../../features/work/work_routes.dart';
 import '../../state/session.dart';
+import '../../state/work.dart';
 import '../config/app_settings.dart';
 import 'routes.dart';
 
@@ -58,6 +60,9 @@ String? _redirect(Ref ref, GoRouterState state) {
   if (!session.hasValue) return loc == Routes.splash ? null : Routes.splash;
   final me = session.value;
   if (me == null) return loc == Routes.login || loc == Routes.server ? null : Routes.login;
+  // staff: the work tabs, or the home app (their own home, or a customer's "as the customer sees it")
+  final work = workRedirect(ref, me, loc);
+  if (work.handled) return work.to == loc ? null : work.to;
   if (me.home == null) return loc == Routes.noHome ? null : Routes.noHome;
   const outside = [Routes.splash, Routes.login, Routes.server, Routes.noHome];
   return outside.contains(loc) ? Routes.home : null;
@@ -68,6 +73,8 @@ final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
   ref.listen(serverUrlProvider, (_, _) => refresh.value++);
   ref.listen(sessionProvider, (_, _) => refresh.value++);
+  ref.listen(atWorkProvider, (_, _) => refresh.value++);
+  ref.listen(customerViewProvider, (_, _) => refresh.value++);
   ref.onDispose(refresh.dispose);
 
   return GoRouter(
@@ -107,6 +114,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           _tab(Routes.me, const MeScreen()),
         ],
       ),
+      workShellRoute(),
     ],
   );
 });
