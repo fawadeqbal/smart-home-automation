@@ -9,6 +9,7 @@ import { AwayCard } from '@/components/home/AwayCard';
 import { EnergyCard } from '@/components/home/EnergyCard';
 import { InstallCard } from '@/components/home/InstallCard';
 import { PowerCard } from '@/components/home/OutagesPanel';
+import { WhoIsHomeCard } from '@/components/home/WhoIsHome';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
 import { Empty, ErrorBox, Kpi, useAction } from '@/components/ui';
@@ -36,6 +37,15 @@ export default function HomePage() {
   if (!home) {
     return me.staff ? <Loader /> : (
       <Empty>You’re not part of a home yet. Ask the home owner (or your installer) to send you an invite link.</Empty>
+    );
+  }
+  // time-limited access: outside the hours (or after the end) there's nothing to load, only why
+  if (home.blocked) {
+    return (
+      <div data-screen-label="Access paused">
+        <div className="ph-text mb20"><h1>{home.name}</h1></div>
+        <Empty>{home.blocked.message}{home.blocked.reason === 'hours' ? ' Come back then — everything will be here.' : ''}</Empty>
+      </div>
     );
   }
   return <HomeDashboard key={home.id} isAdmin={isAdmin} firstName={me.name.split(' ')[0]!} readOnly={home.readOnly} />;
@@ -96,6 +106,7 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
 
       {isAdmin && !readOnly && <InstallCard />}
       <AwayCard isAdmin={isAdmin} readOnly={readOnly} />
+      <WhoIsHomeCard isAdmin={isAdmin} />
       <PowerCard link={isAdmin} />
       <EnergyCard />
 

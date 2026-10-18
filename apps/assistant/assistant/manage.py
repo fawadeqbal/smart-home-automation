@@ -120,6 +120,7 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
             role = (u.get("role") or ("installer" if u.get("staff") else "")).lower()
             extra = " (this is them)" if u.get("id") == me else ""
             extra += " (disabled)" if u.get("disabled") else ""
+            extra += _access_text(u.get("access"))
             lines.append(f"- {who}: {role}{extra}")
         invites = got["invites"]
         if isinstance(invites, list) and invites:
@@ -307,11 +308,66 @@ class ListPeopleTool(Tool):
         users, rooms = self._api.users(), self._api.rooms()
         lines = [f"- {u.get('name') or u.get('email')} <{u.get('email')}>: "
                  f"{(u.get('role') or ('installer' if u.get('staff') else '')).lower()}"
-                 f"{' (disabled)' if u.get('disabled') else ''}; rooms: {_rooms_text(u, rooms)}" for u in users]
+                 f"{' (disabled)' if u.get('disabled') else ''}{_access_text(u.get('access'))}; rooms: {_rooms_text(u, rooms)}" for u in users]
         invites = self._api.invites()
         if invites:
-            lines.append("Invited, not joined yet: " + "; ".join(f"{i.get('name') or i.get('email')} ({str(i.get('role')).lower()})" for i in invites))
+            lines.append("Invited, not joined yet: " + "; ".join(
+                f"{i.get('name') or i.get('email')} ({str(i.get('role')).lower()}{', ' + i['access'] if i.get('access') else ''})" for i in invites))
         return "\n".join(lines) or "Nobody yet."
+
+
+# ------------------------------------------------------------------ time-limited access (guests, help)
+DAYS = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
+LIMIT_PARAMS = {
+    "until": {"type": "string", "description": "When their access ends, in the home's time as YYYY-MM-DDTHH:MM "
+                                               "(e.g. a guest until Sunday 8 pm); 'none' removes the end"},
+    "from": {"type": "string", "description": "Allowed hours start, HH:MM in the home's time (e.g. 09:00); 'none' removes the hours"},
+    "to": {"type": "string", "description": "Allowed hours end, HH:MM (17:00; 22:00 to 06:00 goes past midnight)"},
+    "days": {"type": "array", "items": {"type": "string"}, "description": "Allowed days, e.g. ['mon','tue','wed','thu','fri','sat'], or ['every day']"},
+}
+
+
+def _access_text(access: Any) -> str:
+    """" (expired; until Sun 25 Oct, 17:00)" for the people list, from the API's access field."""
+    if not isinstance(access, dict) or not access.get("summary"):
+        return ""
+    status = {"expired": "access ended", "outside": "outside their hours now"}.get(str(access.get("status")), "limited")
+    return f" ({status}: {access['summary']})"
+
+
+def _limits(args: dict) -> Tuple[Dict[str, Any], Optional[str]]:
+    """The API's accessUntil/accessFrom/accessTo/accessDays from what the AI passed; or an error to say."""
+    body: Dict[str, Any] = {}
+    none = ("none", "no", "never", "remove", "")
+    if args.get("until") is not None:
+        until = str(args["until"]).strip()
+        if until.lower() in none:
+            body["accessUntil"] = None
+        elif not re.match(r"^\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}$", until):
+            return {}, "Error: give the end as YYYY-MM-DDTHH:MM in the home's time, like 2026-10-25T20:00."
+        else:
+            body["accessUntil"] = until.replace(" ", "T")
+    if args.get("from") is not None or args.get("to") is not None:
+        start, end = str(args.get("from") or "").strip(), str(args.get("to") or "").strip()
+        if start.lower() in none and end.lower() in none:
+            body["accessFrom"] = body["accessTo"] = None
+        elif not re.match(r"^\d{1,2}:\d{2}$", start) or not re.match(r"^\d{1,2}:\d{2}$", end):
+            return {}, "Error: allowed hours need a start and an end as HH:MM, like 09:00 to 17:00."
+        else:
+            body["accessFrom"], body["accessTo"] = start, end
+    if args.get("days") is not None:
+        wanted = args["days"] if isinstance(args["days"], list) else [args["days"]]
+        days: List[int] = []
+        for w in wanted:
+            word = _norm(str(w))
+            if word in ("every day", "everyday", "all", "daily"):
+                days = []
+                break
+            if word[:3] not in DAYS:
+                return {}, f"Error: I don't know the day {w!r}; say mon, tue, wed, thu, fri, sat or sun."
+            days.append(DAYS[word[:3]])
+        body["accessDays"] = sorted(set(days))
+    return body, None
 
 
 def _room_grants(api: HomeApi, rooms_arg: Any, access_arg: Any) -> Tuple[Optional[List[Dict[str, str]]], Optional[str]]:
@@ -334,7 +390,9 @@ def _room_grants(api: HomeApi, rooms_arg: Any, access_arg: Any) -> Tuple[Optiona
 class InvitePersonTool(Tool):
     name = "invite_person"
     description = ("Invite someone to this home by email (owners and admins; only the owner invites an admin). Gives a "
-                   "link to send them (valid 7 days). Members and guests only see the rooms you give them.")
+                   "link to send them (valid 7 days). Members and guests only see the rooms you give them, and can be "
+                   "limited to a time: until an end (a guest for the weekend) and/or certain hours and days (the maid "
+                   "09:00-17:00 Mon-Sat). Outside that they can open the app but not see or switch anything.")
 
     def __init__(self, api: HomeApi, public_url: str = "") -> None:
         self._api, self._url = api, public_url.rstrip("/")
@@ -347,6 +405,7 @@ class InvitePersonTool(Tool):
             "role": {"type": "string", "enum": ["member", "guest", "admin"], "description": "member (family) unless they say"},
             "rooms": {"type": "array", "items": {"type": "string"}, "description": "Room names, or ['all']"},
             "access": {"type": "string", "enum": ["view", "control"], "description": "In those rooms: see only, or switch (default)"},
+            **LIMIT_PARAMS,
         }, "required": ["email"]}
 
     def run(self, args: dict) -> str:
@@ -357,22 +416,32 @@ class InvitePersonTool(Tool):
         body: Dict[str, Any] = {"email": email, "role": role}
         if str(args.get("name") or "").strip():
             body["name"] = str(args["name"]).strip()
+        limits, err = _limits(args)
+        if err:
+            return err
         if role in ("MEMBER", "GUEST"):
             grants, err = _room_grants(self._api, args.get("rooms"), args.get("access"))
             if err:
                 return err
             body["rooms"] = grants
+            body.update({k: v for k, v in limits.items() if v not in (None, [])})
+        elif any(v not in (None, []) for v in limits.values()):
+            return "Error: owners and admins can't have hours or an end date; invite them as a member or guest."
         made = self._api.invite(body)
         link = f"{self._url}{made.get('path', '')}" if self._url else made.get("path", "")
         rooms = "" if role not in ("MEMBER", "GUEST") else (f" with {len(body['rooms'])} room(s)" if body["rooms"] else " with no rooms yet")
-        return (f"Invite made for {email} as {role.lower()}{rooms}. Send them this link (valid {made.get('expiresInDays', 7)} days): "
+        days = made.get("expiresInDays", 7)
+        return (f"Invite made for {email} as {role.lower()}{rooms}"
+                + (f", access {made['access']}" if made.get("access") else "")
+                + f". Send them this link (valid {days} day{'' if days == 1 else 's'}): "
                 f"{link}" + (" They already have an account: they sign in with it." if made.get("existingAccount") else ""))
 
 
 class UpdatePersonTool(Tool):
     name = "update_person"
-    description = ("Change someone in this home: their role, the rooms they may use and how (view or control), or "
-                   "pause/restore their access (owners and admins; admins manage members and guests only).")
+    description = ("Change someone in this home: their role, the rooms they may use and how (view or control), "
+                   "pause/restore their access, or their time limits (an end date: extend or remove it; allowed hours "
+                   "and days) (owners and admins; admins manage members and guests only).")
 
     def __init__(self, api: HomeApi) -> None:
         self._api = api
@@ -385,6 +454,7 @@ class UpdatePersonTool(Tool):
             "rooms": {"type": "array", "items": {"type": "string"}, "description": "The rooms they may use from now on (replaces the list), or ['all']"},
             "access": {"type": "string", "enum": ["view", "control"]},
             "disabled": {"type": "boolean", "description": "true pauses their access, false restores it"},
+            **LIMIT_PARAMS,
         }, "required": ["person"]}
 
     def run(self, args: dict) -> str:
@@ -402,6 +472,17 @@ class UpdatePersonTool(Tool):
         if args.get("disabled") is not None:
             body["disabled"] = bool(args["disabled"])
             done.append("access paused" if body["disabled"] else "access restored")
+        limits, err = _limits(args)
+        if err:
+            return err
+        if limits:
+            body.update(limits)
+            if "accessUntil" in limits:
+                done.append(f"access until {limits['accessUntil'].replace('T', ' ')}" if limits["accessUntil"] else "no end date")
+            if "accessFrom" in limits:
+                done.append(f"hours {limits['accessFrom']} to {limits['accessTo']}" if limits["accessFrom"] else "any hour")
+            if "accessDays" in limits:
+                done.append("on " + ", ".join(k for k, v in DAYS.items() if v in limits["accessDays"]) if limits["accessDays"] else "every day")
         if body:
             self._api.update_user(person["id"], body)
         if args.get("rooms") is not None:
@@ -411,7 +492,7 @@ class UpdatePersonTool(Tool):
             self._api.set_user_rooms(person["id"], grants or [])
             done.append(f"may now use {len(grants or [])} room(s)")
         if not done:
-            return "Error: say what to change: role, rooms, or pause/restore."
+            return "Error: say what to change: role, rooms, pause/restore, or their hours and end date."
         return f"{person.get('name') or person.get('email')}: " + ", ".join(done) + "."
 
 

@@ -5,6 +5,7 @@ import { get, patch, post } from '@/lib/api';
 import { ACCESS_LABEL, ROLE_BLURB, ROLE_LABEL, STAFF_BLURB, STAFF_LABEL } from '@/lib/roles';
 import type { Access, Inventory, Role, Room, StaffList, StaffRole, Workspace } from '@/lib/types';
 import { CopyField, FormModal, inviteUrl } from '../ui';
+import { AccessLimitsFields, limitsBody, LimitsState, NO_LIMITS } from '../home/AccessLimits';
 
 const ZONES = ['Asia/Karachi', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Dhaka', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'Australia/Sydney', 'UTC'];
 
@@ -134,12 +135,14 @@ export function AddStockDialog({ inv, onClose, onDone }: { inv: Inventory; onClo
 }
 
 /** Invite someone into the current home (owner/admin), with their room rights. */
-export function InvitePersonDialog({ rooms, canAdmin, ownerInvite = false, onClose, onDone }: {
-  rooms: Room[] | Workspace['rooms']; canAdmin: boolean; ownerInvite?: boolean; onClose: () => void; onDone: () => void;
+export function InvitePersonDialog({ rooms, canAdmin, ownerInvite = false, timeZone = 'Asia/Karachi', onClose, onDone }: {
+  rooms: Room[] | Workspace['rooms']; canAdmin: boolean; ownerInvite?: boolean; timeZone?: string; onClose: () => void; onDone: () => void;
 }) {
   const [role, setRole] = useState<Role>(ownerInvite ? 'OWNER' : 'MEMBER');
   const [access, setAccess] = useState<Record<string, Access | ''>>({});
-  const [link, setLink] = useState<{ path: string; existing: boolean; email: string } | null>(null);
+  const [link, setLink] = useState<{ path: string; existing: boolean; email: string; days: number; limits: string | null } | null>(null);
+  const [limits, setLimits] = useState<LimitsState>(NO_LIMITS);
+  const [limited, setLimited] = useState(false);
   const roles: Role[] = ownerInvite ? ['OWNER'] : canAdmin ? ['ADMIN', 'MEMBER', 'GUEST'] : ['MEMBER', 'GUEST'];
   const perRoom = role === 'MEMBER' || role === 'GUEST';
   return (
@@ -148,16 +151,18 @@ export function InvitePersonDialog({ rooms, canAdmin, ownerInvite = false, onClo
       submitLabel="Create invite link" onClose={onClose}
       onSubmit={async (f) => {
         const email = String(f.get('email'));
-        const res = await post<{ path: string; existingAccount: boolean }>('/invites', {
+        const res = await post<{ path: string; existingAccount: boolean; expiresInDays: number; access: string | null }>('/invites', {
           email, name: String(f.get('name') ?? '') || undefined, role,
           rooms: perRoom ? Object.entries(access).filter(([, a]) => a).map(([roomId, a]) => ({ roomId, access: a })) : [],
+          ...(perRoom && limited ? limitsBody(limits) : {}),
         });
-        setLink({ path: res.path, existing: res.existingAccount, email });
+        setLink({ path: res.path, existing: res.existingAccount, email, days: res.expiresInDays ?? 7, limits: res.access ?? null });
         onDone();
       }}
       done={link && (
         <div className="stack">
-          <div className="ok-note">Invite ready for <b>{link.email}</b>{link.existing ? ' — they already have an account and just confirm with their password' : ''}. Send them this link (valid 7 days):</div>
+          <div className="ok-note">Invite ready for <b>{link.email}</b>{link.existing ? ' — they already have an account and just confirm with their password' : ''}. Send them this link (valid {link.days} day{link.days === 1 ? '' : 's'}):</div>
+          {link.limits && <div className="small muted">Their access: {link.limits}.</div>}
           <CopyField value={inviteUrl(link.path)} />
         </div>
       )}>
@@ -193,6 +198,15 @@ export function InvitePersonDialog({ rooms, canAdmin, ownerInvite = false, onClo
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {perRoom && (
+        <div className="stack" style={{ gap: 10 }}>
+          <label className="check">
+            <input type="checkbox" checked={limited} onChange={(e) => setLimited(e.target.checked)} />
+            For a while, or at certain hours <span className="muted small">(a guest for the weekend, help 9:00–17:00)</span>
+          </label>
+          {limited && <AccessLimitsFields value={limits} onChange={setLimits} timeZone={timeZone} />}
         </div>
       )}
     </FormModal>

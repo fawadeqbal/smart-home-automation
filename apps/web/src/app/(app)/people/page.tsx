@@ -12,7 +12,7 @@ export default function PeoplePage() {
   return (
     <HomeOnly admins>
       <PageHead eyebrow={home?.name} title="People" sub="Who can sign in, and what each person may do in each room." />
-      {home && <PeopleView actorRole={home.role} actorId={me.id} canManage={!home.readOnly && !installer} ownerInviteOnly={!!installer} />}
+      {home && <PeopleView actorRole={home.role} actorId={me.id} canManage={!home.readOnly && !installer} ownerInviteOnly={!!installer} timeZone={home.timezone || undefined} />}
     </HomeOnly>
   );
 }
