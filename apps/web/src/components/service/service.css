@@ -1,0 +1,62 @@
+/* Service screens: WhatsApp buttons, quotes, renewals, the installer's day, ratings, stock warning.
+   Uses the design tokens from globals.css. */
+
+.msg-btn { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---- stars */
+.stars { display: inline-flex; gap: 2px; }
+.stars button { border: 0; background: none; padding: 2px; cursor: pointer; color: var(--sw); line-height: 0; border-radius: 6px; }
+.stars button.on { color: var(--on); }
+.stars button:focus-visible { outline: 2px solid var(--ring); }
+.stars button:disabled { cursor: default; }
+.stars-text { color: var(--on); letter-spacing: 1px; white-space: nowrap; }
+.rate-card { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---- quote lines */
+.quote-lines { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.quote-lines th { text-align: left; font-weight: 500; color: var(--mu); font-size: 12.5px; padding: 6px 8px; border-bottom: 1px solid var(--ln2); }
+.quote-lines td { padding: 6px 8px; border-bottom: 1px solid var(--ln); vertical-align: middle; }
+.quote-lines td.num, .quote-lines th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.quote-lines input { width: 100%; min-width: 0; }
+.quote-lines td:first-child { width: 60%; min-width: 180px; }
+.quote-lines input.qty { width: 64px; }
+.quote-lines input.price { width: 104px; text-align: right; }
+.quote-sum { display: grid; grid-template-columns: 1fr auto; gap: 4px 18px; justify-content: end; margin-left: auto; font-size: 14px; max-width: 320px; }
+.quote-sum .total { font-size: 18px; font-weight: 600; }
+.price-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.price-pick button { font-size: 12.5px; }
+
+/* ---- the customer's quote page (no sign-in) */
+.pq { min-height: 100vh; background: var(--bg); padding: 32px 16px 64px; }
+.pq-card { max-width: 720px; margin: 0 auto; background: var(--sf); border: 1px solid var(--ln2); border-radius: 16px; box-shadow: var(--sh2); overflow: hidden; }
+.pq-head { display: flex; align-items: center; gap: 14px; padding: 22px 24px; border-bottom: 1px solid var(--ln); }
+.pq-logo { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; background: var(--sf2); flex: none; display: flex; align-items: center; justify-content: center; font-weight: 600; color: var(--mu); }
+.pq-body { padding: 22px 24px; display: flex; flex-direction: column; gap: 18px; }
+.pq-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.pq-actions .btn { min-height: 44px; }
+@media print { .pq-actions, .no-print { display: none !important; } .pq { padding: 0; } .pq-card { box-shadow: none; border: 0; } }
+
+/* ---- renewals */
+.days-left { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+/* ---- the installer's day */
+.day-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.day-head .day-date { width: auto; flex: 0 1 170px; }
+.day-head select { width: auto; }
+@media (max-width: 640px) { .day-head > a.btn { flex: 1 1 100%; justify-content: center; } }
+.day-stops { display: flex; flex-direction: column; gap: 12px; }
+.day-stop { display: grid; grid-template-columns: 34px 1fr; gap: 12px; background: var(--sf); border: 1px solid var(--ln2); border-radius: 12px; padding: 14px; box-shadow: var(--sh1); }
+.day-n { width: 30px; height: 30px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-weight: 600; background: var(--acs); color: var(--act); }
+.day-stop.no-pin .day-n { background: var(--sf2); color: var(--mu); }
+.day-jobs { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 10px; padding: 0; list-style: none; }
+.day-jobs li { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
+.day-jobs li a { color: inherit; }
+.day-leg { font-size: 12px; color: var(--mu); padding-left: 46px; margin: -4px 0; }
+
+/* ---- offline checklist */
+.offline-note { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; background: var(--ons); color: var(--ont); border: 1px solid var(--onb); font-size: 13.5px; }
+.to-install { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+
+/* ---- stock */
+.kpi.stock-low { background: var(--ons); }
+.kpi.stock-low .kpi-value { color: var(--ont); }

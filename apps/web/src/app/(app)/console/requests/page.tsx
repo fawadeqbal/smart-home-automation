@@ -2,15 +2,25 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { NewHomeDialog } from '@/components/console/Dialogs';
+import { QuotesPanel } from '@/components/service/QuoteEditor';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
-import { Avatar, Badge, Empty, ErrorBox, PageHead, useAction } from '@/components/ui';
-import { patch } from '@/lib/api';
+import { Avatar, Badge, Empty, ErrorBox, MessageButton, PageHead, useAction } from '@/components/ui';
+import { get, patch } from '@/lib/api';
 import { timeAgo, useLoad, useNow } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
 import { useSession } from '@/lib/session';
-import type { Tone, VisitList, VisitRequest, VisitStatus } from '@/lib/types';
+import type { StaffList, Tone, VisitList, VisitRequest, VisitStatus } from '@/lib/types';
+import { MESSAGES, visitTime } from '@/lib/whatsapp';
+import { useSearchParams } from 'next/navigation';
+
+/** The visit's time as the clock in Pakistan shows it, for a datetime-local field ("2026-10-20T16:00"). */
+const localInput = (iso: string | null | undefined) => {
+  if (!iso) return '';
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+};
 
 const STATUS: { id: VisitStatus; label: string; tone: Tone; dot: string; hint: string }[] = [
   { id: 'NEW', label: 'New', tone: 'warn', dot: 'var(--on)', hint: 'Waiting for a call' },
@@ -26,13 +36,19 @@ type Filter = VisitStatus | 'all' | 'open';
 export default function VisitRequestsPage() {
   useNow(30_000);
   useCrumbs([{ label: 'Platform', href: '/console' }, { label: 'Visit requests' }]);
-  const { staffRole } = useSession();
+  const { staffRole, me } = useSession();
   const canCreateHome = staffRole === 'SUPERADMIN';
+  const params = useSearchParams();
+  const [team, setTeam] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (staffRole === 'SUPERADMIN') void get<StaffList>('/platform/staff').then((s) => setTeam(s.people.filter((p) => !p.disabled && p.staffRole !== 'SUPPORT'))).catch(() => undefined);
+  }, [staffRole]);
   const { data, error, reload } = useLoad<VisitList>('/platform/visit-requests');
   useLive('visits.changed', () => void reload());
   const [filter, setFilter] = useState<Filter>('open');
   const [q, setQ] = useState('');
-  const [sel, setSel] = useState<string | null>(null);
+  // a notice (a quote answered) can open one request: ?id=…
+  const [sel, setSel] = useState<string | null>(params.get('id'));
 
   const rows = useMemo(() => {
     const all = data?.requests ?? [];
@@ -105,24 +121,26 @@ export default function VisitRequestsPage() {
               </table>
             </div>
           </div>
-          {chosen && <RequestPanel key={chosen.id} r={chosen} canCreateHome={canCreateHome} onChanged={() => void reload()} />}
+          {chosen && <RequestPanel key={chosen.id} r={chosen} canCreateHome={canCreateHome} team={team} company={me.staff?.org.name ?? ''} onChanged={() => void reload()} />}
         </div>
       )}
     </div>
   );
 }
 
-function RequestPanel({ r, canCreateHome, onChanged }: { r: VisitRequest; canCreateHome: boolean; onChanged: () => void }) {
+function RequestPanel({ r, canCreateHome, team, company, onChanged }: { r: VisitRequest; canCreateHome: boolean; team: { id: string; name: string }[]; company: string; onChanged: () => void }) {
   const { busy, error, run } = useAction();
   const [note, setNote] = useState(r.note);
   const [saved, setSaved] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [when, setWhen] = useState(localInput(r.visitAt));
+  const [who, setWho] = useState(r.assigneeId ?? '');
   const s = statusOf(r.status);
   const tel = r.phone.replace(/[^\d+]/g, '');
-  // WhatsApp wants the international number without + (a local 03xx number is Pakistan: 92 3xx)
-  const wa = tel.startsWith('+') ? tel.slice(1) : tel.startsWith('00') ? tel.slice(2) : tel.startsWith('0') ? `92${tel.slice(1)}` : tel;
+  const booked = r.status === 'SCHEDULED' && !!r.visitAt;
+  const bookingChanged = when !== localInput(r.visitAt) || who !== (r.assigneeId ?? '');
 
-  async function save(body: { status?: VisitStatus; note?: string; homeId?: string }) {
+  async function save(body: { status?: VisitStatus; note?: string; homeId?: string; visitAt?: string | null; assigneeId?: string | null }) {
     const ok = await run(() => patch(`/platform/visit-requests/${r.id}`, body));
     if (ok !== undefined) onChanged();
     return ok !== undefined;
@@ -138,7 +156,7 @@ function RequestPanel({ r, canCreateHome, onChanged }: { r: VisitRequest; canCre
         </div>
         <div className="row" style={{ gap: 8 }}>
           <a className="btn btn-primary grow" href={`tel:${tel}`}><Icon name="phone" size={14} />Call {r.phone}</a>
-          <a className="btn" href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" title="Message on WhatsApp"><Icon name="message" size={14} />WhatsApp</a>
+          <a className="btn" href={r.whatsapp ? `https://wa.me/${r.whatsapp}` : `https://wa.me/`} target="_blank" rel="noreferrer" title="Message on WhatsApp"><Icon name="message" size={14} />WhatsApp</a>
         </div>
       </div>
       <dl>
@@ -146,6 +164,7 @@ function RequestPanel({ r, canCreateHome, onChanged }: { r: VisitRequest; canCre
         <dt>Home size</dt><dd>{r.homeSize}</dd>
         <dt>City</dt><dd>{r.city}</dd>
         {r.handledBy && <><dt>Handled by</dt><dd>{r.handledBy}</dd></>}
+        {r.visitAt && <><dt>Visit</dt><dd>{visitTime(r.visitAt)}{r.assignee ? ` · ${r.assignee}` : ''}</dd></>}
         {r.home && <><dt>Home</dt><dd><Link href={`/console/homes/${r.home.id}`}>{r.home.name}</Link></dd></>}
       </dl>
       <div className="sp-body">
@@ -159,6 +178,34 @@ function RequestPanel({ r, canCreateHome, onChanged }: { r: VisitRequest; canCre
             </button>
           ))}
         </div>
+        {canCreateHome && r.status !== 'CUSTOMER' && r.status !== 'CLOSED' && (
+          <div className="stack-sm">
+            <b style={{ fontSize: 13.5 }}>Book the visit</b>
+            <div className="form-grid">
+              <label className="field">When <span className="hint">Pakistan time</span>
+                <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} step={900} />
+              </label>
+              <label className="field">Who goes
+                <select value={who} onChange={(e) => setWho(e.target.value)}>
+                  <option value="">Not decided</option>
+                  {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </label>
+            </div>
+            {bookingChanged && (
+              <button className="btn btn-sm btn-primary" disabled={busy || !when} onClick={() => void save({ visitAt: when || null, assigneeId: who || null })}>
+                {r.visitAt ? 'Save the new time' : 'Book the visit'}
+              </button>
+            )}
+          </div>
+        )}
+        {booked && (
+          <div className="stack-sm">
+            <span className="small muted">Confirm it with {r.name.split(' ')[0]}:</span>
+            <MessageButton whatsapp={r.whatsapp} label="Send visit confirmation"
+                           text={MESSAGES.visitBooked({ name: r.name, visitAt: r.visitAt!, company, installer: r.assignee })} />
+          </div>
+        )}
         <label className="field">Notes <span className="hint">only your team sees these</span>
           <textarea rows={3} value={note} maxLength={1000} placeholder="Called at 11 am · visit on Saturday at 4 pm · wants the motor on a timer"
             onChange={(e) => { setNote(e.target.value); setSaved(false); }} />
@@ -170,7 +217,8 @@ function RequestPanel({ r, canCreateHome, onChanged }: { r: VisitRequest; canCre
         ) : canCreateHome ? (
           <button className="btn btn-block" onClick={() => setCreating(true)}><Icon name="plus" size={15} />Create their home</button>
         ) : null}
-        <span className="small muted" style={{ lineHeight: 1.45 }}>Creating their home marks them as a customer and links the home here.</span>
+        <span className="small muted" style={{ lineHeight: 1.45 }}>Creating their home marks them as a customer and links the home here. An accepted quote does it in one step.</span>
+        <QuotesPanel visitRequestId={r.id} compact onConverted={() => onChanged()} />
       </div>
       {creating && (
         <NewHomeDialog defaults={{ name: `${r.name.split(' ')[0]}’s home`, city: r.city === 'Somewhere else' ? '' : r.city }}

@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
+import { RateTicket } from '@/components/service/Stars';
 import { CATEGORY, ReplyBox, StatusBadge, Thread } from '@/components/tickets/parts';
 import { useAction } from '@/components/ui';
 import { post } from '@/lib/api';
@@ -36,6 +37,7 @@ export default function SupportTicketPage() {
       </div>
       {d.status === 'WAITING' && <div className="banner warn"><span className="banner-text"><b>Waiting for your answer</b><span>The team asked you something below.</span></span></div>}
       <section className="card card-pad stack"><Thread messages={d.messages} /></section>
+      {done && <RateTicket key={`${d.id}:${d.rating ?? 0}:${d.ratedAt ?? ''}`} t={d} onRated={() => void t.reload()} />}
       {!home?.readOnly && (done ? (
         <div className="card card-pad row" style={{ gap: 10 }}>
           <Icon name="check" size={16} /><span className="grow">This request is {d.status === 'RESOLVED' ? 'solved' : 'closed'}. Still a problem?</span>

@@ -1,11 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { InvoiceStatus, METHODS, day, invoiceText, rs } from '@/components/billing/parts';
+import { InvoiceStatus, METHODS, day, rs } from '@/components/billing/parts';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
-import { WhatsAppShare } from '@/components/ui';
+import { MessageButton } from '@/components/ui';
+import { MESSAGES, payLines } from '@/lib/whatsapp';
 import { useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
 import type { PrintableInvoice } from '@/lib/types';
@@ -22,7 +23,10 @@ export default function InvoicePage() {
     <div className="stack" style={{ maxWidth: 760 }}>
       <div className="row no-print" style={{ gap: 8 }}>
         <Link href={staffRole ? '/console/billing' : '/billing'} className="details-link grow">← Back</Link>
-        <WhatsAppShare small text={invoiceText(i, i.company.name)} />
+        {i.status !== 'VOID' && (
+          <MessageButton small label={staffRole ? (i.status === 'PAID' ? 'Thank on WhatsApp' : 'Remind on WhatsApp') : 'Share'} whatsapp={i.contact?.whatsapp}
+                         text={MESSAGES.invoiceReminder({ name: i.contact?.name ?? i.billTo.owner?.name, number: i.number, description: i.description, amount: i.amount, dueOn: i.dueOn, late: i.late, paid: i.status === 'PAID', company: i.company.name, pay: i.pay })} />
+        )}
         <button className="btn btn-sm" onClick={() => window.print()}><Icon name="download" size={14} />Print or save as PDF</button>
       </div>
       <article className="card card-pad invoice-sheet">
@@ -57,6 +61,13 @@ export default function InvoicePage() {
           {i.status === 'PAID' ? `Paid on ${day(i.paidOn!)}${i.method ? ` by ${METHODS[i.method] ?? i.method}` : ''}${i.reference ? ` (ref. ${i.reference})` : ''}. Thank you!`
             : i.status === 'VOID' ? 'This invoice was cancelled.' : `Please pay by ${day(i.dueOn)}.`}
         </p>
+        {i.status === 'DUE' && payLines(i.pay).length > 0 && (
+          <div className="stack-tight small">
+            <b>How to pay</b>
+            {payLines(i.pay).map((l) => <span key={l}>{l}</span>)}
+            <span className="muted">Please write invoice {i.number} as the reference.</span>
+          </div>
+        )}
       </article>
     </div>
   );

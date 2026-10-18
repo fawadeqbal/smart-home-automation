@@ -1,15 +1,18 @@
 'use client';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { InvoiceStatus, METHODS, day, invoiceText, rs } from '@/components/billing/parts';
+import { InvoiceStatus, METHODS, day, rs } from '@/components/billing/parts';
+import { RenewalsView } from '@/components/service/Renewals';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
-import { Badge, Empty, ErrorBox, FormModal, Kpi, PageHead, Seg, WhatsAppShare } from '@/components/ui';
+import { Badge, Empty, ErrorBox, FormModal, Kpi, MessageButton, PageHead, Seg } from '@/components/ui';
 import { get, patch, post } from '@/lib/api';
 import { useLoad } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
 import type { BillingOverview, BillingPeriod, Contract, Invoice } from '@/lib/types';
+import { MESSAGES } from '@/lib/whatsapp';
+import { useSearchParams } from 'next/navigation';
 
 const PRESETS: { plan: string; amount: number; period: BillingPeriod; visits: number }[] = [
   { plan: 'Basic care', amount: 1000, period: 'MONTHLY', visits: 0 },
@@ -23,7 +26,8 @@ export default function BillingPage() {
   useCrumbs([{ label: 'Platform', href: '/console' }, { label: 'Contracts & invoices' }]);
   const { me } = useSession();
   const b = useLoad<BillingOverview>('/platform/billing');
-  const [tab, setTab] = useState<'due' | 'all' | 'contracts'>('due');
+  const params = useSearchParams();
+  const [tab, setTab] = useState<'due' | 'all' | 'contracts' | 'renewals'>(params.get('tab') === 'renewals' ? 'renewals' : 'due');
   const [dialog, setDialog] = useState<null | { kind: 'contract' | 'invoice'; homes: { id: string; name: string }[] } | { kind: 'paid'; inv: Invoice }>(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +40,8 @@ export default function BillingPage() {
   if (!b.data) return b.error ? <ErrorBox error={b.error} /> : <Loader label="Loading billing…" />;
   const k = b.data.kpis;
   const canEdit = b.data.canEdit;
-  const company = me.staff?.org.name ?? 'Switchboard';
+  const company = b.data.company?.name ?? me.staff?.org.name ?? 'Switchboard';
+  const contactOf = (homeId: string) => b.data!.contacts?.[homeId] ?? null;
 
   return (
     <div data-screen-label="Billing">
@@ -54,11 +59,11 @@ export default function BillingPage() {
       </div>
       <ErrorBox error={error} />
       <div className="spread mb16" style={{ gap: 10, flexWrap: 'wrap' }}>
-        <Seg options={[{ id: 'due', label: 'To collect', n: k.dueCount }, { id: 'all', label: 'All bills' }, { id: 'contracts', label: 'Contracts', n: k.active }]} value={tab} onChange={setTab} />
-        {tab !== 'contracts' && <label className="input-icon" style={{ width: 'min(300px, 100%)' }}><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number, home or description" aria-label="Filter bills" /></label>}
+        <Seg options={[{ id: 'due', label: 'To collect', n: k.dueCount }, { id: 'all', label: 'All bills' }, { id: 'contracts', label: 'Contracts', n: k.active }, { id: 'renewals', label: 'Renewals', n: b.data.renewals ?? 0 }]} value={tab} onChange={setTab} />
+        {tab !== 'contracts' && tab !== 'renewals' && <label className="input-icon" style={{ width: 'min(300px, 100%)' }}><Icon name="search" size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number, home or description" aria-label="Filter bills" /></label>}
       </div>
 
-      {tab === 'contracts' ? (
+      {tab === 'renewals' ? <RenewalsView onChanged={() => void b.reload()} /> : tab === 'contracts' ? (
         b.data.contracts.length === 0 ? <Empty>No contracts yet. A contract bills a home every month, quarter or year by itself.</Empty> : (
           <div className="table-wrap">
             <table className="table" style={{ minWidth: 760 }}>
@@ -102,7 +107,10 @@ export default function BillingPage() {
                   <td className="nowrap">
                     <span className="row" style={{ gap: 6 }}>
                       {canEdit && i.status === 'DUE' && <button className="btn btn-sm btn-primary" onClick={() => setDialog({ kind: 'paid', inv: i })}>Paid</button>}
-                      <WhatsAppShare small label="Send" text={invoiceText(i, company)} />
+                      {i.status !== 'VOID' && (
+                        <MessageButton small label={i.status === 'PAID' ? 'Thank' : i.late ? 'Remind' : 'Send'} whatsapp={contactOf(i.homeId)?.whatsapp}
+                                       text={MESSAGES.invoiceReminder({ name: contactOf(i.homeId)?.name, number: i.number, description: i.description, amount: i.amount, dueOn: i.dueOn, late: i.late, paid: i.status === 'PAID', company, pay: b.data!.company?.pay })} />
+                      )}
                       {canEdit && i.status !== 'VOID' && (
                         <button className="icon-btn" title={i.status === 'PAID' ? 'Mark as not paid' : 'Cancel this bill'} aria-label="More"
                                 onClick={() => confirm(i.status === 'PAID' ? `Mark invoice ${i.number} as not paid?` : `Cancel invoice ${i.number}?`) && void act(() => patch(`/platform/billing/invoices/${i.id}`, { status: i.status === 'PAID' ? 'DUE' : 'VOID' }))}>

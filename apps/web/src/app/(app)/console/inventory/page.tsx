@@ -12,6 +12,7 @@ import { useLoad } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
 import { useSession } from '@/lib/session';
 import type { Inventory, InventoryBoard, Tone } from '@/lib/types';
+import '@/components/service/service.css';
 
 type Filter = 'all' | 'STOCK' | 'ASSIGNED' | 'ADOPTED' | 'FAULTY';
 const STATUS: Record<InventoryBoard['status'], [string, Tone]> = { STOCK: ['In stock', 'info'], ASSIGNED: ['Assigned', 'warn'], ADOPTED: ['Installed', 'ok'], FAULTY: ['Faulty', 'bad'] };
@@ -77,11 +78,21 @@ export default function InventoryPage() {
       {params.get('home') && filter === 'STOCK' && (
         <div className="notice mb16">Pick boards in stock and assign them to <b>{homeName(params.get('home')!)}</b>. <Link href={`/console/homes/${params.get('home')}?tab=boards`}>Back to the home</Link></div>
       )}
+      {data.stock?.low && (
+        <div className="banner warn" role="status">
+          <span className="banner-led" />
+          <span className="banner-text">
+            <b>{data.stock.inStock === 0 ? 'No boards left in stock' : `Only ${data.stock.inStock} board${data.stock.inStock === 1 ? '' : 's'} in stock`}</b>
+            <span>You asked to be warned below {data.stock.min}. Order more before the next installations{canEdit ? ', then add them to stock' : ''}.</span>
+          </span>
+          {canEdit && <Link className="btn btn-sm" href="/console/settings">Change the minimum</Link>}
+        </div>
+      )}
       <div className="kpis mb16" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
         {([['all', 'All boards', 'var(--mu)'], ['STOCK', 'In stock', 'var(--ac)'], ['ASSIGNED', 'Assigned', 'var(--on)'], ['ADOPTED', 'Installed', 'var(--ok)'], ['FAULTY', 'Faulty', 'var(--bad)']] as [Filter, string, string][]).map(([k, label, dot]) => (
-          <button key={k} className={`kpi ${filter === k ? 'active' : ''}`} onClick={() => setFilter(k)} aria-pressed={filter === k}>
-            <span className="kpi-label"><span style={{ width: 7, height: 7, borderRadius: 99, background: dot }} />{label}</span>
-            <span className="kpi-value" style={{ fontSize: 22 }}>{count(k)}</span>
+          <button key={k} className={`kpi ${filter === k ? 'active' : ''} ${k === 'STOCK' && data.stock?.low ? 'stock-low' : ''}`} onClick={() => setFilter(k)} aria-pressed={filter === k}>
+            <span className="kpi-label"><span style={{ width: 7, height: 7, borderRadius: 99, background: k === 'STOCK' && data.stock?.low ? 'var(--on)' : dot }} />{label}</span>
+            <span className="kpi-value" style={{ fontSize: 22 }}>{count(k)}{k === 'STOCK' && !!data.stock?.min && <span className="kpi-unit"> / min {data.stock.min}</span>}</span>
           </button>
         ))}
       </div>

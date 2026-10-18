@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { InviteStaffDialog } from '@/components/console/Dialogs';
 import { PasswordLinkDialog } from '@/components/PasswordLinkDialog';
+import { RatingsSummary } from '@/components/service/RatingsSummary';
 import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
@@ -92,6 +93,7 @@ export default function TeamPage() {
           </tbody>
         </table>
       </div>
+      <div className="mt8" style={{ marginTop: 20 }}><RatingsSummary /></div>
       {inviting && <InviteStaffDialog onClose={() => setInviting(false)} onDone={() => void reload()} />}
       {off2fa && (
         <Confirm title={`Turn off two-step sign-in for ${off2fa.name}?`} confirmLabel="Turn off"

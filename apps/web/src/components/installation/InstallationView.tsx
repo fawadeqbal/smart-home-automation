@@ -4,7 +4,9 @@ import { Icon } from '@/components/Icon';
 import { Loader } from '@/components/Loader';
 import { Badge, ErrorBox, useAction } from '@/components/ui';
 import { del, errorText, get, post, put } from '@/lib/api';
+import { flush, isOffline, pending, PendingTick, remember, withPending } from '@/lib/offlineChecklist';
 import type { InstallReport } from '@/lib/types';
+import '@/components/service/service.css';
 
 /** Draw a signature with a finger, a pen or a mouse. */
 export function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
@@ -97,13 +99,42 @@ export function InstallationView({ homeId }: { homeId: string }) {
   const [uploading, setUploading] = useState(false);
   const [caption, setCaption] = useState('');
   const { busy, run, error: actError } = useAction();
+  // ticks and notes kept on this phone while there is no signal, sent when it is back
+  const [waiting, setWaiting] = useState<PendingTick[]>([]);
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const sync = async () => {
+    try {
+      const x = await flush(homeId);
+      if (x) setR(x);
+    } catch (e) { setError(errorText(e)); }
+    setWaiting(pending(homeId));
+  };
   const load = async () => {
-    try { const x = await get<InstallReport>(base); setR(x); setNotes(x.notes); } catch (e) { setError(errorText(e)); }
+    setWaiting(pending(homeId));
+    try {
+      const x = await get<InstallReport>(base);
+      setR(x); setNotes(x.notes);
+      await sync();
+    } catch (e) { setError(errorText(e)); }
   };
   useEffect(() => { void load(); }, [homeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // back online (or the app opened again): send what is waiting
+    const again = () => void sync();
+    window.addEventListener('online', again);
+    const every = setInterval(() => { if (pending(homeId).length && !isOffline()) void sync(); }, 20_000);
+    return () => { window.removeEventListener('online', again); clearInterval(every); };
+  }, [homeId]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!r) return error ? <ErrorBox error={error} /> : <Loader />;
+  const shown = withPending(r, waiting);
   const locked = r.signed || !r.canEdit;
-  const tick = (key: string, done: boolean) => run(async () => setR(await put<InstallReport>(base, { items: [{ key, done }] })));
+  /** A tick (or a note) is saved on the phone first, then sent; without signal it waits there. */
+  const change = (key: string, done: boolean, note?: string) => {
+    remember(homeId, { key, done, ...(note !== undefined ? { note } : {}), at: new Date().toISOString() });
+    setWaiting(pending(homeId));
+    if (!isOffline()) void sync();
+  };
+  const tick = (key: string, done: boolean) => change(key, done);
 
   async function upload(file: File) {
     setUploading(true); setError(null);
@@ -123,7 +154,7 @@ export function InstallationView({ homeId }: { homeId: string }) {
       <div className="spread">
         <div className="stack-tight">
           <b style={{ fontSize: 16 }}>Installation report</b>
-          <span className="small muted">{r.installer ? `By ${r.installer} · ` : ''}{r.done} of {r.total} checked · {r.photos.length} photo{r.photos.length === 1 ? '' : 's'}</span>
+          <span className="small muted">{r.installer ? `By ${r.installer} · ` : ''}{shown.done} of {r.total} checked · {r.photos.length} photo{r.photos.length === 1 ? '' : 's'}</span>
         </div>
         <span className="row" style={{ gap: 8 }}>
           {r.signed ? <Badge tone="ok">Signed off</Badge> : <Badge tone="warn">Not signed yet</Badge>}
@@ -131,17 +162,49 @@ export function InstallationView({ homeId }: { homeId: string }) {
         </span>
       </div>
       <ErrorBox error={error ?? actError} />
+      {waiting.length > 0 && (
+        <div className="offline-note" role="status">
+          <Icon name="wifi-off" size={15} />
+          <span className="grow">Saved on this phone — will send when online ({waiting.length} change{waiting.length === 1 ? '' : 's'}).</span>
+          {!isOffline() && <button className="btn btn-sm" onClick={() => void sync()}>Send now</button>}
+        </div>
+      )}
+
+      {r.toInstall && r.toInstall.items.length > 0 && (
+        <section className="card card-pad stack">
+          <div className="spread"><h3 style={{ margin: 0 }}>What to install</h3><span className="small muted">Accepted in {r.toInstall.quotes.map((q) => q.ref).join(', ')}</span></div>
+          <ul className="to-install">
+            {r.toInstall.items.map((i) => <li key={`${i.name}-${i.unit}`}><b>{i.qty} ×</b> {i.name}{i.unit !== 'each' ? <span className="muted"> (per {i.unit})</span> : null}</li>)}
+          </ul>
+        </section>
+      )}
 
       <section className="card card-pad stack">
         <h3 style={{ margin: 0 }}>Checklist</h3>
-        {r.items.map((i) => (
-          <label key={i.key} className={`check-item ${i.done ? 'done' : ''}`}>
-            <input type="checkbox" checked={i.done} disabled={locked || busy} onChange={(e) => void tick(i.key, e.target.checked)} />
-            <span className="stack-tight">
-              <span>{i.label}</span>
-              {i.check && <span className={`small ${i.check.ok ? 'ok-text' : 'text-bad'}`}><Icon name={i.check.ok ? 'check' : 'alert-triangle'} size={12} /> {i.check.text}</span>}
-            </span>
-          </label>
+        {shown.items.map((i) => (
+          <div key={i.key} className="stack-tight">
+            <label className={`check-item ${i.done ? 'done' : ''}`}>
+              <input type="checkbox" checked={i.done} disabled={locked} onChange={(e) => tick(i.key, e.target.checked)} />
+              <span className="stack-tight">
+                <span>{i.label}{waiting.some((p) => p.key === i.key) && <span className="small muted"> · on this phone</span>}</span>
+                {i.check && <span className={`small ${i.check.ok ? 'ok-text' : 'text-bad'}`}><Icon name={i.check.ok ? 'check' : 'alert-triangle'} size={12} /> {i.check.text}</span>}
+                {i.note && noteDrafts[i.key] === undefined && <span className="small muted">Note: {i.note}</span>}
+              </span>
+            </label>
+            {!locked && (noteDrafts[i.key] === undefined
+              ? <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start', marginLeft: 28 }} onClick={() => setNoteDrafts((d) => ({ ...d, [i.key]: i.note ?? '' }))}>{i.note ? 'Change note' : 'Add a note'}</button>
+              : (
+                <form className="row" style={{ gap: 6, marginLeft: 28 }} onSubmit={(e) => {
+                  e.preventDefault();
+                  change(i.key, i.done, noteDrafts[i.key]!.trim());
+                  setNoteDrafts(({ [i.key]: _gone, ...rest }) => rest);
+                }}>
+                  <input className="grow" value={noteDrafts[i.key]} maxLength={300} autoFocus aria-label={`Note for ${i.label}`} placeholder="e.g. Used 2.5 mm wire for the geyser"
+                         onChange={(e) => setNoteDrafts((d) => ({ ...d, [i.key]: e.target.value }))} />
+                  <button className="btn btn-sm">Save</button>
+                </form>
+              ))}
+          </div>
         ))}
         <label className="field">Notes for the customer and the team
           <textarea rows={3} value={notes} disabled={locked} maxLength={4000} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Router moved to the hallway; the motor needs a 20 A breaker." />
@@ -172,7 +235,7 @@ export function InstallationView({ homeId }: { homeId: string }) {
             {r.canReopen && <button className="btn btn-sm" disabled={busy} onClick={() => confirm('Open the report again? The signature is removed and the customer signs again.') && void run(async () => setR(await post<InstallReport>(`${base}/reopen`)))}>Open again</button>}
           </>
         ) : !r.canEdit ? <p className="small muted">The installer gets the customer to sign when the work is done.</p>
-          : r.done < r.total ? <p className="small muted">Tick every item first, then hand the phone to the customer to sign. The owner can also sign from their own app.</p>
+          : shown.done < r.total || waiting.length > 0 ? <p className="small muted">{waiting.length ? 'Send the ticks saved on this phone first (you need signal).' : 'Tick every item first, then hand the phone to the customer to sign. The owner can also sign from their own app.'}</p>
           : <SignOff defaultName="" onSign={async (name, signature) => setR(await post<InstallReport>(`${base}/sign`, { name, signature }))} />}
       </section>
     </div>
