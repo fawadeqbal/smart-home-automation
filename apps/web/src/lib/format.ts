@@ -4,6 +4,7 @@ const CONTACT_WORDS: Record<string, [string, string]> = {
   window: ['Open', 'Closed'],
   motion: ['Motion', 'No motion'],
   leak: ['Water detected!', 'Dry'],
+  mains: ['Grid on', 'On UPS'],
   generic: ['Active', 'Inactive'],
 };
 const ANALOG_LABEL: Record<string, string> = {
@@ -23,7 +24,7 @@ export function analogLabel(settings: Record<string, unknown> | undefined): stri
 export function deviceIcon(type: string, settings?: Record<string, unknown>): string {
   if (type === 'switch') return 'lightbulb';
   if (type === 'dht') return 'thermometer';
-  if (type === 'contact') return ({ motion: 'activity', leak: 'droplet' } as Record<string, string>)[String(settings?.kind)] ?? 'door-open';
+  if (type === 'contact') return ({ motion: 'activity', leak: 'droplet', mains: 'zap' } as Record<string, string>)[String(settings?.kind)] ?? 'door-open';
   if (type === 'analog') return ({ light: 'sun', moisture: 'droplet', water: 'droplet', gas: 'activity' } as Record<string, string>)[String(settings?.kind)] ?? 'activity';
   return 'cpu';
 }

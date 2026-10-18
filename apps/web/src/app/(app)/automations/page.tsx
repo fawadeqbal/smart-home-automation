@@ -205,6 +205,7 @@ function eventsOf(d: Device | undefined): { value: RuleEvent; label: string }[] 
   const kind = (d.settings as { kind?: string })?.kind;
   if (d.type === 'switch') return [{ value: 'on', label: 'Turns on' }, { value: 'off', label: 'Turns off' }];
   if (d.type === 'contact') {
+    if (kind === 'mains') return [{ value: 'gridOff', label: 'The grid goes (on UPS)' }, { value: 'gridOn', label: 'The grid comes back' }];
     if (kind === 'motion') return [{ value: 'opens', label: 'Sees movement' }, { value: 'closes', label: 'Movement stops' }];
     if (kind === 'leak') return [{ value: 'opens', label: 'Finds water' }, { value: 'closes', label: 'Is dry again' }];
     return [{ value: 'opens', label: 'Opens' }, { value: 'closes', label: 'Closes' }];

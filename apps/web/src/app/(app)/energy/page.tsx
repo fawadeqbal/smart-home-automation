@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Icon } from '@/components/Icon';
+import { BillPanel, SheddingPanel, UpsPanel } from '@/components/home/PowerPanels';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
 import { FormModal, Kpi, PageHead, Seg, WhatsAppShare } from '@/components/ui';
@@ -45,8 +46,13 @@ export default function EnergyPage() {
 
   return (
     <>
-      <PageHead title="Electricity" sub="An estimate from how long each switch was on and how much power it draws — your meter is the real number."
+      <PageHead title="Electricity" sub="Your bill from the meter readings, load-shedding times, UPS mode, and an estimate per switch."
                 actions={<Seg options={[{ id: '1', label: 'Today' }, { id: '7', label: '7 days' }, { id: '30', label: '30 days' }]} value={days} onChange={setDays} />} />
+      {isAdmin && <BillPanel canEdit={canEdit} />}
+      <SheddingPanel canEdit={canEdit} />
+      {isAdmin && <UpsPanel canEdit={canEdit} />}
+      <h2 style={{ margin: '24px 0 4px' }}>Estimate from the switches</h2>
+      <p className="small muted" style={{ marginTop: 0 }}>From how long each switch was on and how much power it draws — your meter is the real number.</p>
       {!e ? (energy.error ? <div className="alert">{energy.error}</div> : <Loader label="Adding it up…" />) : (
         <>
           <div className="kpis k3">

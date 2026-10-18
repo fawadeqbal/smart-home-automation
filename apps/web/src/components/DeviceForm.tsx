@@ -41,6 +41,7 @@ export function DeviceForm({ catalog, node, rooms, initial, submitLabel, onSubmi
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const settings = (initial?.settings ?? {}) as { model?: string; intervalSec?: number; kind?: string; invert?: boolean };
+  const [contactKind, setContactKind] = useState(settings.kind ?? 'door');
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -100,14 +101,21 @@ export function DeviceForm({ catalog, node, rooms, initial, submitLabel, onSubmi
         )}
         {type === 'contact' && (
           <label className="field">What it senses
-            <select name="kind" defaultValue={settings.kind ?? 'door'}>
+            <select name="kind" value={contactKind} onChange={(e) => setContactKind(e.target.value)}>
               <option value="door">Door (open / closed)</option>
               <option value="window">Window (open / closed)</option>
               <option value="motion">Motion (PIR)</option>
               <option value="leak">Water leak</option>
+              <option value="mains">Grid power (mains-sense module: UPS mode)</option>
               <option value="generic">Other on/off contact</option>
             </select>
           </label>
+        )}
+        {type === 'contact' && contactKind === 'mains' && (
+          <div className="wiring-note" role="note">
+            <span aria-hidden>⚠</span>
+            <span>An electrician wires a mains-sense module to a circuit fed only by the grid (not the UPS); the module’s low-voltage output goes to this pin. <b>Never connect mains to the board.</b> It reads “active” while the grid is on.</span>
+          </div>
         )}
         {type === 'analog' && (
           <>

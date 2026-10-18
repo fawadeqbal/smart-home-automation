@@ -81,6 +81,7 @@ const PATHS: Record<string, string> = {
   'rotate': 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8|M3 3v5h5',
   'map-pin': 'M20 10c0 5-5.5 10.2-7.4 11.8a1 1 0 0 1-1.2 0C9.5 20.2 4 15 4 10a8 8 0 0 1 16 0|M12 10m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
   'zap': 'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z',
+  'battery': 'M15 7h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2|M6 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1|M11 7l-3 5h4l-3 5|M22 11v2',
 };
 
 export function Icon({ name, size = 18, stroke = 1.75 }: { name: keyof typeof PATHS | string; size?: number; stroke?: number }) {
