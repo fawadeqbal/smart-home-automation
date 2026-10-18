@@ -104,6 +104,15 @@ class NoticeTarget {
       'diagnostics' => NoticeTarget(route: '/me/health', homeId: home),
       'activity' => NoticeTarget(route: '/home/activity', homeId: home),
       'rooms' => NoticeTarget(route: '/rooms', homeId: home),
+      // the pages the phone has now too (home-mobile)
+      'billing' when segments.length > 1 => NoticeTarget(route: '/me/billing/${segments[1]}', homeId: home),
+      'billing' => NoticeTarget(route: '/me/billing', homeId: home),
+      'energy' => NoticeTarget(route: '/home/energy', homeId: home),
+      'installation' => NoticeTarget(route: '/me/installation', homeId: home),
+      'summary' => NoticeTarget(route: '/me/summary', homeId: home),
+      'account' => NoticeTarget(route: '/me/account', homeId: home),
+      'help' when segments.length > 1 => NoticeTarget(route: '/me/help/${segments[1]}', homeId: home),
+      'help' => NoticeTarget(route: '/me/help', homeId: home),
       _ => NoticeTarget(route: '/home/notifications', homeId: home),
     };
   }
