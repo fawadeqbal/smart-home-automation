@@ -14,9 +14,11 @@ class Member {
     this.disabled = false,
     this.joinedAt,
     this.rooms = const {},
+    this.access,
   });
 
   factory Member.fromJson(Json json) => Member(
+    access: json['access'] is Map ? AccessLimits.fromJson(asJson(json['access'])) : null,
     id: str(json['id']),
     name: str(json['name']),
     email: str(json['email']),
@@ -41,7 +43,56 @@ class Member {
   /// Rooms shared with them (owners and admins have every room).
   final Map<String, Access> rooms;
 
+  /// Time-limited access (members and guests); null: none.
+  final AccessLimits? access;
+
   String get initials => initialsOf(name);
+}
+
+/// Where a time-limited person stands right now.
+enum AccessStatus {
+  active,
+  outside,
+  expired;
+
+  static AccessStatus fromJson(Object? v) => enumOf(values, v, active);
+}
+
+/// A member's or guest's limits: an end, and hours on some days (in the home's time zone).
+@immutable
+class AccessLimits {
+  const AccessLimits({this.until, this.from, this.to, this.days = const [], this.summary, this.status = AccessStatus.active});
+
+  factory AccessLimits.fromJson(Json json) => AccessLimits(
+    until: dateOrNull(json['accessUntil']),
+    from: strOrNull(json['accessFrom']),
+    to: strOrNull(json['accessTo']),
+    days: intList(json['accessDays']),
+    summary: strOrNull(json['summary']),
+    status: AccessStatus.fromJson(json['status']),
+  );
+
+  final DateTime? until;
+
+  /// "09:00" (both or neither)
+  final String? from, to;
+
+  /// 0 = Sunday … 6 = Saturday; empty = every day
+  final List<int> days;
+
+  /// "9:00–17:00 Mon–Sat · until Sun 25 Oct, 20:00"
+  final String? summary;
+  final AccessStatus status;
+
+  bool get hasHours => from != null && to != null;
+
+  /// What the API takes. [untilLocal] is "YYYY-MM-DDTHH:MM" on the home's clock (no zone).
+  static Json body({String? untilLocal, String? from, String? to, List<int> days = const []}) => {
+    'accessUntil': untilLocal,
+    'accessFrom': from,
+    'accessTo': to,
+    'accessDays': days,
+  };
 }
 
 /// A link that lets someone join the home (`POST /invites`). [path] goes after the server address.
@@ -51,16 +102,21 @@ class InviteLink {
     required this.path,
     this.expiresInDays = 7,
     this.existingAccount = false,
+    this.access,
   });
 
   factory InviteLink.fromJson(Json json) => InviteLink(
     path: str(json['path']),
     expiresInDays: integer(json['expiresInDays'], 7),
     existingAccount: boolean(json['existingAccount']),
+    access: strOrNull(json['access']),
   );
 
   final String path;
   final int expiresInDays;
+
+  /// Their limits in words, when the invite has some.
+  final String? access;
 
   /// They already have an account (they'll sign in with it rather than choose a password).
   final bool existingAccount;

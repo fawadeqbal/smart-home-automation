@@ -12,7 +12,29 @@ import '../../shared/widgets/pressable.dart';
 import '../../state/devices.dart';
 import '../../state/people.dart';
 import '../../state/session.dart';
+import 'access_limits.dart';
 import 'invite_sheet.dart';
+
+/// "Expired" (red), "Outside hours" (grey) or "Limited" (blue).
+class _AccessBadge extends StatelessWidget {
+  const _AccessBadge({required this.status});
+  final AccessStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.sb;
+    final (text, bg, fg) = switch (status) {
+      AccessStatus.expired => ('Expired', c.badSoft, c.badText),
+      AccessStatus.outside => ('Outside hours', c.sf2, c.mu),
+      AccessStatus.active => ('Limited', c.acSoft, c.acText),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+      child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fg)),
+    );
+  }
+}
 
 /// Who can use what in the home (owners and admins).
 class FamilyScreen extends ConsumerWidget {
@@ -147,8 +169,28 @@ class _MemberCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (!isMe && (member.role == HomeRole.member || member.role == HomeRole.guest))
+                TextButton(
+                  onPressed: () => showAccessSheet(context, member),
+                  style: TextButton.styleFrom(foregroundColor: c.acText, minimumSize: const Size(44, 40)),
+                  child: Text(
+                    member.access?.status == AccessStatus.expired ? 'Extend' : member.access != null ? 'Hours' : 'Limit',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
             ],
           ),
+          if (member.access case final a?)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  _AccessBadge(status: a.status),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(a.summary ?? '', style: TextStyle(fontSize: 12.5, color: c.mu))),
+                ],
+              ),
+            ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 6,

@@ -9,6 +9,7 @@ import '../core/realtime/live_client.dart';
 import '../data/local/local_link.dart';
 import '../data/models/session.dart';
 import '../data/repositories/auth_repository.dart';
+import '../push/push.dart';
 
 /// The signed-in person and the home the app is showing. `null` = signed out.
 ///
@@ -23,6 +24,11 @@ class SessionController extends AsyncNotifier<Me?> {
     ref.listen(sessionExpiredProvider, (_, _) {
       if (state.value != null) state = const AsyncData(null);
     });
+    // my rights changed (a guest's hours began or ended, a room was shared): read who I am again
+    final changed = ref.read(liveClientProvider).on('access.changed').listen((_) {
+      if (state.value != null) unawaited(reload().catchError((Object _) {}));
+    });
+    ref.onDispose(changed.cancel);
     if (ref.watch(serverUrlProvider) == null) return null;
     return _load(_savedHome());
   }
@@ -79,6 +85,8 @@ class SessionController extends AsyncNotifier<Me?> {
   );
 
   Future<void> signOut() async {
+    // no more notices to this phone for this person (while still signed in, so the server knows who)
+    await ref.read(pushControllerProvider).unregister();
     try {
       await ref.read(authRepositoryProvider).logout();
     } catch (_) {

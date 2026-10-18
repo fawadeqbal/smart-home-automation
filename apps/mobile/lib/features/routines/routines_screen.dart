@@ -16,6 +16,7 @@ import '../../state/devices.dart';
 import '../../state/session.dart';
 import '../../state/toast.dart';
 import '../devices/device_kinds.dart';
+import 'last_one_out.dart';
 import 'new_routine_sheet.dart';
 import 'scene_card.dart';
 
@@ -148,6 +149,10 @@ class RoutinesScreen extends ConsumerWidget {
                     children: [for (final r in list) _RuleRow(rule: r)],
                   ),
           ),
+          if (ref.watch(meProvider).home?.manages ?? false) ...[
+            const SizedBox(height: 22),
+            const LastOneOutCard(),
+          ],
         ],
       ),
     );

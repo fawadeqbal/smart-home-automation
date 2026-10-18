@@ -5,10 +5,13 @@ import 'package:go_router/go_router.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
+import '../../push/push.dart';
+import '../../push/push_ask.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../state/home_overview.dart';
 import '../../state/local_control.dart';
+import '../../state/presence.dart';
 import '../../state/session.dart';
 import '../../voice/hands_free.dart';
 import '../../voice/hands_free_ui.dart';
@@ -31,6 +34,8 @@ class AppShell extends ConsumerWidget {
     final c = context.sb;
     final bottom = MediaQuery.paddingOf(context).bottom;
     ref.watch(localSyncProvider); // keeps the passes for switching over Wi‑Fi fresh
+    ref.watch(pushSyncProvider); // this phone's push token, and taps on notifications
+    ref.watch(presenceSyncProvider); // "who's home", when I share it
     final manages = ref.watch(
       sessionProvider.select((s) => s.value?.home?.manages ?? false),
     );
@@ -41,6 +46,7 @@ class AppShell extends ConsumerWidget {
       body: Stack(
         children: [
           Positioned.fill(child: shell),
+          const PushAskOnce(),
           Positioned(
             left: 16,
             right: 16,

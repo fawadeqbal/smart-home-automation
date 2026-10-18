@@ -23,6 +23,7 @@ abstract final class Routes {
   static const activity = 'activity';
   static const health = 'health';
   static const family = 'family';
+  static const notifications = 'notifications';
 }
 
 extension TabNavigation on BuildContext {

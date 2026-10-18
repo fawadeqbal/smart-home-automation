@@ -4,6 +4,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Phone notifications (Firebase Cloud Messaging) need the project's google-services.json here
+// (see docs/push.md). Without it — CI, a fresh checkout — the app builds and runs without push.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.switchboard.switchboard_home"
     compileSdk = flutter.compileSdkVersion
@@ -12,6 +18,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // flutter_local_notifications (notices shown while the app is open) needs newer Java APIs on old phones
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -59,4 +67,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
