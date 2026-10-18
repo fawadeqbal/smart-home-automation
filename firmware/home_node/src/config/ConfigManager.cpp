@@ -65,9 +65,14 @@ bool ConfigManager::apply(JsonObjectConst config, String& error, bool save) {
   for (JsonObjectConst entry : deviceList) {
     std::unique_ptr<Device> device = DeviceFactory::createDevice(entry, error);
     if (!device || !claimPin(device->pin())) return false;
+    uint8_t extra[2];
+    const uint8_t n = device->extraPins(extra);
+    for (uint8_t i = 0; i < n; ++i) if (!claimPin(extra[i])) return false;
+    device->setRestoreOff(String(entry["restore"] | "last") == "off");
     devices[deviceCount++] = std::move(device);
   }
   Building building{devices, deviceCount};
+  for (size_t i = 0; i < deviceCount; ++i) devices[i]->link(findIn, &building);
   for (JsonObjectConst entry : inputList) {
     if (!claimPin(entry["pin"] | -1)) return false;
     std::unique_ptr<Input> input = DeviceFactory::createInput(entry, findIn, &building, error);
@@ -84,7 +89,11 @@ bool ConfigManager::apply(JsonObjectConst config, String& error, bool save) {
     inputs_[i]->begin();
   }
   inputCount_ = inputCount;
-  states_.restore();
+  restoreGapMs_ = constrain((int)(config["restoreGapMs"] | 1500), 0, 10000);
+  // at power-on: switches come back one by one, and "stay off" ones stay off; after a change from
+  // the server: everything stays as it was
+  states_.restore(!started_, restoreGapMs_);
+  started_ = true;
 
   rev_ = config["rev"] | 0;
   adopted_ = config["adopted"] | false;

@@ -52,6 +52,11 @@ bool MqttBridge::clockReady() {
 
 void MqttBridge::loop() {
   if (rebootAt_ && millis() > rebootAt_) ESP.restart();
+  if (reconnectAt_ && millis() > reconnectAt_) {
+    reconnectAt_ = 0;
+    mqtt_.disconnect();
+    nextAttempt_ = 0;
+  }
   wifiSwitch_.loop();
   if (wifiSwitch_.busy() || WiFi.status() != WL_CONNECTED) return;
 
@@ -78,6 +83,11 @@ void MqttBridge::loop() {
 
 bool MqttBridge::connect() {
   const BrokerSettings& b = settings_->broker();
+  // Its own login (2.6.0+) when it has one; the shared one from the setup page when it hasn't, or when
+  // its own was refused twice in a row (the server may have lost it: it then sends a new one).
+  const bool own = settings_->hasOwnLogin() && ownRefused_ < 2;
+  const String user = own ? settings_->nodeId() : b.user;
+  const String password = own ? settings_->ownPassword() : b.password;
   JsonDocument will;
   will["online"] = false;
   String willText;
@@ -85,14 +95,19 @@ bool MqttBridge::connect() {
 
   LOG_INFO("Connecting to the server %s:%u...", b.host.c_str(), b.port);
   // Client id = node id: the broker's access rules allow each board only its own topics.
-  if (!mqtt_.connect(settings_->nodeId().c_str(), b.user.c_str(), b.password.c_str(),
+  if (!mqtt_.connect(settings_->nodeId().c_str(), user.c_str(), password.c_str(),
                      topics_->status().c_str(), 1, true, willText.c_str())) {
+    const bool refused = mqtt_.state() == 4 || mqtt_.state() == 5;
+    if (refused && own) ++ownRefused_;
+    else if (refused) ownRefused_ = 0;   // the shared login failed too: try its own again next time
     LOG_WARN("Server connection failed (state %d). %s", mqtt_.state(),
-             mqtt_.state() == 4 || mqtt_.state() == 5 ? "Check the board login and password." : "Retrying.");
+             refused ? (own ? "Its own login was refused." : "Check the board login and password.") : "Retrying.");
     return false;
   }
+  if (own) ownRefused_ = 0;
+  usingOwn_ = own;
   ++connects_;
-  LOG_INFO("Connected to the server");
+  LOG_INFO("Connected to the server (%s login)", own ? "its own" : "shared");
 
   JsonDocument status;
   status["online"] = true;
@@ -105,6 +120,7 @@ bool MqttBridge::connect() {
   announce["fw"] = FIRMWARE_VERSION;
   announce["mac"] = WiFi.macAddress();
   announce["ip"] = WiFi.localIP().toString();
+  announce["login"] = own ? "own" : "shared";
   publishJson(topics_->announce(), announce, true);
 
   mqtt_.subscribe(topics_->config().c_str(), 1);
@@ -235,6 +251,20 @@ void MqttBridge::handleCmd(JsonObjectConst cmd) {
   } else if (action == "local") {
     // local control: the key phones' passes are checked with (never retained on the broker)
     if (local_ && local_->setKey(cmd["key"] | "", cmd["epoch"] | 0L)) publishTelemetry();
+  } else if (action == "login") {
+    // its own MQTT login (never retained on the broker): keep it, and reconnect with it
+    const String user = cmd["user"] | "";
+    const String password = cmd["password"] | "";
+    if (user != settings_->nodeId() || password.length() < 24) {
+      LOG_WARN("Ignoring a login for another board");
+      return;
+    }
+    if (settings_->hasOwnLogin() && settings_->ownPassword() == password && usingOwn_) return;
+    if (const_cast<NodeSettings*>(settings_)->setOwnLogin(password)) {
+      LOG_INFO("Got its own server login: reconnecting with it");
+      ownRefused_ = 0;
+      reconnectAt_ = millis() + 300;   // after this callback returns
+    }
   } else if (action == "local-off") {
     if (local_) local_->clear();
     publishTelemetry();
@@ -261,7 +291,8 @@ void MqttBridge::reportNetwork() {
 // ---------------------------------------------------------------- outgoing
 void MqttBridge::onDeviceChanged(Device& device) {
   if (quiet_) return;
-  const char* src = !device.controllable() ? "sensor" : LocalServer::applying() ? "local" : "button";
+  const char* src = Device::changeSource ? Device::changeSource
+                    : !device.controllable() ? "sensor" : LocalServer::applying() ? "local" : "button";
   if (!mqtt_.connected()) {
     if (device.controllable()) {
       if (!changedWhileOffline_) offlineSrc_ = src;

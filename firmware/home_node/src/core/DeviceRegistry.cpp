@@ -2,6 +2,8 @@
 
 #include "Log.h"
 
+const char* Device::changeSource = nullptr;
+
 void DeviceRegistry::replaceAll(DevicePtr* devices, size_t count) {
   for (size_t i = 0; i < count_; ++i) devices_[i].reset();   // destructors release the pins
   count_ = 0;

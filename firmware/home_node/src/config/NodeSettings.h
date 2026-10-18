@@ -28,8 +28,15 @@ class NodeSettings {
   const String& nodeId() const { return nodeId_; }
   const BrokerSettings& broker() const { return broker_; }
 
+  /** Its own server login (2.6.0+): user = node id, password from the server. Kept apart from the
+   *  shared login typed on the setup page, which stays as the way back in. */
+  bool hasOwnLogin() const { return ownPassword_.length() > 0; }
+  const String& ownPassword() const { return ownPassword_; }
+  bool setOwnLogin(const String& password);
+
  private:
   void save();
   String nodeId_;
   BrokerSettings broker_;
+  String ownPassword_;
 };

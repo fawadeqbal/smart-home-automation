@@ -46,6 +46,22 @@ class Device {
   virtual void begin() = 0;
   virtual void loop() {}
 
+  /** Pins it uses besides pin() (a fan's other relays, a tank sensor's echo). Returns how many (max 2). */
+  virtual uint8_t extraPins(uint8_t out[2]) const { (void)out; return 0; }
+  /** true while it is switched on (relays, fans); sensors are never "on". */
+  virtual bool isOn() const { return false; }
+  /** Called once the whole configuration is built: a device that works with another one (the tank and
+   *  its motor) finds it here. `find` returns nullptr for an unknown key. */
+  virtual void link(Device* (*find)(const String& key, void* ctx), void* ctx) { (void)find; (void)ctx; }
+
+  /** After a power cut: false = come back the way it was, true = stay off. */
+  bool restoreOff() const { return restoreOff_; }
+  void setRestoreOff(bool off) { restoreOff_ = off; }
+
+  /** Who is changing devices right now, when it isn't a person ("boot" while restoring after power-on,
+   *  "automation" when the board acts by itself, e.g. stopping the motor when the tank is full). */
+  static const char* changeSource;
+
   /** Current state. Empty object when there is nothing to report yet (sensor not read). */
   virtual void writeState(JsonObject out) const = 0;
   virtual CommandResult apply(JsonObjectConst command) = 0;
@@ -60,5 +76,13 @@ class Device {
  private:
   String key_;
   uint8_t pin_;
+  bool restoreOff_ = false;
   DeviceListener* listener_ = nullptr;
+};
+
+/** Sets Device::changeSource for as long as it lives. */
+struct ChangeSource {
+  explicit ChangeSource(const char* src) : previous_(Device::changeSource) { Device::changeSource = src; }
+  ~ChangeSource() { Device::changeSource = previous_; }
+  const char* previous_;
 };

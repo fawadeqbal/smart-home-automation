@@ -17,7 +17,7 @@ class RelayDevice : public Device {
   void writeState(JsonObject out) const override;
   CommandResult apply(JsonObjectConst command) override;
 
-  bool isOn() const { return on_; }
+  bool isOn() const override { return on_; }
   void set(bool on);
 
  private:

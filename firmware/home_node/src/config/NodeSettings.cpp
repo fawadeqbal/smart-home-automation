@@ -26,8 +26,16 @@ void NodeSettings::begin() {
     broker_.user = doc["user"] | "node";
     broker_.password = doc["password"] | "";
     broker_.tls = doc["tls"] | false;
+    ownPassword_ = doc["ownPassword"] | "";
     fixTlsPort(broker_);
   }
+}
+
+bool NodeSettings::setOwnLogin(const String& password) {
+  if (password == ownPassword_) return true;
+  ownPassword_ = password;
+  save();
+  return true;
 }
 
 void NodeSettings::save() {
@@ -37,6 +45,7 @@ void NodeSettings::save() {
   doc["user"] = broker_.user;
   doc["password"] = broker_.password;
   doc["tls"] = broker_.tls;
+  if (ownPassword_.length()) doc["ownPassword"] = ownPassword_;
   Files::writeJson(Files::SETTINGS, doc);
 }
 

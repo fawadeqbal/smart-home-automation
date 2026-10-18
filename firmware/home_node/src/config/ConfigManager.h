@@ -36,7 +36,12 @@ class ConfigManager {
 
   /** true when a device or input of the running configuration uses this GPIO. */
   bool pinInUse(uint8_t gpio) const {
-    for (size_t i = 0; i < registry_.count(); ++i) if (registry_.at(i).pin() == gpio) return true;
+    for (size_t i = 0; i < registry_.count(); ++i) {
+      if (registry_.at(i).pin() == gpio) return true;
+      uint8_t extra[2];
+      const uint8_t n = registry_.at(i).extraPins(extra);
+      for (uint8_t j = 0; j < n; ++j) if (extra[j] == gpio) return true;
+    }
     for (size_t i = 0; i < inputCount_; ++i) if (inputs_[i] && inputs_[i]->pin() == gpio) return true;
     return false;
   }
@@ -49,5 +54,7 @@ class ConfigManager {
   int rev_ = -1;
   bool adopted_ = false;
   uint32_t telemetrySec_ = 60;
+  uint32_t restoreGapMs_ = 1500;
+  bool started_ = false;   // false until the first configuration runs (the one saved before a power cut)
   String currentJson_;   // the configuration now running, as JSON text
 };

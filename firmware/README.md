@@ -63,6 +63,9 @@ The board appears under **New boards** within seconds. **Adopt** it, then **Add 
 | **DHT22 / DHT11** DATA | **D2** (GPIO 4) | VCC → **3V3**, GND → GND. A bare 4‑pin sensor needs a 10 kΩ resistor DATA → 3V3; 3‑pin modules have it |
 | Wall **push‑button** | **D5** (GPIO 14) | Other leg → GND. No resistor needed (internal pull‑up) |
 | Free for more | D6, D7, D0 (output only), D3/D4 (buttons only) | D8, RX, TX are never offered |
+| **Fan regulator** (3 relays, 2.6.0+) | relay 1, relay 2, relay 3 on any three output pins | Relay 1 a small capacitor (e.g. 2.25 µF), relay 2 a bigger one (3.3 µF), relay 3 bypasses them (full speed). Speeds: 1 = relay 1, 2 = relay 2, 3 = both, 4 = relay 3; all open = off. An electrician fits the capacitors |
+| **JSN‑SR04T** tank sensor (2.6.0+) | TRIG on an output pin, ECHO on an input pin | Sensor on **VIN (5 V)**. Its ECHO is 5 V: go through a divider (1 kΩ from ECHO, 2 kΩ to GND) into the board. Mount it at the top of the tank, pointing straight down, at least 20 cm above the highest water |
+| **Grid (WAPDA) sense** (any firmware) | an input pin, as a contact sensor of kind "Grid power" | An optocoupler mains-sense module or a small 5 V adapter on a **grid-only** socket, through a divider. Never mains into the board |
 
 > ⚠️ **Mains (220 V) can kill.** Test with an LED or a 12 V lamp first. Wire the bulb only with the breaker off, inside a closed enclosure, or let an electrician do it.
 
@@ -110,6 +113,27 @@ Test the checks on a PC (same test vector as the server and the phone app):
 
     g++ -std=c++17 -I ~/Arduino/libraries/ArduinoJson/src test/local_auth_test.cpp -lcrypto -o /tmp/t && /tmp/t
 
+## 6e. Version 2.6.0: fans, water tanks, power cuts, its own login
+
+- **Fan with speeds** (`fan`): three relays as above. The board opens relays before closing others when the speed
+  changes, and remembers the speed while the fan is off. Commands: `{"on"}`, `{"toggle"}`, `{"speed": 0-4}`.
+- **Water tank** (`tank`, JSN‑SR04T): five pings every *read every* seconds, the middle one counts, as % between the
+  *empty* and *full* distances. When its motor is a switch on the **same board**, the board stops the motor by itself
+  (also without internet) when the tank is full, and with an alarm when the level hasn't risen after a few minutes
+  (dry well, closed valve) or the motor ran too long. Starting the motor when the tank is low is done by the server.
+- **After a power cut** switches come back **one by one** (1.5 s apart), so a UPS or generator isn't hit by every
+  relay and motor at once. A device set to **stay off after a power cut** stays off — only after a real power cut
+  (`Power On` reset), not after an update or a restart.
+- **Its own server login:** the first time a 2.6.0 board connects with the shared login (`node`), the server gives it
+  its own (user = its board ID, a random password, over MQTT, never retained) and the board reconnects with it. It is
+  kept in `/settings.json` next to the shared one, which stays as the way back in: if its own is refused twice, the
+  board tries the shared one. The broker (Mosquitto's dynamic-security plugin, see `infra/mosquitto/prepare.sh`) lets
+  each board's own login use only its own topics. A board that used its own login and later comes back with the shared
+  one is **not** handed the password again: staff see "came back without its own login" on the board's page and choose
+  **Give it a new login** after checking it (an erased or replaced chip).
+  Once every board runs 2.6.0+, set `MQTT_STRICT_BOARD_LOGIN=true` in the server `.env`: the shared login can then only
+  introduce a board and receive its own login.
+
 ## 7. How it is built
 
 ```
@@ -118,7 +142,7 @@ home_node/
 ├── config.h                 compile-time settings (board type, limits, timings)
 └── src/
     ├── core/                Device (interface), DeviceRegistry (owns devices, forwards changes), Log
-    ├── devices/             RelayDevice "switch", DhtSensor "dht", DeviceFactory (JSON entry -> object)
+    ├── devices/             RelayDevice "switch", FanDevice "fan", TankSensor "tank", DhtSensor "dht", DeviceFactory
     ├── inputs/              Input (interface), ToggleButton "toggle_button"
     ├── config/              NodeSettings (setup page), ConfigManager (server config), BoardPins (allowed pins)
     ├── storage/             StateStore (switch states), Files (atomic JSON files in LittleFS)

@@ -74,4 +74,7 @@ class MqttBridge : public DeviceListener {
   uint32_t backoff_ = 1000;
   uint32_t lastTelemetry_ = 0;
   uint32_t rebootAt_ = 0;
+  uint32_t reconnectAt_ = 0;
+  uint8_t ownRefused_ = 0;   // its own login refused this many times in a row
+  bool usingOwn_ = false;
 };

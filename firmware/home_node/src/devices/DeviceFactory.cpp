@@ -8,7 +8,9 @@
 #include "AnalogSensor.h"
 #include "BinarySensor.h"
 #include "DhtSensor.h"
+#include "FanDevice.h"
 #include "RelayDevice.h"
+#include "TankSensor.h"
 
 namespace {
 
@@ -44,6 +46,60 @@ std::unique_ptr<Device> createDevice(JsonObjectConst entry, String& error) {
   if (type == "switch") {
     if (!checkPin(pin, BoardPins::OUTPUT_USE, error)) return nullptr;
     return std::unique_ptr<Device>(new RelayDevice(key, pin, entry["activeLow"] | false));
+  }
+  if (type == "fan") {
+    if (!checkPin(pin, BoardPins::OUTPUT_USE, error)) return nullptr;
+    JsonArrayConst extra = settings["pins"];
+    if (extra.size() != 2) {
+      error = "a fan needs two more relay pins";
+      return nullptr;
+    }
+    const uint8_t pins[3] = {(uint8_t)pin, (uint8_t)(extra[0] | -1), (uint8_t)(extra[1] | -1)};
+    if (!checkPin(extra[0] | -1, BoardPins::OUTPUT_USE, error) || !checkPin(extra[1] | -1, BoardPins::OUTPUT_USE, error))
+      return nullptr;
+    // speeds: [[0], [1], [0, 1], [2]] -> relay bit masks 0b001, 0b010, 0b011, 0b100
+    uint8_t combos[FanDevice::MAX_SPEEDS];
+    uint8_t count = 0;
+    JsonArrayConst speeds = settings["speeds"];
+    if (speeds.isNull()) {
+      const uint8_t defaults[] = {0b001, 0b010, 0b011, 0b100};
+      for (uint8_t m : defaults) combos[count++] = m;
+    } else {
+      for (JsonArrayConst relays : speeds) {
+        if (count >= FanDevice::MAX_SPEEDS) break;
+        uint8_t mask = 0;
+        for (int r : relays) if (r >= 0 && r <= 2) mask |= 1 << r;
+        if (mask == 0) {
+          error = "every fan speed needs at least one relay";
+          return nullptr;
+        }
+        combos[count++] = mask;
+      }
+    }
+    if (count < 2) {
+      error = "a fan needs at least two speeds";
+      return nullptr;
+    }
+    return std::unique_ptr<Device>(new FanDevice(key, pins, entry["activeLow"] | false, combos, count));
+  }
+  if (type == "tank") {
+    if (!checkPin(pin, BoardPins::OUTPUT_USE, error)) return nullptr;
+    const int echo = settings["echoPin"] | -1;
+    if (!checkPin(echo, BoardPins::INPUT_USE, error)) return nullptr;
+    TankSensor::Settings s;
+    s.echoPin = echo;
+    s.emptyCm = constrain((int)(settings["emptyCm"] | 150), 20, 600);
+    s.fullCm = constrain((int)(settings["fullCm"] | 25), 20, 400);
+    if (s.emptyCm < s.fullCm + 10) {
+      error = "tank: the empty distance must be more than the full distance";
+      return nullptr;
+    }
+    s.intervalMs = constrain((int)(settings["intervalSec"] | 30), 5, 600) * 1000UL;
+    s.motorKey = settings["motorKey"] | "";
+    s.stopAtPct = constrain((int)(settings["stopAtPct"] | 95), 50, 100);
+    s.dryRunMin = constrain((int)(settings["dryRunMin"] | 10), 2, 60);
+    s.maxRunMin = constrain((int)(settings["maxRunMin"] | 60), 5, 240);
+    return std::unique_ptr<Device>(new TankSensor(key, pin, s));
   }
   if (type == "dht") {
     if (!checkPin(pin, BoardPins::SENSOR_USE, error)) return nullptr;
