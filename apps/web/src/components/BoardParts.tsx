@@ -13,7 +13,7 @@ import { LogPanel } from '@/components/LogPanel';
 import { NetworkPanel } from '@/components/NetworkPanel';
 import { Badge, Confirm, Dropdown, ErrorBox, FormModal, Modal, useAction } from '@/components/ui';
 import { del, errorText, patch, post } from '@/lib/api';
-import { analogLabel, contactText } from '@/lib/format';
+import { analogLabel, contactText, devicePins, tankAlarmText } from '@/lib/format';
 import { timeAgo, useLoad, useNow } from '@/lib/hooks';
 import type { BoardInput, BoardNode, Catalog, InputAction, InputGesture, NodeDevice, Room, Tone } from '@/lib/types';
 import { isBehind } from '@/lib/version';
@@ -112,7 +112,9 @@ const toneOf = (t: string): Tone => (t === 'off' ? 'bad' : (t as Tone));
 export function describeState(catalog: Catalog, d: NodeDevice): string {
   if (!d.state) return '—';
   const def = catalog.deviceTypes.find((t) => t.type === d.type);
+  if (d.type === 'fan') return d.state.on ? `On · speed ${d.state.speed}` : 'Off';
   if (def?.controllable) return d.state.on ? 'On' : 'Off';
+  if (d.type === 'tank') return d.state.level === undefined ? '—' : `${d.state.level}% full${tankAlarmText(d.state.alarm) ? ` · ${tankAlarmText(d.state.alarm)}` : ''}`;
   if (d.type === 'contact') return contactText(d.settings, d.state.active);
   if (d.type === 'analog') return d.state.level === undefined ? '—' : `${d.state.level}% ${analogLabel(d.settings)}`;
   return (def?.stateFields ?? [])
@@ -129,7 +131,9 @@ export function SyncBadge({ node }: { node: BoardNode }) {
 
 
 export function typeLabel(d: NodeDevice): string {
-  if (d.type === 'switch') return `Switch${d.activeLow ? ' · active low' : ''}`;
+  if (d.type === 'switch') return `Switch${d.activeLow ? ' · active low' : ''}${d.restoreOff ? ' · stays off after a power cut' : ''}`;
+  if (d.type === 'fan') return `Fan with speeds${d.restoreOff ? ' · stays off after a power cut' : ''}`;
+  if (d.type === 'tank') return `Water tank${d.settings.motorDeviceId ? ' · fills by itself' : ''}`;
   if (d.type === 'dht') return `Temperature sensor · ${String(d.settings.model ?? '').toUpperCase()}`;
   if (d.type === 'contact') return `Contact sensor · ${String(d.settings.kind ?? '')}`;
   if (d.type === 'analog') return `Analog · ${analogLabel(d.settings)}`;
@@ -185,8 +189,9 @@ function BoardSwitcher({ node, siblings, hrefFor }: { node: BoardNode; siblings:
 
 /* ---------------------------------------------------------------- overview */
 
-function Overview({ node, catalog, rooms, canSetup, onTab, onModel, latestFirmware }: {
+function Overview({ node, catalog, rooms, canSetup, onTab, onModel, latestFirmware, reload }: {
   node: BoardNode; catalog: Catalog; rooms: Room[]; canSetup: boolean; onTab: (t: BoardTab) => void; onModel: () => void; latestFirmware?: string | null;
+  reload: () => void;
 }) {
   const behind = isBehind(node.firmware, latestFirmware);
   const s = pinStats(node, catalog);
@@ -257,6 +262,10 @@ function Overview({ node, catalog, rooms, canSetup, onTab, onModel, latestFirmwa
                       : <span className="muted small">Needs firmware 2.5.0 for phone control over Wi‑Fi</span>}
                 </dd>
               </>}
+              {node.mqttLogin && <>
+                <dt>Server login <Tip>From firmware 2.6.0 each board gets its own login, so one board&apos;s password can&apos;t be used to pretend to be another.</Tip></dt>
+                <dd><LoginFact node={node} canSetup={canSetup} reload={reload} /></dd>
+              </>}
               <dt>Settings</dt>
               <dd className="row" style={{ gap: 6 }}><SyncBadge node={node} /><span className="muted small">v{node.appliedRev} of {node.configRev}</span></dd>
               <dt>Last report</dt>
@@ -277,6 +286,28 @@ function Overview({ node, catalog, rooms, canSetup, onTab, onModel, latestFirmwa
   );
 }
 
+/** Its own server login, the shared one, or a warning when it came back without its own. */
+function LoginFact({ node, canSetup, reload }: { node: BoardNode; canSetup: boolean; reload: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  if (node.mqttLoginProblem) {
+    return (
+      <span className="stack-tight">
+        <span className="badge warn">Came back without its own login</span>
+        <span className="small muted">Normal after its chip was erased or replaced. If not, someone may be using its ID.</span>
+        {canSetup && <span><button className="link-btn" onClick={() => setConfirm(true)}>Give it a new login</button></span>}
+        {confirm && (
+          <Confirm title="Give this board a new login?" body="The old login stops working. The board gets the new one now if it is online, or when it next connects."
+            confirmLabel="New login" onConfirm={async () => { await post(`/nodes/${node.id}/reset-login`); reload(); }} onClose={() => setConfirm(false)} />
+        )}
+      </span>
+    );
+  }
+  if (node.mqttLogin === 'own') {
+    return <span className="row" style={{ gap: 6 }}><span className="badge ok">Its own</span>{node.mqttLoginSince && <span className="small muted">since {new Date(node.mqttLoginSince).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span>}</span>;
+  }
+  return <span className="small muted">Shared board login{node.firmware && isBehind(node.firmware, '2.6.0') ? ' — firmware 2.6.0 gives it its own' : ''}</span>;
+}
+
 /* ----------------------------------------------------------------- devices */
 
 type Editing = { kind: 'device'; device?: NodeDevice } | { kind: 'button'; input?: BoardInput } | null;
@@ -291,7 +322,7 @@ function DevicesTab({ node, catalog, rooms, canSetup, reload }: {
 
   const saveDevice = async (v: DeviceFormValues) => {
     const d = editing?.kind === 'device' ? editing.device : undefined;
-    if (d) await patch(`/devices/${d.id}`, { name: v.name, pin: v.pin, activeLow: v.activeLow, roomId: v.roomId, aliases: v.aliases, settings: v.settings });
+    if (d) await patch(`/devices/${d.id}`, { name: v.name, pin: v.pin, activeLow: v.activeLow, roomId: v.roomId, aliases: v.aliases, settings: v.settings, ...(catalog.deviceTypes.find((t) => t.type === d.type)?.controllable ? { restoreOff: v.restoreOff } : {}) });
     else await post(`/nodes/${node.id}/devices`, { ...v });
     setEditing(null);
     reload();
@@ -322,7 +353,9 @@ function DevicesTab({ node, catalog, rooms, canSetup, reload }: {
                         <span className="small muted">{typeLabel(d)}{d.aliases.length > 0 ? ` · also “${d.aliases.join('”, “')}”` : ''}</span>
                       </span>
                     </td>
-                    <td><PinCell catalog={catalog} node={node} gpio={d.pin} /></td>
+                    <td>{devicePins(d).length > 1
+                      ? <span className="row" style={{ gap: 6 }}>{devicePins(d).map((g) => <PinCell key={g} catalog={catalog} node={node} gpio={g} />)}</span>
+                      : <PinCell catalog={catalog} node={node} gpio={d.pin} />}</td>
                     <td>{roomName(d.roomId)}</td>
                     <td className="small nowrap">{node.online ? describeState(catalog, d) : <span className="muted">offline</span>}</td>
                     {canSetup && (
@@ -506,7 +539,7 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
         ))}
       </div>
 
-      {current === 'overview' && <Overview node={node} catalog={catalog} rooms={rooms} canSetup={canSetup} onTab={onTab} onModel={() => setDialog('model')} latestFirmware={latestFirmware} />}
+      {current === 'overview' && <Overview node={node} catalog={catalog} rooms={rooms} canSetup={canSetup} onTab={onTab} onModel={() => setDialog('model')} latestFirmware={latestFirmware} reload={reload} />}
       {current === 'devices' && <DevicesTab node={node} catalog={catalog} rooms={rooms} canSetup={canSetup} reload={reload} />}
       {current === 'pins' && <BoardDiagram node={node} catalog={catalog} />}
       {current === 'network' && <NetworkPanel node={node} />}

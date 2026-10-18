@@ -87,6 +87,22 @@ class DevicesController extends AsyncNotifier<List<Device>> {
     }
   }
 
+  /// A fan's speed (it goes on at that speed): shown at once, confirmed by the board.
+  Future<void> setSpeed(String id, int speed) async {
+    final before = state.value?.where((d) => d.id == id).firstOrNull;
+    if (before == null) return;
+    ref.read(pendingDevicesProvider.notifier).add(id);
+    _put(before.copyWith(state: {...before.state, 'on': speed > 0, if (speed > 0) 'speed': speed}));
+    try {
+      _put(await ref.read(devicesRepositoryProvider).command(id, {'speed': speed}));
+    } catch (_) {
+      _put(before);
+      rethrow;
+    } finally {
+      ref.read(pendingDevicesProvider.notifier).remove(id);
+    }
+  }
+
   Future<void> toggle(String id) async {
     final d = state.value?.where((x) => x.id == id).firstOrNull;
     if (d != null) await setOn(id, !d.isOn);

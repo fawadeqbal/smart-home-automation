@@ -129,6 +129,70 @@ class SwitchKind extends DeviceKind {
   }
 }
 
+/// A ceiling fan on a speed regulator: tap for on/off, choose a speed in its sheet.
+class FanKind extends DeviceKind {
+  const FanKind();
+
+  @override
+  bool matches(Device d) => d.type == 'fan';
+
+  @override
+  bool get toggleable => true;
+
+  @override
+  SbIconData icon(Device d) => SbIcons.fan;
+
+  @override
+  bool active(Device d) => d.isOn;
+
+  @override
+  bool spins(Device d) => d.isOn;
+
+  @override
+  String status(Device d) => d.isOn ? (d.speed != null ? 'Speed ${d.speed}' : 'On') : 'Off';
+
+  @override
+  List<String> phrases(Device d) => [
+    '${_cap(d.name.toLowerCase())} on',
+    '${_cap(d.name.toLowerCase())} speed 2',
+    d.roomName != null ? '${d.roomName!.split(' ').first} ka pankha tez karo' : 'Pankha tez karo',
+  ];
+}
+
+/// A water tank's level (ultrasonic sensor), and an alarm when its motor was stopped.
+class TankKind extends DeviceKind {
+  const TankKind();
+
+  static const _alarms = {
+    'dry': 'Motor stopped: water not rising',
+    'long': 'Motor stopped: ran too long',
+    'sensor': 'Motor stopped: no sensor reading',
+  };
+
+  @override
+  bool matches(Device d) => d.type == 'tank';
+
+  @override
+  SbIconData icon(Device d) => SbIcons.droplet;
+
+  @override
+  bool active(Device d) => d.state['level'] is num && (d.state['level'] as num) >= 90;
+
+  @override
+  bool alarm(Device d) => _alarms.containsKey('${d.state['alarm'] ?? ''}');
+
+  @override
+  String status(Device d) {
+    final v = d.state['level'];
+    final a = _alarms['${d.state['alarm'] ?? ''}'];
+    if (v is! num) return 'No reading yet';
+    return a != null ? '${v.round()}% · $a' : '${v.round()}% full';
+  }
+
+  @override
+  List<String> phrases(Device d) => ['How full is the tank?', 'Tanki mein kitna pani hai?'];
+}
+
 /// Temperature and humidity.
 class ClimateKind extends DeviceKind {
   const ClimateKind();
@@ -172,6 +236,7 @@ class ContactKind extends DeviceKind {
   SbIconData icon(Device d) => switch (_kind(d)) {
     'leak' => SbIcons.waves,
     'motion' => SbIcons.person,
+    'mains' => SbIcons.zap,
     _ => SbIcons.door,
   };
 
@@ -186,6 +251,7 @@ class ContactKind extends DeviceKind {
     final on = d.state['active'] == true;
     return switch (_kind(d)) {
       'leak' => on ? 'Water detected!' : 'Dry',
+      'mains' => on ? 'Grid power on' : 'On UPS / solar',
       'motion' => on ? 'Movement' : 'Still',
       'window' => on ? 'Open' : 'Closed',
       'door' => on ? 'Open' : 'Closed',
@@ -231,6 +297,8 @@ class GenericKind extends DeviceKind {
 
 abstract final class DeviceKinds {
   static const List<DeviceKind> registry = [
+    FanKind(),
+    TankKind(),
     ClimateKind(),
     ContactKind(),
     AnalogKind(),

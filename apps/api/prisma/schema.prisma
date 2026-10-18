@@ -324,6 +324,15 @@ model Node {
   localKeyHome  String?
   /// "<key id>:<epoch>" the board says it holds (from its telemetry)
   localReported String?
+  /// Its own MQTT login (firmware 2.6.0+): the password sealed with JWT_SECRET, when it was made, and
+  /// when the board first used it. A board that used its own login and comes back with the shared one
+  /// is flagged (mqttLoginProblem) rather than handed the password again.
+  mqttSecret       String?
+  mqttLoginAt      DateTime?
+  mqttLoginUsedAt  DateTime?
+  /// which login it connected with last: "own" | "shared"
+  mqttLogin        String?
+  mqttLoginProblem Boolean   @default(false)
   devices       Device[]
   inputs        Input[]
   connections   NodeConnection[]
@@ -402,6 +411,9 @@ model Device {
   autoOffAt DateTime?
   /// how much power it draws when on, in watts (null: guessed from its name)
   watts     Int?
+  /// after a power cut it stays off instead of coming back the way it was (firmware 2.6.0+): a motor,
+  /// an iron, a geyser
+  restoreOff Boolean     @default(false)
   state     DeviceState?
   history   StateEvent[]
   commands  Command[]

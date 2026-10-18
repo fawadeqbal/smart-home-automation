@@ -13,6 +13,7 @@ import { MqttService } from '../mqtt/mqtt.service';
 import { compareVersions } from '../common/version';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { BoardLoginService } from './board-login.service';
 import { LocalService } from './local.service';
 import { LogsService } from './logs.service';
 import { PLANS } from '../platform/plans';
@@ -41,6 +42,7 @@ export class NodesService implements OnModuleInit {
     @Inject(forwardRef(() => FirmwareService)) private readonly firmware: FirmwareService,
     private readonly logs: LogsService,
     private readonly local: LocalService,
+    private readonly boardLogin: BoardLoginService,
   ) {}
 
   onModuleInit() {
@@ -88,6 +90,7 @@ export class NodesService implements OnModuleInit {
     this.log.log(`Board ${nodeId} announced (${node.status.toLowerCase()}${node.orgId ? '' : ', unclaimed'}, firmware ${info.fw})`);
     this.logs.server(nodeId, 'info', `Board connected (firmware ${info.fw}, IP ${info.ip ?? '?'})`);
     await this.publishConfig(nodeId); // make sure it has its current config after a reboot
+    void this.boardLogin.announced(nodeId, info.fw, info.login).catch((e) => this.log.warn(`board login: ${e}`));
     if (node.homeId) {
       this.firmware.announced(nodeId, node.homeId, info.fw);
       this.realtime.nodesChanged(node.homeId, nodeId);
@@ -220,13 +223,14 @@ export class NodesService implements OnModuleInit {
       include: { devices: { where: { enabled: true }, orderBy: { createdAt: 'asc' } }, inputs: { include: { target: true } } },
     });
     const adopted = node.status === NodeStatus.ADOPTED;
+    const keyOf = new Map(node.devices.map((d) => [d.id, d.key]));
     return {
       rev: node.configRev,
       adopted,
       devices: adopted
         ? node.devices.map((d) => ({
-            key: d.key, type: d.type, pin: d.pin, activeLow: d.activeLow, settings: d.settings as Record<string, unknown>,
-            restore: 'last' as const,
+            key: d.key, type: d.type, pin: d.pin, activeLow: d.activeLow, settings: boardSettings(d, keyOf),
+            restore: d.restoreOff ? ('off' as const) : ('last' as const),
           }))
         : [],
       inputs: adopted
@@ -255,13 +259,29 @@ export class NodesService implements OnModuleInit {
   /** Throws a clear 400 unless the pin may be used this way and is free on this board. */
   async assertPinUsable(nodeId: string, board: string, pin: number, use: PinUse,
                         except: { deviceId?: string; inputId?: string } = {}) {
-    const problem = checkPin(board, pin, use);
-    if (problem) throw new BadRequestException(problem);
-    const [device, input] = await Promise.all([
-      this.prisma.device.findFirst({ where: { nodeId, pin, NOT: except.deviceId ? { id: except.deviceId } : undefined } }),
-      this.prisma.input.findFirst({ where: { nodeId, pin, NOT: except.inputId ? { id: except.inputId } : undefined } }),
+    await this.assertPinsUsable(nodeId, board, [{ gpio: pin, use, label: '' }], except);
+  }
+
+  /** The same for every pin a device needs (a fan's three relays, a tank sensor's trigger and echo). */
+  async assertPinsUsable(nodeId: string, board: string, pins: { gpio: number; use: PinUse; label: string }[],
+                         except: { deviceId?: string; inputId?: string } = {}) {
+    const seen = new Set<number>();
+    for (const p of pins) {
+      const problem = checkPin(board, p.gpio, p.use);
+      if (problem) throw new BadRequestException(p.label ? `${p.label[0]!.toUpperCase()}${p.label.slice(1)}: ${problem}` : problem);
+      if (seen.has(p.gpio)) throw new BadRequestException(`GPIO ${p.gpio} is chosen twice.`);
+      seen.add(p.gpio);
+    }
+    const [devices, input] = await Promise.all([
+      this.prisma.device.findMany({ where: { nodeId, NOT: except.deviceId ? { id: except.deviceId } : undefined } }),
+      this.prisma.input.findFirst({ where: { nodeId, pin: { in: [...seen] }, NOT: except.inputId ? { id: except.inputId } : undefined } }),
     ]);
-    if (device) throw new BadRequestException(`That pin is already used by "${device.name}".`);
+    for (const d of devices) {
+      const extra = DEVICE_TYPES[d.type]?.extraPins?.((d.settings ?? {}) as Record<string, unknown>) ?? [];
+      if ([d.pin, ...extra.map((e) => e.gpio)].some((g) => seen.has(g))) {
+        throw new BadRequestException(`That pin is already used by "${d.name}".`);
+      }
+    }
     if (input) throw new BadRequestException('That pin is already used by a button on this board.');
   }
 
@@ -299,10 +319,12 @@ export class NodesService implements OnModuleInit {
       localControl: !local.has(n.id) ? null : local.get(n.id)!.ready ? 'ready' : local.get(n.id)!.supported ? 'waiting' : 'old-firmware',
       rssi: n.rssi, lastSeenAt: n.lastSeenAt, configRev: n.configRev, appliedRev: n.appliedRev, configError: n.configError,
       publicIp: n.publicIp, publicPlace: n.publicPlace, publicIsp: n.publicIsp,
+      // its server login: its own (2.6.0+), the shared one, and whether something looks wrong
+      mqttLogin: n.mqttLogin, mqttLoginSince: n.mqttLoginUsedAt, mqttLoginProblem: n.mqttLoginProblem,
       health: this.health.get(n.id) ?? fallback.get(n.id) ?? null,
       devices: n.devices.map((d) => ({
         id: d.id, key: d.key, name: d.name, type: d.type, pin: d.pin, activeLow: d.activeLow, roomId: d.roomId,
-        settings: d.settings, enabled: d.enabled, aliases: d.aliases, state: d.state?.state ?? null,
+        settings: d.settings, enabled: d.enabled, aliases: d.aliases, state: d.state?.state ?? null, restoreOff: d.restoreOff,
       })),
       inputs: n.inputs.map((i) => ({
         id: i.id, type: i.type, pin: i.pin, name: i.name, targetId: i.targetId, targetName: i.target?.name ?? null,
@@ -378,6 +400,14 @@ export class NodesService implements OnModuleInit {
     await this.mqtt.publish(topics.config(nodeId), empty, { qos: 1, retain: true });
     for (const key of keys) await this.mqtt.publish(topics.deviceState(nodeId, key), null, { qos: 1, retain: true });
     await this.local.forget(nodeId);
+  }
+
+  /** A new server login for the board (it was erased or replaced, or the old one may have leaked). */
+  async resetLogin(actor: AuthUser, nodeId: string) {
+    await this.nodeIn(actor.homeId, nodeId);
+    await this.boardLogin.reset(nodeId);
+    await this.audit.record(actor.homeId, actor.id, 'board.login_reset', nodeId, {});
+    this.realtime.nodesChanged(actor.homeId, nodeId);
   }
 
   async reboot(actor: AuthUser, nodeId: string) {
@@ -479,4 +509,20 @@ export class NodesService implements OnModuleInit {
     await this.audit.record(actor.homeId, actor.id, 'input.remove', inputId);
     this.realtime.nodesChanged(actor.homeId, input.nodeId);
   }
+}
+
+/**
+ * A device's settings as its board needs them. A tank whose motor is on the same board gets the
+ * motor's key, so the board stops the motor by itself when the tank is full, even without internet.
+ */
+export function boardSettings(d: { type: string; settings: unknown }, keyOf: Map<string, string>): Record<string, unknown> {
+  const settings = { ...((d.settings ?? {}) as Record<string, unknown>) };
+  if (d.type === 'tank') {
+    const motorKey = typeof settings.motorDeviceId === 'string' ? keyOf.get(settings.motorDeviceId) : undefined;
+    delete settings.motorDeviceId;
+    delete settings.fillBelowPct;   // starting the motor is the server's job
+    if (motorKey) settings.motorKey = motorKey;
+    else delete settings.motorKey;
+  }
+  return settings;
 }

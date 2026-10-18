@@ -54,6 +54,8 @@ class Device {
     this.source,
     this.updatedAt,
     this.childLock = false,
+    this.speeds = 0,
+    this.restoreOff = false,
   });
 
   factory Device.fromJson(Json json) => Device(
@@ -76,6 +78,8 @@ class Device {
     source: strOrNull(json['source']),
     updatedAt: dateOrNull(json['updatedAt']),
     childLock: boolean(json['childLock']),
+    speeds: integer(json['speeds']),
+    restoreOff: boolean(json['restoreOff']),
   );
 
   final String id;
@@ -116,7 +120,16 @@ class Device {
   /// Only the owner and admins may switch it (the server enforces it).
   final bool childLock;
 
+  /// A fan's number of speeds (0 for anything else).
+  final int speeds;
+
+  /// It stays off after a power cut instead of coming back the way it was.
+  final bool restoreOff;
+
   bool get isOn => state['on'] == true;
+
+  /// A fan's speed (1..[speeds]); kept while it is off. Null for anything else.
+  int? get speed => state['speed'] is num ? (state['speed'] as num).toInt() : null;
 
   /// This person may switch it (a switch, enabled, in a room they control).
   bool get canControl => controllable && enabled && access.canControl;
@@ -151,5 +164,7 @@ class Device {
     source: source ?? this.source,
     updatedAt: updatedAt ?? this.updatedAt,
     childLock: childLock,
+    speeds: speeds,
+    restoreOff: restoreOff,
   );
 }

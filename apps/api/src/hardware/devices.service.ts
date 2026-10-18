@@ -3,7 +3,7 @@ import {
   OnModuleInit, ServiceUnavailableException, UnprocessableEntityException,
 } from '@nestjs/common';
 import {
-  DEVICE_TYPES, deviceStatePayload, pinLabel, stateFields, switchCommand, topics,
+  commandSchemaFor, DEVICE_TYPES, DeviceTypeDefinition, deviceStatePayload, fanSpeeds, firmwareAtLeast, pinLabel, stateFields, topics,
 } from '@home/contracts';
 import { Access, CommandStatus, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
@@ -29,6 +29,7 @@ export interface DeviceInput {
   roomId?: string | null;
   aliases?: string[];
   settings?: unknown;
+  restoreOff?: boolean;
 }
 
 export interface DeviceUpdate {
@@ -45,6 +46,10 @@ export interface DeviceUpdate {
   autoOffMinutes?: number | null;
   /** power when on, for electricity estimates (null: guessed from its name) */
   watts?: number | null;
+  /** stays off after a power cut (firmware 2.6.0+) */
+  restoreOff?: boolean;
+  /** a tank's motor levels, which owners and admins may change (the rest of its settings is wiring) */
+  tank?: { fillBelowPct?: number; stopAtPct?: number };
 }
 
 export type StateListener = (
@@ -103,7 +108,8 @@ export class DevicesService implements OnModuleInit {
       nodeId: d.nodeId, nodeName: d.node.name, online: d.node.online,
       roomId: d.roomId, roomName: d.room?.name ?? null,
       pin: d.pin, pinLabel: pinLabel(d.node.board, d.pin), activeLow: d.activeLow, settings: d.settings, enabled: d.enabled,
-      childLock: d.childLock, autoOffMinutes: d.autoOffMinutes, autoOffAt: d.autoOffAt, watts: d.watts,
+      childLock: d.childLock, autoOffMinutes: d.autoOffMinutes, autoOffAt: d.autoOffAt, watts: d.watts, restoreOff: d.restoreOff,
+      ...(d.type === 'fan' ? { speeds: fanSpeeds(d.settings) } : {}),
       state: (d.state?.state as Record<string, unknown> | undefined) ?? null,
       source: d.state?.source ?? null, updatedAt: d.state?.updatedAt ?? null,
       access: level,
@@ -204,8 +210,12 @@ export class DevicesService implements OnModuleInit {
     if (!node) throw new NotFoundException('No such board.');
     if (node.status !== 'ADOPTED') throw new BadRequestException('Adopt the board before adding devices to it.');
     const { def, settings } = this.settingsFor(input.type, input.settings);
-    await this.nodes.assertPinUsable(nodeId, node.board, input.pin, def.pinUse);
+    if (def.minFirmware && !firmwareAtLeast(node.firmware, def.minFirmware)) {
+      throw new BadRequestException(`This board runs firmware ${node.firmware ?? 'unknown'}. ${def.label.split(' (')[0]} needs firmware ${def.minFirmware} or newer: update the board first (Firmware).`);
+    }
+    await this.nodes.assertPinsUsable(nodeId, node.board, pinsOf(def, input.pin, settings));
     await this.assertRoom(actor.homeId, input.roomId);
+    await this.assertMotor(actor.homeId, def.type, settings);
 
     let key = slugKey(input.key || input.name);
     for (let n = 2; await this.prisma.device.findUnique({ where: { nodeId_key: { nodeId, key } } }); n++) {
@@ -217,6 +227,7 @@ export class DevicesService implements OnModuleInit {
         nodeId, key, name: input.name, type: def.type, pin: input.pin, settings,
         activeLow: def.hasActiveLow ? input.activeLow ?? false : false,
         roomId: input.roomId ?? null, aliases: input.aliases ?? [],
+        restoreOff: def.controllable ? input.restoreOff ?? false : false,
       },
     });
     await this.nodes.bumpConfig(nodeId);
@@ -237,8 +248,8 @@ export class DevicesService implements OnModuleInit {
     if (wiring && !canSetup(actor)) {
       throw new ForbiddenException('Pins and wiring are managed by the installer.');
     }
-    const safety = input.childLock !== undefined || input.autoOffMinutes !== undefined;
-    if (safety && !isAdmin(actor.role)) throw new ForbiddenException('Only the owner or an admin can change child lock and auto-off.');
+    const safety = input.childLock !== undefined || input.autoOffMinutes !== undefined || input.restoreOff !== undefined;
+    if (safety && !isAdmin(actor.role) && !canSetup(actor)) throw new ForbiddenException('Only the owner or an admin can change child lock, auto-off and what happens after a power cut.');
     if (safety && DEVICE_TYPES[device.type]?.controllable !== true) throw new BadRequestException(`${device.name} is a sensor; child lock and auto-off are for switches.`);
     const data: Prisma.DeviceUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
@@ -246,6 +257,8 @@ export class DevicesService implements OnModuleInit {
     if (input.roomId !== undefined) data.room = input.roomId ? { connect: { id: input.roomId } } : { disconnect: true };
     if (input.enabled !== undefined) data.enabled = input.enabled;
     if (input.childLock !== undefined) data.childLock = input.childLock;
+    const restoreChanged = input.restoreOff !== undefined && input.restoreOff !== device.restoreOff;
+    if (restoreChanged) data.restoreOff = input.restoreOff;
     if (input.watts !== undefined) data.watts = input.watts || null;
     if (input.autoOffMinutes !== undefined) {
       const m = input.autoOffMinutes ? Math.max(1, Math.min(24 * 60, Math.round(input.autoOffMinutes))) : null;
@@ -254,13 +267,29 @@ export class DevicesService implements OnModuleInit {
       else if ((device.state?.state as { on?: boolean } | null)?.on === true) data.autoOffAt = new Date(Date.now() + m * 60_000);
     }
     if (input.activeLow !== undefined) data.activeLow = DEVICE_TYPES[device.type]?.hasActiveLow ? input.activeLow : false;
-    if (input.settings !== undefined) data.settings = this.settingsFor(device.type, input.settings).settings;
-    if (input.pin !== undefined && input.pin !== device.pin) {
-      await this.nodes.assertPinUsable(device.nodeId, device.node.board, input.pin, DEVICE_TYPES[device.type].pinUse, { deviceId: id });
-      data.pin = input.pin;
+    if (input.tank !== undefined) {
+      if (device.type !== 'tank') throw new BadRequestException(`${device.name} is not a water tank.`);
+      if (!isAdmin(actor.role) && !canSetup(actor)) throw new ForbiddenException('Only the owner or an admin can change when the water motor runs.');
+    }
+    const merged = input.tank !== undefined && input.settings === undefined
+      ? { ...(device.settings as Record<string, unknown>), ...input.tank } : input.settings;
+    const newSettings = merged !== undefined ? this.settingsFor(device.type, merged).settings : undefined;
+    if (newSettings !== undefined) {
+      data.settings = newSettings;
+      await this.assertMotor(actor.homeId, device.type, newSettings, id);
+    }
+    if ((input.pin !== undefined && input.pin !== device.pin) || newSettings !== undefined) {
+      const def = DEVICE_TYPES[device.type];
+      await this.nodes.assertPinsUsable(device.nodeId, device.node.board, pinsOf(def, input.pin ?? device.pin, newSettings ?? device.settings), { deviceId: id });
+      if (input.pin !== undefined) data.pin = input.pin;
     }
     await this.prisma.device.update({ where: { id }, data });
-    if (wiring) await this.nodes.bumpConfig(device.nodeId);
+    if (wiring || restoreChanged || input.tank?.stopAtPct !== undefined) await this.nodes.bumpConfig(device.nodeId);
+    // a tank on this board may name this device as its motor: its board needs the new key/setting
+    if (newSettings !== undefined && device.type === 'tank') {
+      const motorNode = await this.motorNode(newSettings);
+      if (motorNode && motorNode !== device.nodeId) await this.nodes.bumpConfig(motorNode);
+    }
     // fewer people may switch it now: retire the phones' passes for switching over Wi-Fi
     if ((input.roomId !== undefined && input.roomId !== device.roomId) || (input.childLock === true && !device.childLock)) {
       await this.local.revoke(actor.homeId);
@@ -271,6 +300,23 @@ export class DevicesService implements OnModuleInit {
     this.realtime.devicesChanged(actor.homeId);
     this.realtime.nodesChanged(actor.homeId, device.nodeId);
     return this.get(actor, id);
+  }
+
+  /** A tank's motor must be a switch (or fan) in the same home, not the tank itself. */
+  private async assertMotor(homeId: string, type: string, settings: unknown, selfId?: string) {
+    if (type !== 'tank') return;
+    const motorId = (settings as { motorDeviceId?: string }).motorDeviceId;
+    if (!motorId) return;
+    const motor = await this.prisma.device.findFirst({ where: { id: motorId, node: { homeId } } });
+    if (!motor || motor.id === selfId || !DEVICE_TYPES[motor.type]?.controllable) {
+      throw new BadRequestException('Choose the switch the water motor is on.');
+    }
+  }
+
+  private async motorNode(settings: unknown) {
+    const motorId = (settings as { motorDeviceId?: string }).motorDeviceId;
+    if (!motorId) return null;
+    return (await this.prisma.device.findUnique({ where: { id: motorId }, select: { nodeId: true } }))?.nodeId ?? null;
   }
 
   async remove(actor: AuthUser, id: string) {
@@ -289,9 +335,17 @@ export class DevicesService implements OnModuleInit {
   async command(user: AuthUser, id: string, body: unknown) {
     const { device, level } = await this.load(user, id, Access.CONTROL);
     const def = DEVICE_TYPES[device.type];
-    if (!def?.controllable) throw new BadRequestException(`${device.name} is a sensor; it cannot be switched.`);
-    const parsed = switchCommand.safeParse(body);
-    if (!parsed.success) throw new BadRequestException('Send {"on": true}, {"on": false} or {"toggle": true}.');
+    const schema = commandSchemaFor(device.type);
+    if (!def?.controllable || !schema) throw new BadRequestException(`${device.name} is a sensor; it cannot be switched.`);
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(device.type === 'fan'
+        ? 'Send {"on": true}, {"on": false}, {"toggle": true} or {"speed": 1-' + fanSpeeds(device.settings) + '}.'
+        : 'Send {"on": true}, {"on": false} or {"toggle": true}.');
+    }
+    if (device.type === 'fan' && typeof parsed.data.speed === 'number' && parsed.data.speed > fanSpeeds(device.settings)) {
+      throw new BadRequestException(`${device.name} has ${fanSpeeds(device.settings)} speeds.`);
+    }
     if (!device.enabled) throw new BadRequestException(`${device.name} is disabled.`);
     if (device.childLock && !isAdmin(user.role) && user.channel !== 'automation') {
       throw new ForbiddenException(`${device.name} has child lock on: only the owner or an admin can switch it.`);
@@ -383,6 +437,14 @@ export class DevicesService implements OnModuleInit {
       pending.resolve(fields);
     }
   }
+}
+
+/** Every pin a device takes: its own and those named in its settings. */
+export function pinsOf(def: DeviceTypeDefinition, pin: number, settings: unknown) {
+  return [
+    { gpio: pin, use: def.pinUse, label: def.type === 'fan' ? 'relay 1' : def.type === 'tank' ? 'trigger pin' : '' },
+    ...(def.extraPins?.((settings ?? {}) as Record<string, unknown>) ?? []),
+  ];
 }
 
 /** How a change happened, in the words the apps show: app, voice, schedule, wall (switch), board (power-up) or sensor. */

@@ -17,12 +17,15 @@ const key = z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/, 'Key: lowercas
 const createDevice = z.object({
   name, type: z.string(), pin: z.number().int(), key: key.optional(), activeLow: z.boolean().optional(),
   roomId: z.string().nullable().optional(), aliases: aliases.optional(), settings: z.record(z.unknown()).optional(),
+  restoreOff: z.boolean().optional(),
 });
 const updateDevice = z.object({
   name: name.optional(), roomId: z.string().nullable().optional(), aliases: aliases.optional(),
   pin: z.number().int().optional(), activeLow: z.boolean().optional(),
   settings: z.record(z.unknown()).optional(), enabled: z.boolean().optional(),
   childLock: z.boolean().optional(), watts: z.number().int().min(0).max(10000).nullable().optional(), autoOffMinutes: z.number().int().min(0).max(1440).nullable().optional(),
+  restoreOff: z.boolean().optional(),
+  tank: z.object({ fillBelowPct: z.number().int().min(0).max(90).optional(), stopAtPct: z.number().int().min(50).max(100).optional() }).strict().optional(),
 });
 const adopt = z.object({ name, board: z.string() });
 const updateNode = z.object({ name: name.optional(), board: z.string().optional() });
@@ -196,6 +199,14 @@ export class HardwareController {
   @HttpCode(204)
   resetWifi(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.nodes.resetWifi(user, id);
+  }
+
+  /** A new server login for the board (firmware 2.6.0+): after its chip was erased or replaced. */
+  @Setup()
+  @Post('nodes/:id/reset-login')
+  @HttpCode(204)
+  resetLogin(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.nodes.resetLogin(user, id);
   }
 
   @Setup()

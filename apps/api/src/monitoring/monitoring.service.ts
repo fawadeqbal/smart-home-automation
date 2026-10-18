@@ -28,6 +28,8 @@ export const NOTICE_KINDS = {
   installation: { label: 'The installation was signed off', default: true, adminsOnly: true },
   ticketReply: { label: 'An answer to my help request', default: true, adminsOnly: false },
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
+  tank: { label: 'The water motor was stopped: the tank isn\'t filling, or it ran too long', default: true, adminsOnly: false },
+  tankLevel: { label: 'The water tank is full, or running low', default: false, adminsOnly: false },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
 
@@ -93,6 +95,11 @@ export class MonitoringService implements OnModuleInit, OnModuleDestroy {
         }, `temp:${device.id}`, HOUR);
       }
     }
+  }
+
+  /** A notice for everyone who may see the room, at most once per `cooldownMs` per key (tank, other devices). */
+  async notifyRoom(homeId: string, roomId: string | null, notice: Notice, cooldownKey: string, cooldownMs: number) {
+    await this.toRoom(homeId, roomId, notice, cooldownKey, cooldownMs);
   }
 
   // (a board going offline and coming back is told by OutagesService: once it knows whether it was a

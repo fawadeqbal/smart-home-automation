@@ -110,8 +110,16 @@ def _state_text(d: dict) -> str:
     if not d.get("online"):
         return "offline"
     state = d.get("state") or {}
+    if d.get("type") == "fan":
+        return f"on at speed {state.get('speed')} of {d.get('speeds') or 4}" if state.get("on") else \
+            f"off (speeds 1-{d.get('speeds') or 4})"
     if d.get("controllable"):
         return "on" if state.get("on") else "off"
+    if d.get("type") == "tank" and isinstance(state.get("level"), (int, float)):
+        alarm = {"dry": "the motor was stopped because the water wasn't rising",
+                 "long": "the motor was stopped because it ran too long",
+                 "sensor": "the motor was stopped because the sensor gave no reading"}.get(state.get("alarm") or "")
+        return f"{state['level']}% full" + (f"; {alarm}" if alarm else "")
     parts = []
     for field in d.get("stateFields", []):
         if field["key"] in state:
@@ -130,18 +138,21 @@ class SetDeviceTool(Tool):
     @property
     def description(self) -> str:  # type: ignore[override]
         names = ", ".join(_describe(d) for d in self._switches)
-        return f"Switch a device in the home on or off. Devices you may switch: {names}."
+        fans = [d for d in self._switches if d.get("type") == "fan"]
+        speed = (" A fan with speeds (" + ", ".join(d["name"] for d in fans) + ") also takes a speed: "
+                 "'tez' / faster / full = a higher speed, 'dheema' / slower = a lower one.") if fans else ""
+        return f"Switch a device in the home on or off. Devices you may switch: {names}.{speed}"
 
     @property
     def parameters(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {
-                "device": {"type": "string", "description": "The device name as the person said it"},
-                "state": {"type": "string", "enum": ["on", "off"]},
-            },
-            "required": ["device", "state"],
+        props: Dict[str, Any] = {
+            "device": {"type": "string", "description": "The device name as the person said it"},
+            "state": {"type": "string", "enum": ["on", "off"]},
         }
+        if any(d.get("type") == "fan" for d in self._switches):
+            props["speed"] = {"type": "integer", "minimum": 1, "maximum": 6,
+                              "description": "Only for a fan with speeds: the speed to run at (state must be on)"}
+        return {"type": "object", "properties": props, "required": ["device", "state"]}
 
     def is_available(self) -> bool:
         return bool(self._switches)
@@ -157,6 +168,18 @@ class SetDeviceTool(Tool):
         if len(matches) > 1:
             return "Error: that could mean " + " or ".join(_describe(d) for d in matches) + ". Ask which one."
         device = matches[0]
+        speed = args.get("speed")
+        if speed is not None and state == "on" and device.get("type") == "fan":
+            try:
+                speed = int(speed)
+            except (TypeError, ValueError):
+                return "Error: speed must be a number."
+            top = int(device.get("speeds") or 4)
+            if not 1 <= speed <= top:
+                return f"Error: {device['name']} has speeds 1 to {top}."
+            result = self._api.command(device["id"], {"speed": speed})
+            now = result.get("state") or {}
+            return f"{_describe(device)} is now on at speed {now.get('speed', speed)} (confirmed by the device)"
         result = self._api.command(device["id"], {"on": state == "on"})
         actual = "on" if (result.get("state") or {}).get("on") else "off"
         return f"{_describe(device)} is now {actual} (confirmed by the device)"

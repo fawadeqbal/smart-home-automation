@@ -1,5 +1,6 @@
 'use client';
 import type { BoardNode, Catalog } from '@/lib/types';
+import { devicePins } from '@/lib/format';
 
 /**
  * Top view of the board as printed on the PCB (antenna up, USB down), with every header pin.
@@ -46,7 +47,7 @@ type PinInfo =
 /** How many usable pins are taken and free on this board. */
 export function pinStats(node: BoardNode, catalog: Catalog) {
   const allowed = catalog.boards.find((b) => b.type === node.board)?.pins ?? [];
-  const taken = new Set([...node.devices.map((d) => d.pin), ...node.inputs.map((i) => i.pin)]);
+  const taken = new Set([...node.devices.flatMap((d) => devicePins(d)), ...node.inputs.map((i) => i.pin)]);
   const usable = allowed.filter((p) => !(p.gpio === 17 && node.health?.vcc !== undefined));
   const used = usable.filter((p) => taken.has(p.gpio)).length;
   return { used, free: usable.length - used };
@@ -60,10 +61,11 @@ export function BoardDiagram({ node, catalog }: { node: BoardNode; catalog: Cata
     if (/^(GND|G|3V3|3V|VIN|VU|5V)$/.test(label)) return { kind: 'power', label };
     const gpio = GPIO[label];
     if (gpio === undefined) return { kind: 'reserved', label, why: RESERVED_WHY[label] ?? 'Reserved' };
-    const device = node.devices.find((d) => d.pin === gpio);
+    const device = node.devices.find((d) => devicePins(d).includes(gpio));
     if (device) {
       const sensor = !catalog.deviceTypes.find((t) => t.type === device.type)?.controllable;
-      return { kind: 'used', label, gpio, what: device.name, tone: sensor ? 'sensor' : 'switch', on: device.state?.on === true };
+      const part = gpio === device.pin ? '' : device.type === 'tank' ? ' · echo' : ` · relay ${devicePins(device).indexOf(gpio) + 1}`;
+      return { kind: 'used', label, gpio, what: `${device.name}${part}`, tone: sensor ? 'sensor' : 'switch', on: device.state?.on === true };
     }
     const input = node.inputs.find((i) => i.pin === gpio);
     if (input) return { kind: 'used', label, gpio, what: `${input.type === 'wall_switch' ? 'Wall switch' : 'Button'}${input.targetName ? ` → ${input.targetName}` : input.name ? ` · ${input.name}` : ''}`, tone: 'button' };

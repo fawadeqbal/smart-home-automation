@@ -20,6 +20,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('MQTT');
   private readonly handlers = new Map<MqttKind, MqttHandler[]>();
   private readonly queues = new Map<string, Promise<void>>();
+  /** topics outside the boards' tree (the broker's $CONTROL replies), subscribed on every (re)connect */
+  private readonly raw = new Map<string, (payload: Buffer) => void>();
+  private readonly connectHandlers: (() => void)[] = [];
   private client?: MqttClient;
   /** when the connection to the broker came back (after a broker restart, a deploy): the last few */
   readonly reconnects: number[] = [];
@@ -33,6 +36,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   on(kind: MqttKind, handler: MqttHandler) {
     this.handlers.set(kind, [...(this.handlers.get(kind) ?? []), handler]);
+  }
+
+  /** Messages on one exact topic outside home/v1 (e.g. the broker's $CONTROL replies). */
+  onTopic(topic: string, handler: (payload: Buffer) => void) {
+    this.raw.set(topic, handler);
+    if (this.client?.connected) this.client.subscribe(topic, { qos: 1 });
+  }
+
+  /** Called on every connection to the broker (also after the broker restarted). */
+  onConnect(handler: () => void) {
+    this.connectHandlers.push(handler);
   }
 
   onModuleInit() {
@@ -51,6 +65,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       this.client!.subscribe(topics.allFromNodes, { qos: 1 }, (err) => {
         if (err) this.log.error(`Subscribe failed: ${err.message}`);
       });
+      for (const topic of this.raw.keys()) this.client!.subscribe(topic, { qos: 1 });
+      for (const handler of this.connectHandlers) {
+        try { handler(); } catch (err) { this.log.error(`Connect handler failed: ${err}`); }
+      }
     });
     this.client.on('error', (err) => this.log.warn(`Broker error: ${err.message}`));
     this.client.on('offline', () => this.log.warn('Broker unreachable, retrying...'));
@@ -74,6 +92,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   private dispatch(topic: string, buffer: Buffer) {
+    const raw = this.raw.get(topic);
+    if (raw) return raw(buffer);
     const parsed = parseTopic(topic);
     if (!parsed) return;
     let payload: Record<string, unknown> | null = null;

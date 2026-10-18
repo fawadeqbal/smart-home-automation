@@ -56,4 +56,35 @@ void main() {
     expect(p, contains('Bedroom ka pankha band karo'));
     expect(p.length, lessThanOrEqualTo(4));
   });
+
+  test('a fan with speeds: switches, spins and says its speed', () {
+    final fan = dev('Ceiling fan', type: 'fan', state: {'on': true, 'speed': 3});
+    final kind = DeviceKinds.of(fan);
+    expect(kind, isA<FanKind>());
+    expect(kind.toggleable, isTrue);
+    expect(kind.spins(fan), isTrue);
+    expect(kind.status(fan), 'Speed 3');
+    expect(fan.speed, 3);
+    final off = dev('Ceiling fan', type: 'fan', state: {'on': false, 'speed': 2});
+    expect(kind.status(off), 'Off');
+    expect(off.speed, 2); // kept while off
+  });
+
+  test('a water tank shows its level, and an alarm when its motor was stopped', () {
+    final tank = dev('Roof tank', type: 'tank', state: {'level': 62, 'cm': 70, 'alarm': ''});
+    final kind = DeviceKinds.of(tank);
+    expect(kind, isA<TankKind>());
+    expect(kind.toggleable, isFalse);
+    expect(kind.status(tank), '62% full');
+    expect(kind.alarm(tank), isFalse);
+    final dry = dev('Roof tank', type: 'tank', state: {'level': 12, 'alarm': 'dry'});
+    expect(kind.alarm(dry), isTrue);
+    expect(kind.status(dry), contains('not rising'));
+  });
+
+  test('a grid power sensor', () {
+    final grid = dev('Grid', type: 'contact', settings: {'kind': 'mains'}, state: {'active': false});
+    expect(DeviceKinds.of(grid).status(grid), 'On UPS / solar');
+    expect(DeviceKinds.of(grid).icon(grid), SbIcons.zap);
+  });
 }

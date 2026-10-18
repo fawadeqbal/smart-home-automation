@@ -22,6 +22,8 @@ import { BackupController } from './backups/backup.controller';
 import { BackupService } from './backups/backup.service';
 import { InputsService } from './hardware/inputs.service';
 import { LocalService } from './hardware/local.service';
+import { BoardLoginService } from './hardware/board-login.service';
+import { TankService } from './hardware/tank.service';
 import { InstallationService } from './installation/installation.service';
 import { TicketsService } from './tickets/tickets.service';
 import { SummaryService } from './monitoring/summary.service';
@@ -84,7 +86,7 @@ export function createAppModule(settings: Settings) {
     ],
     providers: [
       { provide: APP_GUARD, useClass: AuthGuard },
-      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, BillingService, RolloutService, TwoFactorService, BackupService, InputsService, LocalService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
+      AuthService, PasswordsService, MailService, OutagesService, UsersService, LogsService, GeoService, ConnectionsService, NodesService, DevicesService, AssistantService, RealtimeGateway, AutomationService, PlaceService, RulesService, EnergyService, SummaryService, TicketsService, InstallationService, BillingService, RolloutService, TwoFactorService, BackupService, InputsService, LocalService, BoardLoginService, TankService, PlatformService, MonitoringService, FirmwareService, PushService, VisitsService, HelpService,
     ],
   })
   class AppModule {}

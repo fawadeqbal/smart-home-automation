@@ -6,7 +6,7 @@ import { timeAgo } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
 import type { Device } from '@/lib/types';
 import { Icon } from './Icon';
-import { analogLabel, contactText, deviceIcon } from '@/lib/format';
+import { analogLabel, contactText, deviceIcon, tankAlarmText } from '@/lib/format';
 import { Spinner } from './Loader';
 
 function fmt(value: unknown): string {
@@ -24,22 +24,26 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
   const locked = !!device.childLock && !isAdmin;
   const canSwitch = !sensor && device.online && !viewOnly && device.enabled && !locked;
 
-  async function toggle() {
+  async function send(command: Record<string, unknown>) {
     if (!canSwitch) return;
     setBusy(true);
     setError(null);
     try {
-      onChange(await post<Device>(`/devices/${device.id}/commands`, { on: !(device.state?.on === true) }));
+      onChange(await post<Device>(`/devices/${device.id}/commands`, command));
     } catch (err) {
       setError(errorText(err));
     } finally {
       setBusy(false);
     }
   }
+  const toggle = () => send({ on: !(device.state?.on === true) });
+  const fan = device.type === 'fan';
+  const speed = typeof device.state?.speed === 'number' ? device.state.speed : null;
+  const alarm = device.type === 'tank' ? tankAlarmText(device.state?.alarm) : '';
 
   const meta = !device.online ? 'Offline'
     : sensor ? `Updated ${timeAgo(device.updatedAt)}`
-      : busy ? 'Switching…' : `${on ? 'On' : 'Off'}${device.source === 'button' ? ' · wall switch' : ''}`;
+      : busy ? 'Switching…' : `${on ? (fan && speed ? `Speed ${speed}` : 'On') : 'Off'}${device.source === 'button' ? ' · wall switch' : ''}`;
   const classes = ['tile', sensor ? 'sensor' : '', on ? 'is-on' : '', !device.online ? 'is-offline' : ''].join(' ');
   const body = (
     <>
@@ -53,6 +57,12 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
             <span className={`v ${device.state?.active && device.settings?.kind === 'leak' ? 'alert-text' : ''}`}>{contactText(device.settings, device.state?.active)}</span>
           ) : device.type === 'analog' ? (
             <><span className="v">{fmt(device.state?.level)}%</span><span className="x">{analogLabel(device.settings)}</span></>
+          ) : device.type === 'tank' ? (
+            <>
+              <span className={`v ${alarm ? 'alert-text' : ''}`}>{fmt(device.state?.level)}%</span>
+              <span className="x">{alarm || 'full'}</span>
+              <span className="progress ac" style={{ width: '100%', marginTop: 6 }}><i style={{ width: `${Math.max(0, Math.min(100, Number(device.state?.level ?? 0)))}%` }} /></span>
+            </>
           ) : (
             device.stateFields.map((f, i) => (
               <span key={f.key} className={i === 0 ? 'v' : 'x'}>
@@ -75,6 +85,14 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
           title={viewOnly ? 'You can see this device but not switch it' : locked ? 'Child lock: only the owner or an admin can switch it' : !device.online ? 'Its board is offline — the wall switch still works' : undefined}>
           {body}
         </button>
+      )}
+      {fan && device.online && (
+        <div className="row" role="group" aria-label={`${device.name} speed`} style={{ gap: 4, padding: '0 10px 8px' }}>
+          {Array.from({ length: device.speeds ?? 4 }, (_, i) => i + 1).map((n) => (
+            <button key={n} className={`btn btn-sm ${on && speed === n ? 'btn-primary' : ''}`} disabled={!canSwitch || busy}
+              aria-pressed={on && speed === n} title={`Speed ${n}`} onClick={() => send({ speed: n })}>{n}</button>
+          ))}
+        </div>
       )}
       {error && <div className="tile-error">{error}</div>}
       <Link className="tile-foot" href={`/devices/${device.id}`}>History<Icon name="chevron-right" size={14} /></Link>

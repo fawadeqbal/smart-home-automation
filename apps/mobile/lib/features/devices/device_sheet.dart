@@ -135,6 +135,25 @@ class DeviceSheet extends ConsumerWidget {
           )
         else
           _Readout(device: device, kind: kind),
+        if (device.type == 'fan' && !down && device.canControl) ...[
+          const SizedBox(height: 22),
+          Text('Speed', style: SbText.cardTitle.copyWith(color: c.tx)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              for (var n = 1; n <= (device.speeds > 0 ? device.speeds : 4); n++) ...[
+                if (n > 1) const SizedBox(width: 8),
+                Expanded(
+                  child: _TimerChip(
+                    label: '$n',
+                    selected: device.isOn && device.speed == n,
+                    onTap: () => _setSpeed(context, ref, device, n),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
         if (kind.toggleable && !down && device.canControl) ...[
           const SizedBox(height: 22),
           Text(
@@ -258,6 +277,14 @@ class DeviceSheet extends ConsumerWidget {
     } catch (e) {
       toast.show(ApiException.from(e).message, error: true);
     }
+  }
+}
+
+Future<void> _setSpeed(BuildContext context, WidgetRef ref, Device device, int speed) async {
+  try {
+    await ref.read(devicesProvider.notifier).setSpeed(device.id, speed);
+  } catch (e) {
+    if (context.mounted) ref.read(toastProvider.notifier).show(ApiException.from(e).message, error: true);
   }
 }
 

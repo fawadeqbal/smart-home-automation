@@ -159,6 +159,10 @@ export interface Device {
   autoOffMinutes?: number | null;
   autoOffAt?: string | null;
   watts?: number | null;
+  /** stays off after a power cut (firmware 2.6.0+) */
+  restoreOff?: boolean;
+  /** a fan's number of speeds */
+  speeds?: number;
   state: Record<string, unknown> | null;
   source: string | null;
   updatedAt: string | null;
@@ -197,6 +201,7 @@ export interface NodeDevice {
   enabled: boolean;
   aliases: string[];
   state: Record<string, unknown> | null;
+  restoreOff?: boolean;
 }
 
 export interface BoardNode {
@@ -215,6 +220,10 @@ export interface BoardNode {
   publicIp?: string | null;
   publicPlace?: string | null;
   publicIsp?: string | null;
+  /** its server login (firmware 2.6.0+): its own or the shared one, since when, and whether it came back without its own */
+  mqttLogin?: 'own' | 'shared' | null;
+  mqttLoginSince?: string | null;
+  mqttLoginProblem?: boolean;
   rssi: number | null;
   lastSeenAt: string | null;
   configRev: number;

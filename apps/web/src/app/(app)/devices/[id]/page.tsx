@@ -68,6 +68,42 @@ function Safety({ device, onSaved }: { device: Device; onSaved: () => void }) {
           {options.map((m) => <option key={m} value={m}>{m === 0 ? 'Never' : m < 60 ? `After ${m} min` : `After ${m / 60} h`}</option>)}
         </select>
       </div>
+      <div className="safety-row">
+        <Icon name="zap" size={16} />
+        <span className="grow stack-tight"><b>After a power cut</b><span className="small muted">When the electricity comes back, things come back one by one. A motor, iron or geyser is safer staying off. Needs board firmware 2.6.0.</span></span>
+        <select value={device.restoreOff ? 'off' : 'last'} disabled={busy} onChange={(e) => void save({ restoreOff: e.target.value === 'off' })} aria-label="After a power cut">
+          <option value="last">Comes back as it was</option>
+          <option value="off">Stays off</option>
+        </select>
+      </div>
+      {error && <div className="alert">{error}</div>}
+    </section>
+  );
+}
+
+/** Owners and admins: when a water tank's motor starts and stops by itself. */
+function TankMotor({ device, onSaved }: { device: Device; onSaved: () => void }) {
+  const { busy, error, run } = useAction();
+  const s = device.settings as { motorDeviceId?: string; fillBelowPct?: number; stopAtPct?: number };
+  const save = (tank: Record<string, number>) => run(async () => { await patch(`/devices/${device.id}`, { tank }); onSaved(); });
+  if (!s.motorDeviceId) return null;
+  return (
+    <section className="section card card-pad">
+      <h2 style={{ marginBottom: 6 }}>Water motor</h2>
+      <div className="safety-row">
+        <Icon name="droplet" size={16} />
+        <span className="grow stack-tight"><b>Start the motor by itself</b><span className="small muted">When the tank drops below this level. It won&apos;t start again by itself after it was stopped for running dry or too long.</span></span>
+        <select value={s.fillBelowPct ?? 0} disabled={busy} onChange={(e) => void save({ fillBelowPct: Number(e.target.value) })} aria-label="Start below">
+          {[0, 20, 30, 40, 50, 60].map((v) => <option key={v} value={v}>{v === 0 ? 'Never' : `Below ${v}%`}</option>)}
+        </select>
+      </div>
+      <div className="safety-row">
+        <Icon name="check" size={16} />
+        <span className="grow stack-tight"><b>Stop when full</b><span className="small muted">The board stops the motor at this level, even without internet when the motor is on the same board.</span></span>
+        <select value={s.stopAtPct ?? 95} disabled={busy} onChange={(e) => void save({ stopAtPct: Number(e.target.value) })} aria-label="Stop at">
+          {[80, 85, 90, 95, 100].map((v) => <option key={v} value={v}>At {v}%</option>)}
+        </select>
+      </div>
       {error && <div className="alert">{error}</div>}
     </section>
   );
@@ -101,6 +137,7 @@ export default function DevicePage() {
       </div>
 
       {d.controllable && isAdmin && !home?.readOnly && <Safety device={d} onSaved={() => void device.reload()} />}
+      {d.type === 'tank' && isAdmin && !home?.readOnly && <TankMotor device={d} onSaved={() => void device.reload()} />}
 
       {!d.controllable && history.data && (
         <div className="card card-pad stack">
