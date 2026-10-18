@@ -7,7 +7,7 @@ import { del, errorText, patch, post, put } from '@/lib/api';
 import { useDevices, useLoad, useNow } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
 import { useSession } from '@/lib/session';
-import type { Device, HomeLocation, Rule, RuleAction, RuleEvent, Scene, Schedule } from '@/lib/types';
+import type { Device, HomeLocation, IfMissed, Rule, RuleAction, RuleEvent, RunStatus, Scene, Schedule } from '@/lib/types';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -18,6 +18,47 @@ function until(iso: string | null) {
   if (sec < 3600) return `in ${Math.max(1, Math.round(sec / 60))} min`;
   if (sec < 86400) return `in ${Math.floor(sec / 3600)} h ${Math.round((sec % 3600) / 60)} min`;
   return `in ${Math.round(sec / 86400)} days`;
+}
+
+const STATUS_TEXT: Record<RunStatus, { label: string; cls: string }> = {
+  ok: { label: 'Worked', cls: 'text-ok' },
+  retrying: { label: 'Trying again', cls: 'text-warn' },
+  failed: { label: 'Didn’t work', cls: 'text-bad' },
+  skipped: { label: 'Skipped', cls: 'text-warn' },
+};
+
+/** The last run, in one clear line: worked, trying again, didn't work, or skipped, and what happened. */
+function LastRun({ s }: { s: Schedule }) {
+  if (!s.lastResult) return null;
+  // older runs have no status: work it out from the words
+  const status: RunStatus = s.lastStatus ?? (s.lastResult.startsWith('Skipped') ? 'skipped' : s.lastResult.includes('Failed') ? 'failed' : 'ok');
+  const t = STATUS_TEXT[status];
+  const when = s.lastRunAt ? ` · ${new Date(s.lastRunAt).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}` : '';
+  return (
+    <span className="small last-run" role={status === 'failed' ? 'alert' : undefined}>
+      <b className={t.cls}>{t.label}{when}:</b> <span className={status === 'ok' ? 'muted' : ''}>{s.lastResult}</span>
+    </span>
+  );
+}
+
+const MISSED_TEXT: Record<IfMissed, string> = {
+  auto: 'Decide for me',
+  run: 'Run it late',
+  skip: 'Skip it',
+};
+
+/** What happens when the server was down at its time (more than 15 minutes late). */
+function MissedChoice({ s, onChange }: { s: Schedule; onChange: (v: IfMissed) => void }) {
+  const auto = s.kind === 'ONCE' && s.actions.length > 0 && s.actions.every((a) => !a.on)
+    ? 'runs late, because it only switches things off' : 'is skipped, and runs again at its next time';
+  return (
+    <label className="small muted missed-choice" title={`More than 15 minutes late. “Decide for me”: this one ${auto}.`}>
+      If the server was down at its time:{' '}
+      <select value={s.ifMissed ?? 'auto'} onChange={(e) => onChange(e.target.value as IfMissed)} aria-label={`If ${s.name} is missed`}>
+        {(Object.keys(MISSED_TEXT) as IfMissed[]).map((k) => <option key={k} value={k}>{MISSED_TEXT[k]}</option>)}
+      </select>
+    </label>
+  );
 }
 
 const clockAt = (iso: string | null, tz?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz }) : '–');
@@ -369,7 +410,8 @@ export default function AutomationsPage() {
   const rules = useLoad<Rule[]>('/rules');
   const place = useLoad<HomeLocation>('/home/location');
   const { devices } = useDevices();
-  const { isAdmin } = useSession();
+  const { isAdmin, me: who } = useSession();
+  const me = who.id;
   const [form, setForm] = useState<'none' | 'schedule' | 'scene' | 'rule'>('none');
   const [running, setRunning] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -447,6 +489,7 @@ export default function AutomationsPage() {
               </div>
               <b>{s.name}</b>
               <span className="muted small">{s.actions.map((a) => `${a.deviceName} ${a.on ? 'on' : 'off'}`).join(' · ')}</span>
+              {s.actions.filter((a) => a.problem).map((a) => <span key={a.deviceId} className="small text-warn">{a.problem}</span>)}
               <button className="btn btn-small btn-primary scene-run" disabled={!s.canRun || running === s.id} onClick={() => runScene(s)}
                       title={s.canRun ? undefined : 'You may not control every device in this scene'}>
                 <Icon name="play" size={12} />{running === s.id ? 'Running…' : 'Run'}
@@ -475,7 +518,9 @@ export default function AutomationsPage() {
               <div className="sched-main">
                 <b className="truncate">{s.name}</b>
                 <span className="muted small">{whenText(s)}{s.nextRunAt ? ` · next ${until(s.nextRunAt)}` : ''} · by {s.createdBy}</span>
-                {s.lastResult && <span className="small muted">Last run: {s.lastResult}</span>}
+                {(s.problems ?? []).map((p) => <span key={p} className="small text-warn">{p}</span>)}
+                <LastRun s={s} />
+                {(isAdmin || s.createdById === me) && <MissedChoice s={s} onChange={(v) => void run(() => patch(`/schedules/${s.id}`, { ifMissed: v }))} />}
               </div>
               <label className="switch-input" title={s.enabled ? 'Pause' : 'Resume'}>
                 <input type="checkbox" checked={s.enabled} onChange={(e) => void run(() => patch(`/schedules/${s.id}`, { enabled: e.target.checked }))} />
@@ -497,8 +542,9 @@ export default function AutomationsPage() {
                   <span className="sched-icon"><Icon name={s.kind === 'DAILY' ? 'repeat' : 'clock'} size={18} /></span>
                   <div className="sched-main">
                     <b className="truncate">{s.name}</b>
-                    <span className="muted small">{whenText(s)}{s.lastRunAt ? ` · ran ${new Date(s.lastRunAt).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}` : ' · paused'}</span>
-                    {s.lastResult && <span className="small muted">{s.lastResult}</span>}
+                    <span className="muted small">{whenText(s)}{s.lastRunAt ? '' : ' · paused'}</span>
+                    {(s.problems ?? []).map((p) => <span key={p} className="small text-warn">{p}</span>)}
+                    <LastRun s={s} />
                   </div>
                   {s.kind !== 'ONCE' && (
                     <button className="btn btn-small" onClick={() => void run(() => patch(`/schedules/${s.id}`, { enabled: true }))}>Resume</button>
@@ -526,6 +572,7 @@ export default function AutomationsPage() {
               <div className="sched-main">
                 <b className="wrap">{r.name}</b>
                 {r.name !== r.summary && <span className="muted small">{r.summary}</span>}
+                {(r.problems ?? []).map((p) => <span key={p} className="small text-warn">{p}</span>)}
                 <span className="small muted">{r.lastFiredAt ? `Last ran ${ago(r.lastFiredAt)}: ${r.lastResult ?? ''}` : 'Hasn’t run yet'} · by {r.createdBy}</span>
               </div>
               <label className="switch-input" title={r.enabled ? 'Pause' : 'Resume'}>

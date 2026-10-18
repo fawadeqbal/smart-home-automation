@@ -11,11 +11,12 @@ import { PageHelp, Tip } from '@/components/Help';
 import { Icon } from '@/components/Icon';
 import { LogPanel } from '@/components/LogPanel';
 import { NetworkPanel } from '@/components/NetworkPanel';
+import { ReplaceBoardDialog } from '@/components/ReplaceBoard';
 import { Badge, Confirm, Dropdown, ErrorBox, FormModal, Modal, useAction } from '@/components/ui';
 import { del, errorText, patch, post } from '@/lib/api';
 import { analogLabel, contactText } from '@/lib/format';
 import { timeAgo, useLoad, useNow } from '@/lib/hooks';
-import type { BoardInput, BoardNode, Catalog, InputAction, InputGesture, NodeDevice, Room, Tone } from '@/lib/types';
+import type { BoardInput, BoardNode, Catalog, InputAction, InputGesture, NodeDevice, Room, SwapResult, Tone } from '@/lib/types';
 import { isBehind } from '@/lib/version';
 
 export type BoardTab = 'overview' | 'devices' | 'pins' | 'network' | 'internet' | 'firmware' | 'logs';
@@ -411,9 +412,11 @@ function DevicesTab({ node, catalog, rooms, canSetup, reload }: {
 
 /* ------------------------------------------------------------------- page */
 
-export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgotten, backHref, backLabel, siblings = [], hrefFor, canSetup = true, latestFirmware }: {
+export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgotten, onReplaced, backHref, backLabel, siblings = [], hrefFor, canSetup = true, latestFirmware }: {
   node: BoardNode; catalog: Catalog; rooms: Room[]; reload: () => void;
   tab: BoardTab; onTab: (t: BoardTab) => void; onForgotten: () => void; backHref: string; backLabel: string;
+  /** another board took over: open it */
+  onReplaced?: (r: SwapResult) => void;
   /** the other installed boards of this home, for previous / next */
   siblings?: BoardNode[]; hrefFor?: (id: string) => string;
   /** false for support staff: everything is shown, nothing can be changed */
@@ -423,11 +426,15 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
 }) {
   const behind = isBehind(node.firmware, latestFirmware);
   useNow(10_000);
-  const [dialog, setDialog] = useState<'rename' | 'model' | 'remove' | null>(null);
+  const [dialog, setDialog] = useState<'rename' | 'model' | 'remove' | 'replace' | 'faulty' | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const { busy, error, run } = useAction();
-  const cond = boardCondition(node);
+  const cond = node.waiting
+    ? { tone: 'bad' as const, label: 'Faulty · waiting for a replacement', detail: node.note ?? 'Marked faulty.', led: '' }
+    : boardCondition(node);
   const tone = toneOf(cond.tone);
+  // a dead board (offline) or one marked faulty: replacing it is the one thing to do
+  const stuck = node.waiting || !node.online;
   const model = catalog.boards.find((b) => b.type === node.board)?.name ?? node.board;
   const tabs = TABS.filter((t) => canSetup || !t.setupOnly);
   const current = tabs.some((t) => t.id === tab) ? tab : 'overview';
@@ -463,6 +470,9 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
         </div>
         <div className="ph-actions">
           <PageHelp id={`board-${current}`} title={HELP[current].title}>{HELP[current].body}</PageHelp>
+          {canSetup && stuck && (
+            <button className="btn btn-primary" onClick={() => setDialog('replace')}><Icon name="repeat" size={15} />Replace</button>
+          )}
           {canSetup && (
             <>
               <button className="btn" disabled={!node.online || busy} title={node.online ? 'Reboot the board (about 5 seconds)' : 'The board is offline'} onClick={() => void restart()}>
@@ -475,6 +485,13 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
                   <>
                     <button className="menu-item" onClick={() => { close(); setDialog('rename'); }}><Icon name="pencil" size={15} /><span className="grow">Rename</span></button>
                     <button className="menu-item" onClick={() => { close(); setDialog('model'); }}><Icon name="cpu" size={15} /><span className="grow">Change board model</span></button>
+                    <div className="menu-sep" />
+                    <button className="menu-item" onClick={() => { close(); setDialog('replace'); }}>
+                      <Icon name="repeat" size={15} /><span className="grow stack-tight">Replace this board<span>Its devices move to a new board, nothing is lost</span></span>
+                    </button>
+                    {node.waiting
+                      ? <button className="menu-item" onClick={() => { close(); void run(() => post(`/nodes/${node.id}/working`)).then(reload); }}><Icon name="check" size={15} /><span className="grow">It works again</span></button>
+                      : <button className="menu-item" onClick={() => { close(); setDialog('faulty'); }}><Icon name="wrench" size={15} /><span className="grow stack-tight">Mark faulty<span>Devices wait for a replacement board</span></span></button>}
                     <div className="menu-sep" />
                     <button className="menu-item danger" onClick={() => { close(); setDialog('remove'); }}>
                       <Icon name="trash" size={15} /><span className="grow stack-tight">Remove from home<span>Devices are deleted, board goes back to stock</span></span>
@@ -491,6 +508,18 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
         <div className="lockbar mb16">
           <span className="lock"><Icon name="lock" size={15} /></span>
           <span className="grow small"><b>Read-only.</b> <span className="muted">Wiring, Wi‑Fi and firmware are changed by the installer.</span></span>
+        </div>
+      )}
+      {stuck && (
+        <div className={`banner ${node.waiting ? 'bad' : 'warn'}`}>
+          {!node.waiting && <span className="banner-led" />}
+          <div className="banner-text grow">
+            <b>{node.waiting ? 'This board is marked faulty' : 'This board is offline'}</b>
+            <span>{node.waiting
+              ? `${node.note && node.note !== 'Marked faulty' ? `${node.note}. ` : ''}Its ${node.devices.length} devices and their timers, scenes and rules are kept, waiting for a replacement board.`
+              : `Seen ${node.lastSeenAt ? timeAgo(node.lastSeenAt) : 'never'}. If it is dead, replace it: its devices move to the new board, on the same pins, with their timers, scenes and rules.`}</span>
+          </div>
+          {canSetup && <button className="btn btn-primary" onClick={() => setDialog('replace')}><Icon name="repeat" size={15} />Replace this board</button>}
         </div>
       )}
       {note && <div className="notice mb16" role="status">{note}</div>}
@@ -526,6 +555,16 @@ export function BoardDetail({ node, catalog, rooms, reload, tab, onTab, onForgot
           <label className="field">Model
             <select name="board" defaultValue={node.board}>{catalog.boards.map((b) => <option key={b.type} value={b.type}>{b.name}</option>)}</select>
           </label>
+        </FormModal>
+      )}
+      {dialog === 'replace' && (
+        <ReplaceBoardDialog node={node} onClose={() => setDialog(null)} onDone={(r) => { reload(); onReplaced?.(r); }} />
+      )}
+      {dialog === 'faulty' && (
+        <FormModal title={`Mark ${node.name} faulty?`} danger submitLabel="Mark faulty" onClose={() => setDialog(null)}
+          sub="It stops running its devices. They stay in the app, with their timers, scenes and rules, waiting for a replacement board."
+          onSubmit={async (f) => { await post(`/nodes/${node.id}/faulty`, { note: String(f.get('note') ?? '').trim() }); reload(); }}>
+          <label className="field">What’s wrong?<textarea name="note" rows={3} maxLength={300} placeholder="Relay on D1 stuck on." /></label>
         </FormModal>
       )}
       {dialog === 'remove' && (

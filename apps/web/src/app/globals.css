@@ -1520,6 +1520,10 @@ label.check input { width: 16px; height: 16px; accent-color: var(--ac); }
 .safety-row > select { width: auto; flex: none; max-width: 45%; }
 .place-line > span:first-of-type { flex: 1 1 220px; min-width: 0; }
 .sched-main b.wrap { white-space: normal; }
+/* a schedule's last run (worked / trying again / didn't work / skipped) and its "if the server was down" choice */
+.sched-main .last-run { line-height: 1.4; overflow-wrap: anywhere; }
+.sched-main .missed-choice { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.sched-main .missed-choice select { font-size: 12px; padding: 1px 4px; height: auto; width: auto; }
 @media (max-width: 560px) { .safety-row { flex-wrap: wrap; } .safety-row > select { max-width: none; width: 100%; } }
 
 /* electricity */
@@ -1602,3 +1606,9 @@ a.energy-card:hover { border-color: var(--ac); }
 .session-row { gap: 10px; padding: 8px 0; border-top: 1px solid var(--ln); }
 .banner.ok { background: var(--oks); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
 .banner.ok .banner-led { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); animation: none; }
+
+/* replacing a board: the list of boards that can take over */
+.swap-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.swap-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--ln2); background: var(--sf); color: var(--tx); cursor: pointer; text-align: left; width: 100%; }
+.swap-item:hover { background: var(--sf2); }
+.swap-item.picked { border-color: var(--ac); box-shadow: 0 0 0 3px var(--ring); }

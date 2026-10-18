@@ -156,8 +156,8 @@ export default function HomeWorkspace() {
                 <thead><tr>{['Board', 'Condition', 'Pins', 'Devices', 'Firmware', ''].map((c) => <th key={c}>{c}</th>)}</tr></thead>
                 <tbody>
                   {ws.boards.map((b) => (
-                    <tr key={b.id} className={b.status === 'ADOPTED' ? 'click' : ''} onClick={b.status === 'ADOPTED' ? () => router.push(boardHref(b.id)) : undefined}
-                      title={b.status === 'ADOPTED' ? `Open ${b.location ?? b.id}` : undefined}>
+                    <tr key={b.id} className={b.status === 'ADOPTED' || b.status === 'FAULTY' ? 'click' : ''} onClick={b.status === 'ADOPTED' || b.status === 'FAULTY' ? () => router.push(boardHref(b.id)) : undefined}
+                      title={b.status === 'ADOPTED' || b.status === 'FAULTY' ? `Open ${b.location ?? b.id}` : undefined}>
                       <td>
                         <div className="cell-main" style={{ gap: 12 }}>
                           <Dot tone={b.cond} />
@@ -179,8 +179,13 @@ export default function HomeWorkspace() {
                             {b.online ? 'Install' : 'Waiting for power'}
                           </button>
                         )}
-                        {b.status === 'ADOPTED' && (
+                        {b.status === 'ADOPTED' && b.online && (
                           <Link className="btn btn-sm" href={boardHref(b.id)} onClick={(e) => e.stopPropagation()}>Open board<Icon name="chevron-right" size={14} /></Link>
+                        )}
+                        {(b.status === 'FAULTY' || (b.status === 'ADOPTED' && !b.online)) && (
+                          <Link className={`btn btn-sm ${canSetup ? 'btn-primary' : ''}`} href={boardHref(b.id)} onClick={(e) => e.stopPropagation()}>
+                            {canSetup ? <><Icon name="repeat" size={14} />Replace</> : <>Open board<Icon name="chevron-right" size={14} /></>}
+                          </Link>
                         )}
                         {b.status === 'ASSIGNED' && isSuper && <button className="btn btn-sm btn-ghost" style={{ marginLeft: 6 }} onClick={() => setRemoving(b)}>Back to stock</button>}
                       </td>

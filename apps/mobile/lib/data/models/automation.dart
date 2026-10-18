@@ -9,12 +9,14 @@ class DeviceAction {
     required this.deviceId,
     required this.on,
     this.deviceName = '',
+    this.waiting = false,
   });
 
   factory DeviceAction.fromJson(Json json) => DeviceAction(
     deviceId: str(json['deviceId']),
     on: boolean(json['on']),
     deviceName: str(json['deviceName']),
+    waiting: boolean(json['waiting']),
   );
 
   final String deviceId;
@@ -22,6 +24,9 @@ class DeviceAction {
 
   /// Filled in by the server when reading ("Removed device" for one that's gone); never sent.
   final String deviceName;
+
+  /// Its board is broken: it can't run until the installer puts in a replacement board.
+  final bool waiting;
 
   Json toJson() => {'deviceId': deviceId, 'on': on};
 }
@@ -82,6 +87,27 @@ class SceneRun {
   final String summary;
 }
 
+/// How a schedule's last run went.
+enum RunStatus {
+  ok,
+
+  /// A board was offline or didn't answer: it tries those devices again in a few minutes.
+  retrying,
+  failed,
+
+  /// It didn't run (e.g. the server was down at its time).
+  skipped;
+
+  static RunStatus? fromJson(Object? value) => value == null ? null : enumOf(values, value, ok);
+
+  /// Older runs have no status: worked out from the words.
+  static RunStatus guess(String result) => result.startsWith('Skipped')
+      ? skipped
+      : result.contains('Failed')
+      ? failed
+      : ok;
+}
+
 enum ScheduleKind {
   /// Once, at a time ("turn off in 30 min" is one of these).
   once,
@@ -118,9 +144,13 @@ class Schedule {
     this.createdById,
     this.sunEvent,
     this.offsetMin = 0,
+    this.lastStatus,
+    this.problems = const [],
   });
 
   factory Schedule.fromJson(Json json) => Schedule(
+    lastStatus: RunStatus.fromJson(json['lastStatus']),
+    problems: strList(json['problems']),
     sunEvent: strOrNull(json['sunEvent']),
     offsetMin: json['offsetMin'] is num ? (json['offsetMin'] as num).toInt() : 0,
     id: str(json['id']),
@@ -156,6 +186,15 @@ class Schedule {
   final DateTime? nextRunAt;
   final DateTime? lastRunAt;
   final String? lastResult;
+
+  /// How the last run went (null: it hasn't run yet).
+  final RunStatus? lastStatus;
+
+  /// What can't run now: "Lamp: waiting for a replacement board".
+  final List<String> problems;
+
+  /// [lastStatus], or worked out from [lastResult] for runs from before it was kept.
+  RunStatus? get status => lastStatus ?? (lastResult == null ? null : RunStatus.guess(lastResult!));
 
   /// Runs a scene instead of [actions].
   final String? sceneId;
@@ -203,6 +242,8 @@ class Schedule {
     createdById: createdById,
     sunEvent: sunEvent,
     offsetMin: offsetMin,
+    lastStatus: lastStatus,
+    problems: problems,
   );
 }
 

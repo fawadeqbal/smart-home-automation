@@ -54,6 +54,7 @@ class Device {
     this.source,
     this.updatedAt,
     this.childLock = false,
+    this.waiting = false,
   });
 
   factory Device.fromJson(Json json) => Device(
@@ -76,6 +77,7 @@ class Device {
     source: strOrNull(json['source']),
     updatedAt: dateOrNull(json['updatedAt']),
     childLock: boolean(json['childLock']),
+    waiting: boolean(json['waiting']),
   );
 
   final String id;
@@ -116,13 +118,17 @@ class Device {
   /// Only the owner and admins may switch it (the server enforces it).
   final bool childLock;
 
+  /// Its board is broken and was taken out of service: the device is kept (with its timers and scenes),
+  /// waiting for the installer to put in a replacement board.
+  final bool waiting;
+
   bool get isOn => state['on'] == true;
 
   /// This person may switch it (a switch, enabled, in a room they control).
   bool get canControl => controllable && enabled && access.canControl;
 
   /// Its board answers — a command would reach it.
-  bool get responding => online;
+  bool get responding => online && !waiting;
 
   Device copyWith({
     String? name,
@@ -151,5 +157,6 @@ class Device {
     source: source ?? this.source,
     updatedAt: updatedAt ?? this.updatedAt,
     childLock: childLock,
+    waiting: waiting,
   );
 }

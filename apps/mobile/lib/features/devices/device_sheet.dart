@@ -50,7 +50,9 @@ class DeviceSheet extends ConsumerWidget {
     final timer = ref.watch(deviceTimerProvider(deviceId));
     final favs = ref.watch(favouriteIdsProvider);
     final fav = favs.contains(deviceId);
-    final status = down
+    final status = device.waiting
+        ? 'Waiting for a new board'
+        : down
         ? 'Not responding'
         : pending
         ? (device.isOn ? 'Turning on…' : 'Turning off…')
@@ -316,7 +318,9 @@ class _Orb extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.sb;
     final kind = DeviceKinds.of(device);
-    final label = down
+    final label = device.waiting
+        ? 'Waiting for a new board — your installer has been told'
+        : down
         ? 'Not responding — use the wall switch'
         : device.isOn
         ? 'On · tap to turn off'

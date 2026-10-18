@@ -37,7 +37,7 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
     }
   }
 
-  const meta = !device.online ? 'Offline'
+  const meta = device.waiting ? 'Waiting for a new board' : !device.online ? 'Offline'
     : sensor ? `Updated ${timeAgo(device.updatedAt)}`
       : busy ? 'Switching…' : `${on ? 'On' : 'Off'}${device.source === 'button' ? ' · wall switch' : ''}`;
   const classes = ['tile', sensor ? 'sensor' : '', on ? 'is-on' : '', !device.online ? 'is-offline' : ''].join(' ');
@@ -72,7 +72,8 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
         <div className="tile-body">{body}</div>
       ) : (
         <button className="tile-body" onClick={toggle} disabled={!canSwitch || busy} aria-pressed={on}
-          title={viewOnly ? 'You can see this device but not switch it' : locked ? 'Child lock: only the owner or an admin can switch it' : !device.online ? 'Its board is offline — the wall switch still works' : undefined}>
+          title={device.waiting ? 'Its board is broken and waiting for a replacement. Your installer has been told; its timers and scenes work again once it is replaced.'
+            : viewOnly ? 'You can see this device but not switch it' : locked ? 'Child lock: only the owner or an admin can switch it' : !device.online ? 'Its board is offline — the wall switch still works' : undefined}>
           {body}
         </button>
       )}

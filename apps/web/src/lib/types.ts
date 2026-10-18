@@ -70,6 +70,8 @@ export interface WorkspaceBoard {
   status: 'STOCK' | 'ASSIGNED' | 'ADOPTED' | 'FAULTY'; online: boolean; cond: Tone; condText: string;
   firmware: string | null; firmwareOld: boolean; devices: number; pinsUsed: number; pinsTotal: number;
   rssi: number | null; vcc: number | null; lastSeenAt: string | null; lastSeen: string;
+  /** why it was marked faulty */
+  note?: string | null;
 }
 
 export interface Workspace {
@@ -96,6 +98,11 @@ export interface InventoryBoard {
   firmware: string | null; firmwareOld: boolean; mac: string | null; ip: string | null;
   online: boolean; lastSeen: string; cond: Tone; condText: string; note: string | null;
   devices: number; addedAt: string; added: string;
+  /** board swaps: the board that took over from this one, and the one this board replaced */
+  replacedBy?: { id: string; at: string | null } | null;
+  replaced?: { id: string; at: string } | null;
+  /** marked faulty while still in its home: its devices wait for a replacement board */
+  waiting?: boolean;
 }
 
 export interface Inventory {
@@ -148,6 +155,8 @@ export interface Device {
   nodeId: string;
   nodeName: string;
   online: boolean;
+  /** its board was marked faulty: kept, waiting for a replacement board (can't be switched until then) */
+  waiting?: boolean;
   roomId: string | null;
   roomName: string | null;
   pin: number;
@@ -223,7 +232,24 @@ export interface BoardNode {
   health: BoardHealth | null;
   devices: NodeDevice[];
   inputs: BoardInput[];
+  /** why it was marked faulty; `waiting`: it is out of service, its devices wait for a replacement board */
+  note?: string | null;
+  waiting?: boolean;
 }
+
+/** One wire of a board swap: the same pin number on the new board, and whether it can be used that way. */
+export interface SwapPlanRow { what: string; name: string; gpio: number; use: string; from: string; to: string; problem: string | null }
+export interface SwapCandidate {
+  id: string; board: string; boardName: string; status: 'STOCK' | 'ASSIGNED'; online: boolean; lastSeenAt: string | null; firmware: string | null;
+  plan: SwapPlanRow[]; problems: string[]; warnings: string[];
+}
+export interface Replacements {
+  board: { id: string; name: string; board: string; boardName: string; status: BoardNode['status']; online: boolean; devices: number; inputs: number };
+  plan: SwapPlanRow[];
+  candidates: SwapCandidate[];
+  models: { type: string; name: string }[];
+}
+export interface SwapResult { ok: boolean; newId: string; oldId: string; oldStatus: 'FAULTY' | 'STOCK'; devices: number; inputs: number; warnings: string[] }
 
 export interface FamilyMember {
   id: string;
@@ -265,7 +291,11 @@ export interface BoardHealth {
   mac?: string;
 }
 
-export interface ScheduleAction { deviceId: string; on: boolean; deviceName: string }
+export interface ScheduleAction { deviceId: string; on: boolean; deviceName: string; waiting?: boolean; problem?: string }
+/** How the last run went: ok, waiting to try a device again, failed, or skipped (e.g. the server was down at its time). */
+export type RunStatus = 'ok' | 'retrying' | 'failed' | 'skipped';
+/** After the server was down: run late anyway, skip, or decide by what it does (a timer that switches things off still runs). */
+export type IfMissed = 'auto' | 'run' | 'skip';
 export interface Schedule {
   id: string;
   name: string;
@@ -279,6 +309,11 @@ export interface Schedule {
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastResult: string | null;
+  lastStatus?: RunStatus | null;
+  retryAt?: string | null;
+  ifMissed?: IfMissed;
+  /** what can't run now: "Lamp: waiting for a replacement board" */
+  problems?: string[];
   sceneId: string | null;
   sceneName: string | null;
   actions: ScheduleAction[];
@@ -374,6 +409,7 @@ export interface Rule {
   createdBy: string;
   createdById: string;
   summary: string;
+  problems?: string[];
 }
 export interface AwayState {
   on: boolean;

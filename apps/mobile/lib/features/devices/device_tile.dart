@@ -56,6 +56,12 @@ Future<void> toggleDevice(
   final toast = ref.read(toastProvider.notifier);
   final kind = DeviceKinds.of(device);
   if (!kind.toggleable) return showDeviceSheet(context, device.id);
+  if (device.waiting) {
+    toast.show(
+      'The ${device.name.toLowerCase()} is waiting for a new board. Your installer has been told.',
+    );
+    return;
+  }
   if (!device.responding) {
     toast.show(
       '${device.roomName ?? 'That room'} isn’t responding. Its wall switch still works.',
@@ -106,7 +112,9 @@ class DeviceTile extends StatelessWidget {
     final down = !device.responding;
     final lit = kind.active(device) && !down && kind.toggleable;
     final alarm = kind.alarm(device) && !down;
-    final state = down
+    final state = device.waiting
+        ? 'Waiting for a new board'
+        : down
         ? 'Not responding'
         : pending
         ? (device.isOn ? 'Turning on…' : 'Turning off…')
