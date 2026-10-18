@@ -102,7 +102,8 @@ export class EnergyService {
 
     const levels = await this.access.roomLevels(user);
     const devices = (await this.prisma.device.findMany({
-      where: { node: { homeId: user.homeId, status: 'ADOPTED' }, type: 'switch' },
+      // devices waiting for a replacement board too: their past use still counts
+      where: { node: { homeId: user.homeId, status: { in: ['ADOPTED', 'FAULTY'] } }, type: 'switch' },
       include: { room: { select: { name: true } }, state: true },
       orderBy: { name: 'asc' },
     })).filter((d) => this.access.levelFor(levels, d.roomId));

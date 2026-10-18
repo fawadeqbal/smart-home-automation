@@ -68,7 +68,7 @@ export class SummaryService implements OnModuleInit, OnModuleDestroy {
       this.energy.usage(user, days, now).catch(() => null),
       this.prisma.command.count({ where: { channel: 'automation', createdAt: { gte: from }, device: { node: { homeId: user.homeId } } } }),
       this.prisma.notification.groupBy({ by: ['kind'], where: { homeId: user.homeId, userId: user.id, createdAt: { gte: from }, kind: { in: Object.keys(ALERT_WORDS) } }, _count: true }),
-      this.prisma.node.findMany({ where: { homeId: user.homeId, status: NodeStatus.ADOPTED }, select: { name: true, online: true } }),
+      this.prisma.node.findMany({ where: { homeId: user.homeId, status: { in: [NodeStatus.ADOPTED, NodeStatus.FAULTY] } }, select: { name: true, online: true, status: true } }),
     ]);
 
     const lines: string[] = [];
@@ -84,8 +84,11 @@ export class SummaryService implements OnModuleInit, OnModuleDestroy {
     if (automated) lines.push(`Automations: ${n(automated, ['switch', 'switches'])} by timers, rules and away mode`);
     const alerts = notices.filter((x) => x._count).map((x) => n(x._count, ALERT_WORDS[x.kind]!));
     lines.push(alerts.length ? `Alerts: ${alerts.join(', ')}` : 'Alerts: none');
-    const off = boards.filter((b) => !b.online);
-    if (boards.length) lines.push(off.length ? `Boards: ${off.map((b) => b.name).join(', ')} offline now` : `Boards: all ${boards.length} online`);
+    const waiting = boards.filter((b) => b.status === NodeStatus.FAULTY);
+    const off = boards.filter((b) => !b.online && b.status !== NodeStatus.FAULTY);
+    if (waiting.length) lines.push(`Boards: ${waiting.map((b) => b.name).join(', ')} waiting for a replacement`);
+    if (off.length) lines.push(`Boards: ${off.map((b) => b.name).join(', ')} offline now`);
+    else if (boards.length && !waiting.length) lines.push(`Boards: all ${boards.length} online`);
 
     const s = { home: home.name, period, range, lines };
     return { ...s, text: summaryText(s), link: `${this.settings.publicUrl}/summary` };

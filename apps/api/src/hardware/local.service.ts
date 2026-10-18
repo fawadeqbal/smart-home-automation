@@ -84,6 +84,11 @@ export class LocalService implements OnModuleInit {
   async revoke(homeId: string) {
     if (!homeId) return;
     await this.prisma.home.update({ where: { id: homeId }, data: { localEpoch: { increment: 1 } } });
+    await this.pushEpoch(homeId);
+  }
+
+  /** Sends every board of the home its key and the home's current epoch (after the epoch was raised elsewhere). */
+  async pushEpoch(homeId: string) {
     const nodes = await this.prisma.node.findMany({ where: { homeId, status: NodeStatus.ADOPTED, online: true }, select: { id: true } });
     for (const n of nodes) await this.sync(n.id, true).catch((e) => this.log.warn(`local key for ${n.id}: ${e}`));
   }

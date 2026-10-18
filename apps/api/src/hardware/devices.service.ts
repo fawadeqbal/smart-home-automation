@@ -100,7 +100,8 @@ export class DevicesService implements OnModuleInit {
       id: d.id, key: d.key, name: d.name, aliases: d.aliases, type: d.type,
       typeLabel: def?.label ?? d.type, controllable: def?.controllable ?? false,
       stateFields: def?.stateFields ?? [],
-      nodeId: d.nodeId, nodeName: d.node.name, online: d.node.online,
+      // a board marked faulty is out of service: its devices are kept, waiting for a replacement board
+      nodeId: d.nodeId, nodeName: d.node.name, online: d.node.online && d.node.status !== 'FAULTY', waiting: d.node.status === 'FAULTY',
       roomId: d.roomId, roomName: d.room?.name ?? null,
       pin: d.pin, pinLabel: pinLabel(d.node.board, d.pin), activeLow: d.activeLow, settings: d.settings, enabled: d.enabled,
       childLock: d.childLock, autoOffMinutes: d.autoOffMinutes, autoOffAt: d.autoOffAt, watts: d.watts,
@@ -113,7 +114,7 @@ export class DevicesService implements OnModuleInit {
   async list(user: AuthUser) {
     const levels = await this.access.roomLevels(user);
     const devices = await this.prisma.device.findMany({
-      where: { node: { homeId: user.homeId, status: 'ADOPTED' } },
+      where: { node: { homeId: user.homeId, status: { in: ['ADOPTED', 'FAULTY'] } } },
       include: deviceInclude,
       orderBy: [{ room: { order: 'asc' } }, { name: 'asc' }],
     });
@@ -155,7 +156,7 @@ export class DevicesService implements OnModuleInit {
     const levels = await this.access.roomLevels(user);
     const devices = await this.prisma.device.findMany({
       where: {
-        node: { homeId: user.homeId, status: 'ADOPTED' },
+        node: { homeId: user.homeId, status: { in: ['ADOPTED', 'FAULTY'] } },
         ...(opts.deviceId ? { id: opts.deviceId } : {}), ...(opts.roomId ? { roomId: opts.roomId } : {}),
       },
       include: { room: true },
@@ -293,6 +294,7 @@ export class DevicesService implements OnModuleInit {
     const parsed = switchCommand.safeParse(body);
     if (!parsed.success) throw new BadRequestException('Send {"on": true}, {"on": false} or {"toggle": true}.');
     if (!device.enabled) throw new BadRequestException(`${device.name} is disabled.`);
+    if (device.node.status === 'FAULTY') throw new ConflictException(`${device.name}: waiting for a replacement board.`);
     if (device.childLock && !isAdmin(user.role) && user.channel !== 'automation') {
       throw new ForbiddenException(`${device.name} has child lock on: only the owner or an admin can switch it.`);
     }
@@ -349,6 +351,7 @@ export class DevicesService implements OnModuleInit {
     if (!device) return;
     const homeId = device.node.homeId;
     if (!homeId) return; // a board taken out of its home
+    if (device.node.status === 'FAULTY') return; // out of service: its devices keep their last state until it is replaced
     const fields = stateFields(payload);
     // a change the server asked for: remember who asked, and how (app, voice, automation)
     const cmd = cid ? await this.prisma.command.findUnique({ where: { id: cid }, select: { userId: true, channel: true } }) : null;

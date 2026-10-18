@@ -1,4 +1,4 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import {
   announcePayload, BOARDS, checkPin, configAppliedPayload, GESTURES, INPUT_TYPES, InputAction, NodeConfigPayload, nodeStatusPayload,
   PinUse, telemetryPayload, networkPayload, NetworkPayload, topics, DEVICE_TYPES, isSafeId,
@@ -13,6 +13,8 @@ import { MqttService } from '../mqtt/mqtt.service';
 import { compareVersions } from '../common/version';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { firmwareWarnings, pinPlan, replacedNote, SwapDevice, SwapInput, swapProblems } from './board-swap';
+import { newBoardKey } from './local-pass';
 import { LocalService } from './local.service';
 import { LogsService } from './logs.service';
 import { PLANS } from '../platform/plans';
@@ -295,6 +297,8 @@ export class NodesService implements OnModuleInit {
     const local = new Map((await this.local.status(homeId)).map((l) => [l.nodeId, l]));
     return nodes.map((n) => ({
       id: n.id, name: n.name, board: n.board, boardName: BOARDS[n.board]?.name ?? n.board, status: n.status, online: n.online, firmware: n.firmware, ip: n.ip, mac: n.mac,
+      // a faulty board still in the home: why, and that its devices wait for a replacement
+      note: n.note, waiting: n.status === NodeStatus.FAULTY,
       // can the phone app switch it over the home's Wi-Fi without internet?
       localControl: !local.has(n.id) ? null : local.get(n.id)!.ready ? 'ready' : local.get(n.id)!.supported ? 'waiting' : 'old-firmware',
       rssi: n.rssi, lastSeenAt: n.lastSeenAt, configRev: n.configRev, appliedRev: n.appliedRev, configError: n.configError,
@@ -316,6 +320,7 @@ export class NodesService implements OnModuleInit {
     const node = await this.nodeIn(actor.homeId, nodeId);
     if (!BOARDS[input.board]) throw new BadRequestException('Unknown board type.');
     if (node.status === NodeStatus.ADOPTED) throw new BadRequestException('This board is already installed.');
+    if (node.status === NodeStatus.FAULTY) throw new BadRequestException('This board is marked faulty. Replace it, or mark it as working again.');
     await this.prisma.node.update({
       where: { id: node.id },
       data: { name: input.name, board: input.board, status: NodeStatus.ADOPTED, configRev: { increment: 1 }, installerId: node.installerId ?? (actor.viaStaff ? actor.id : null) },
@@ -340,6 +345,193 @@ export class NodesService implements OnModuleInit {
     await this.audit.record(actor.homeId, actor.id, 'node.update', nodeId, input);
     this.realtime.nodesChanged(actor.homeId, nodeId);
     this.realtime.devicesChanged(actor.homeId);
+  }
+
+  // ---------------------------------------------------------------- out of service and replacing a board
+  /**
+   * The board is broken. Installed in a home with devices or buttons, it stays in that home, out of service:
+   * its devices, buttons and their settings are kept (timers, scenes and rules keep pointing at them and say
+   * they are waiting for a replacement board) until a new board takes over (replace) or it works again.
+   * A board with nothing on it goes straight to the faulty shelf.
+   */
+  async markFaulty(nodeId: string, note: string) {
+    const node = await this.prisma.node.findUniqueOrThrow({ where: { id: nodeId }, include: { devices: { select: { key: true } }, _count: { select: { inputs: true } } } });
+    const keeps = node.homeId && (node.status === NodeStatus.ADOPTED || node.status === NodeStatus.FAULTY) && (node.devices.length || node._count.inputs);
+    if (!keeps) {
+      await this.release(nodeId, node.devices.map((d) => d.key), NodeStatus.FAULTY, note || 'Marked faulty');
+      return { kept: false };
+    }
+    await this.prisma.node.update({
+      where: { id: nodeId },
+      data: { status: NodeStatus.FAULTY, note: note || 'Marked faulty', configRev: { increment: 1 }, localKey: null, localKeyHome: null, localReported: null },
+    });
+    // if it still runs at all, it stops switching anything; the devices' last states stay in the app
+    await this.publishConfig(nodeId);
+    for (const d of node.devices) await this.mqtt.publish(topics.deviceState(nodeId, d.key), null, { qos: 1, retain: true });
+    await this.local.forget(nodeId);
+    this.logs.server(nodeId, 'warn', `Marked faulty: ${note || 'no reason given'}. Its devices wait for a replacement board.`);
+    await this.monitoring.toHomeAdmins(node.homeId!, {
+      kind: 'boardReplaced', severity: 'WARN', title: `${node.name} board is out of service`,
+      body: `${node.devices.length} device${node.devices.length === 1 ? '' : 's'} on it wait for a replacement board. Their timers, scenes and rules are kept and work again once it is replaced.`,
+      link: `/?home=${node.homeId}`,
+    }, `faulty:${nodeId}`, 60_000);
+    this.realtime.nodesChanged(node.homeId!, nodeId);
+    this.realtime.devicesChanged(node.homeId!);
+    this.realtime.schedulesChanged(node.homeId!);
+    if (node.orgId) this.realtime.inventoryChanged(node.orgId);
+    return { kept: true };
+  }
+
+  /** The installer, from the board's page: it's broken (it stays in the home until it is replaced). */
+  async faultyHere(actor: AuthUser, nodeId: string, note: string) {
+    const node = await this.nodeIn(actor.homeId, nodeId);
+    if (node.status !== NodeStatus.ADOPTED) throw new BadRequestException('Only an installed board can be marked faulty here.');
+    await this.markFaulty(nodeId, note);
+    await this.audit.record(actor.homeId, actor.id, 'board.faulty', nodeId, { note, name: node.name, kept: true });
+  }
+
+  /** It was marked faulty but works after all: it runs its devices again. */
+  async backInService(actor: AuthUser, nodeId: string) {
+    const node = await this.nodeIn(actor.homeId, nodeId);
+    if (node.status !== NodeStatus.FAULTY) throw new BadRequestException('This board is not marked faulty.');
+    await this.prisma.node.update({ where: { id: nodeId }, data: { status: NodeStatus.ADOPTED, note: null, configRev: { increment: 1 } } });
+    await this.publishConfig(nodeId);
+    await this.local.sync(nodeId, true);
+    await this.audit.record(actor.homeId, actor.id, 'board.restore', nodeId, { name: node.name });
+    this.logs.server(nodeId, 'info', `Back in service (${actor.name})`);
+    this.realtime.nodesChanged(actor.homeId, nodeId);
+    this.realtime.devicesChanged(actor.homeId);
+    this.realtime.schedulesChanged(actor.homeId);
+    if (node.orgId) this.realtime.inventoryChanged(node.orgId);
+  }
+
+  /** The board being replaced, with what is on it (a board installed here, working, offline or marked faulty). */
+  private async swapSource(actor: AuthUser, nodeId: string) {
+    const old = await this.prisma.node.findFirst({
+      where: { id: nodeId, homeId: actor.homeId },
+      include: { devices: { orderBy: { createdAt: 'asc' } }, inputs: true, home: { select: { orgId: true, timezone: true, name: true } } },
+    });
+    if (!old) throw new NotFoundException('No such board.');
+    if (old.status !== NodeStatus.ADOPTED && old.status !== NodeStatus.FAULTY) {
+      throw new BadRequestException('This board isn’t installed yet: there is nothing to move. Install the other board instead.');
+    }
+    return old;
+  }
+
+  /** What a candidate board would need: the pin plan (same pin numbers, same use), and why not. */
+  private planFor(old: { board: string; devices: SwapDevice[]; inputs: SwapInput[] }, candidate: { board: string; firmware: string | null }, board = candidate.board) {
+    const plan = pinPlan(old.board, board, old.devices, old.inputs);
+    return { plan, problems: swapProblems(board, plan), warnings: firmwareWarnings(candidate.firmware, old.devices, old.inputs) };
+  }
+
+  /**
+   * Boards that can take over: in the company's stock, or assigned to this home (e.g. a board that just
+   * announced itself on site). Online ones first: the new board is usually powered and on the Wi‑Fi already.
+   */
+  async replacements(actor: AuthUser, nodeId: string) {
+    const old = await this.swapSource(actor, nodeId);
+    const rows = await this.prisma.node.findMany({
+      where: { id: { not: old.id }, orgId: old.home!.orgId, OR: [{ status: NodeStatus.STOCK }, { status: NodeStatus.ASSIGNED, homeId: actor.homeId }] },
+      orderBy: [{ online: 'desc' }, { lastSeenAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+      take: 100,
+    });
+    return {
+      board: { id: old.id, name: old.name, board: old.board, boardName: BOARDS[old.board]?.name ?? old.board, status: old.status, online: old.online, devices: old.devices.length, inputs: old.inputs.length },
+      plan: pinPlan(old.board, old.board, old.devices, old.inputs),
+      candidates: rows.map((n) => ({
+        id: n.id, board: n.board, boardName: BOARDS[n.board]?.name ?? n.board, status: n.status, online: n.online, lastSeenAt: n.lastSeenAt, firmware: n.firmware,
+        ...this.planFor(old, n),
+      })),
+      models: Object.values(BOARDS).map((b) => ({ type: b.type, name: b.name })),
+    };
+  }
+
+  /**
+   * Swaps the board: every device and wall button moves to the new board keeping its id (so timers,
+   * scenes, rules, history, electricity, the assistant's names all keep working), the new board takes the
+   * old one's name and place in the home and gets its configuration and a new local-control key, and the
+   * old one goes to the faulty shelf with a note (or back to stock when it was fine). One transaction with
+   * its audit entry; then the old board's retained MQTT messages are cleared.
+   */
+  async replace(actor: AuthUser, nodeId: string, input: { newId: string; board?: string; oldTo?: 'faulty' | 'stock'; note?: string }) {
+    const old = await this.swapSource(actor, nodeId);
+    const home = old.home!;
+    const fresh = await this.prisma.node.findUnique({ where: { id: input.newId }, include: { _count: { select: { devices: true, inputs: true } } } });
+    if (!fresh || fresh.orgId !== home.orgId || fresh.id === old.id) throw new NotFoundException('No such board in your stock.');
+    const usable = fresh.status === NodeStatus.STOCK || (fresh.status === NodeStatus.ASSIGNED && fresh.homeId === actor.homeId);
+    if (!usable) throw new BadRequestException(`${fresh.id} can’t take over: it is ${fresh.status === NodeStatus.ADOPTED ? 'installed somewhere else' : fresh.status === NodeStatus.FAULTY ? 'marked faulty' : 'assigned to another home'}.`);
+    if (fresh._count.devices || fresh._count.inputs) throw new BadRequestException(`${fresh.id} already has devices on it.`);
+    const board = input.board ?? fresh.board;
+    const { problems, warnings } = this.planFor(old, fresh, board);
+    if (problems.length) throw new BadRequestException(`The new board can’t use the same pins: ${problems.join(' ')}`);
+
+    const now = new Date();
+    const oldTo = input.oldTo === 'stock' ? NodeStatus.STOCK : NodeStatus.FAULTY;
+    const note = replacedNote(fresh.id, now, home.timezone, oldTo === NodeStatus.STOCK ? 'It worked, back in stock' : input.note || (old.status === NodeStatus.FAULTY ? old.note?.replace(/^Marked faulty$/, '') : null));
+    const keys = old.devices.map((d) => d.key);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Both boards are taken only if they are still as they were read: two installers picking the same
+      // board in stock at once, or replacing the same board twice, get a clear answer instead of a mix.
+      const takeNew = await tx.node.updateMany({
+        where: { id: fresh.id, status: fresh.status, homeId: fresh.homeId, devices: { none: {} }, inputs: { none: {} } },
+        data: { status: NodeStatus.ADOPTED, homeId: actor.homeId },
+      });
+      const takeOld = await tx.node.updateMany({ where: { id: old.id, homeId: actor.homeId, status: old.status }, data: { status: oldTo } });
+      if (takeNew.count !== 1 || takeOld.count !== 1) throw new ConflictException('Someone changed these boards just now. Open the board again and retry.');
+      // same ids, new board: nothing that points at a device or a button changes
+      const devices = await tx.device.updateMany({ where: { nodeId: old.id }, data: { nodeId: fresh.id } });
+      const inputs = await tx.input.updateMany({ where: { nodeId: old.id }, data: { nodeId: fresh.id } });
+      await tx.nodeConnection.deleteMany({ where: { nodeId: old.id } });
+      await tx.node.update({
+        where: { id: old.id },
+        data: {
+          status: oldTo, homeId: null, installerId: null, assignedAt: null, name: old.id, note, replacedById: fresh.id, replacedAt: now,
+          configRev: { increment: 1 }, configError: null, publicIp: null, publicPlace: null, publicIsp: null, publicIpAt: null,
+          localKey: null, localKeyHome: null, localReported: null,
+        },
+      });
+      const next = await tx.node.update({
+        where: { id: fresh.id },
+        data: {
+          homeId: actor.homeId, status: NodeStatus.ADOPTED, name: old.name, board, note: null,
+          installerId: old.installerId ?? (actor.viaStaff ? actor.id : null), assignedAt: old.assignedAt ?? now,
+          // past the old board's revision, so the new one never keeps an older configuration
+          configRev: Math.max(old.configRev, fresh.configRev) + 1, configError: null,
+          localKey: newBoardKey(), localKeyHome: actor.homeId, localReported: null,
+        },
+      });
+      // phone passes made for the old board stop working
+      await tx.home.update({ where: { id: actor.homeId }, data: { localEpoch: { increment: 1 } } });
+      await tx.auditLog.create({
+        data: {
+          homeId: actor.homeId, orgId: home.orgId, userId: actor.id, action: 'board.replace', target: old.id,
+          details: { name: old.name, from: old.id, to: fresh.id, board, oldTo, devices: devices.count, inputs: inputs.count, note } as Prisma.InputJsonValue,
+        },
+      });
+      return { next, devices: devices.count, inputs: inputs.count };
+    });
+
+    // the old board: an empty configuration, no retained device states, no local key (as when it leaves a home)
+    this.logs.moved(old.id);
+    this.logs.moved(fresh.id);
+    const empty: NodeConfigPayload = { rev: old.configRev + 1, adopted: false, devices: [], inputs: [], telemetrySec: TELEMETRY_SEC, restoreGapMs: RESTORE_GAP_MS };
+    await this.mqtt.publish(topics.config(old.id), empty, { qos: 1, retain: true });
+    for (const key of keys) await this.mqtt.publish(topics.deviceState(old.id, key), null, { qos: 1, retain: true });
+    await this.local.forget(old.id);
+    // the new board: its configuration, its key, and every board of the home hears the new epoch
+    await this.publishConfig(fresh.id);
+    await this.local.pushEpoch(actor.homeId);
+    this.logs.server(fresh.id, 'info', `Took over from ${old.id} (${actor.name}): ${updated.devices} devices, ${updated.inputs} buttons. Sent configuration rev ${updated.next.configRev}`);
+    void this.monitoring.toHomeAdmins(actor.homeId, {
+      kind: 'boardReplaced', severity: 'INFO', title: `${old.name} board was replaced`,
+      body: `A new board took over its ${updated.devices} device${updated.devices === 1 ? '' : 's'}. Timers, scenes and rules work as before.`, link: `/?home=${actor.homeId}`,
+    }, `replaced:${old.id}`, 60_000).catch(() => undefined);
+    this.realtime.nodesChanged(actor.homeId, old.id);
+    this.realtime.nodesChanged(actor.homeId, fresh.id);
+    this.realtime.devicesChanged(actor.homeId);
+    this.realtime.schedulesChanged(actor.homeId);
+    this.realtime.inventoryChanged(home.orgId);
+    return { ok: true, newId: fresh.id, oldId: old.id, oldStatus: oldTo, devices: updated.devices, inputs: updated.inputs, warnings };
   }
 
   /**

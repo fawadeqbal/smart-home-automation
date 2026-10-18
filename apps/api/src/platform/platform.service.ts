@@ -25,7 +25,7 @@ export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'mute';
 
 interface NodeLike {
   id: string; status: NodeStatus; online: boolean; lastSeenAt: Date | null; rssi: number | null;
-  configError: string | null; firmware: string | null;
+  configError: string | null; firmware: string | null; homeId?: string | null;
 }
 interface Health { vcc?: number | null; heap?: number | null; rssi?: number | null; uptime?: number | null }
 
@@ -43,7 +43,7 @@ export function ago(d: Date | string | null | undefined): string {
 /** How a board is doing, in words, with a colour. */
 export function condition(n: NodeLike, h: Health | null): { cond: Tone; text: string } {
   if (n.status === NodeStatus.STOCK) return { cond: 'mute', text: 'In stock' };
-  if (n.status === NodeStatus.FAULTY) return { cond: 'bad', text: 'Faulty' };
+  if (n.status === NodeStatus.FAULTY) return { cond: 'bad', text: n.homeId ? 'Faulty · waiting for a replacement' : 'Faulty' };
   if (n.status === NodeStatus.ASSIGNED) return n.online ? { cond: 'info', text: 'Online · ready to install' } : { cond: 'mute', text: 'Awaiting install' };
   if (!n.online) {
     const since = n.lastSeenAt ? ago(n.lastSeenAt).replace(' ago', '') : 'never seen';
@@ -216,6 +216,10 @@ export class PlatformService {
         attention.push({ tone: 'warn', title: c.text, homeId: n.homeId!, home: n.home!.name, detail: `${n.id} · ${why}`, at: n.lastSeenAt?.toISOString() ?? null, tab: 'diagnostics', nodeId: n.id });
       }
     }
+    for (const n of nodes.filter((x) => x.status === NodeStatus.FAULTY && x.homeId && x.home)) {
+      attention.push({ tone: 'bad', title: `${n.name} board waiting for a replacement`, homeId: n.homeId!, home: n.home!.name,
+        detail: `${n.id} · ${n.note ?? 'marked faulty'}`, at: n.lastSeenAt?.toISOString() ?? null, tab: 'boards', nodeId: n.id });
+    }
     for (const h of homes) {
       const f = facts.get(h.id)!;
       const waiting = nodes.filter((n) => n.homeId === h.id && n.status === NodeStatus.ASSIGNED);
@@ -308,7 +312,7 @@ export class PlatformService {
     return homes.map((h) => {
       const f = facts.get(h.id)!;
       const steps = this.stepsDone(f);
-      const conds = h.nodes.filter((n) => n.status === NodeStatus.ADOPTED).map((n) => condition(n as NodeLike, health.get(n.id) ?? null));
+      const conds = h.nodes.filter((n) => n.status === NodeStatus.ADOPTED || n.status === NodeStatus.FAULTY).map((n) => condition({ ...n, homeId: h.id } as NodeLike, health.get(n.id) ?? null));
       const worst = conds.find((c) => c.cond === 'bad') ?? conds.find((c) => c.cond === 'warn');
       const status = h.archivedAt ? 'archived' : worst ? 'attention' : steps < 6 ? 'setup' : 'live';
       const owner = h.memberships[0]?.user;
@@ -412,7 +416,7 @@ export class PlatformService {
       const h = health.get(n.id);
       const pinsTotal = BOARDS[n.board]?.pins.length ?? 11;
       return {
-        id: n.id, name: n.name, location: n.status === NodeStatus.ADOPTED ? n.name : null, board: n.board, model: BOARDS[n.board]?.name ?? n.board,
+        id: n.id, name: n.name, location: n.status === NodeStatus.ADOPTED || n.status === NodeStatus.FAULTY ? n.name : null, board: n.board, model: BOARDS[n.board]?.name ?? n.board, note: n.note,
         status: n.status, online: n.online, cond: c.cond, condText: c.text, firmware: n.firmware, firmwareOld: !!(fw && n.firmware && compareVersions(n.firmware, fw) < 0),
         devices: n._count.devices, pinsUsed: n._count.devices + n._count.inputs, pinsTotal,
         rssi: h?.rssi ?? n.rssi, vcc: h?.vcc ?? null, lastSeenAt: n.lastSeenAt, lastSeen: ago(n.lastSeenAt),
@@ -441,7 +445,8 @@ export class PlatformService {
     if (owner) steps[5]!.detail = `${owner.name} joined`;
     else if (ownerInvite) steps[5]!.detail = `Invite sent to ${ownerInvite.name || ownerInvite.email} ${ago(ownerInvite.createdAt)}`;
 
-    const worst = boards.find((b) => b.status === NodeStatus.ADOPTED && b.cond === 'bad') ?? boards.find((b) => b.status === NodeStatus.ADOPTED && b.cond === 'warn');
+    const live = (b: { status: NodeStatus }) => b.status === NodeStatus.ADOPTED || b.status === NodeStatus.FAULTY;
+    const worst = boards.find((b) => live(b) && b.cond === 'bad') ?? boards.find((b) => live(b) && b.cond === 'warn');
     const status = home.archivedAt ? 'archived' : worst ? 'attention' : stepsDone < 6 ? 'setup' : 'live';
     return {
       home: {
@@ -472,12 +477,22 @@ export class PlatformService {
       this.currentFirmware(orgId),
     ]);
     const health = await this.healthMap(nodes.map((n) => n.id));
+    // replacement history: which board this one replaced (from the swap's audit entries), and what replaced it
+    const swaps = await this.prisma.auditLog.findMany({ where: { orgId, action: 'board.replace' }, orderBy: { at: 'desc' }, take: 1000, select: { at: true, details: true, homeId: true } });
+    const replacedWhat = new Map<string, { id: string; at: Date }>();
+    for (const sw of swaps) {
+      const d = sw.details as { from?: string; to?: string };
+      if (d.to && d.from && !replacedWhat.has(d.to)) replacedWhat.set(d.to, { id: d.from, at: sw.at });
+    }
     return {
       boards: nodes.map((n) => {
         const c = condition(n, health.get(n.id) ?? null);
         return {
+          replacedBy: n.replacedById ? { id: n.replacedById, at: n.replacedAt } : null,
+          replaced: replacedWhat.get(n.id) ?? null,
+          waiting: n.status === NodeStatus.FAULTY && !!n.homeId,
           id: n.id, board: n.board, model: BOARDS[n.board]?.name ?? n.board, status: n.status,
-          homeId: n.homeId, homeName: n.home?.name ?? null, location: n.status === NodeStatus.ADOPTED ? n.name : null,
+          homeId: n.homeId, homeName: n.home?.name ?? null, location: n.status === NodeStatus.ADOPTED || (n.status === NodeStatus.FAULTY && n.homeId) ? n.name : null,
           installerId: n.installer?.id ?? null, installer: n.installer?.name ?? null,
           firmware: n.firmware, firmwareOld: !!(fw && n.firmware && compareVersions(n.firmware, fw) < 0), mac: n.mac, ip: n.ip,
           online: n.online, lastSeen: ago(n.lastSeenAt), cond: c.cond, condText: c.text, note: n.note,
@@ -556,21 +571,26 @@ export class PlatformService {
     return { ok: true };
   }
 
+  /**
+   * Broken. An installed board keeps its devices and stays in its home, out of service, until it is replaced
+   * (its timers, scenes and rules say they wait for a replacement board); any other board goes to the faulty shelf.
+   */
   async markFaulty(user: AuthUser, id: string, note: string) {
     const orgId = this.org(user);
     const node = await this.nodeOf(orgId, id);
     const wasIn = node.homeId;
-    await this.nodes.release(id, undefined, NodeStatus.FAULTY, note || 'Marked faulty');
-    await this.audit.record(wasIn, user.id, 'board.faulty', id, { note }, orgId);
+    const { kept } = await this.nodes.markFaulty(id, note);
+    await this.audit.record(wasIn, user.id, 'board.faulty', id, { note, kept }, orgId);
     this.realtime.inventoryChanged(orgId);
     if (wasIn) { this.realtime.nodesChanged(wasIn, id); this.realtime.devicesChanged(wasIn); }
-    return { ok: true };
+    return { ok: true, kept };
   }
 
   async restock(user: AuthUser, id: string) {
     const orgId = this.org(user);
     const node = await this.nodeOf(orgId, id);
     if (node.status !== NodeStatus.FAULTY) throw new BadRequestException('Only faulty boards can be put back in stock.');
+    if (node.homeId) throw new BadRequestException('This board still holds devices in a home. Replace it from its board page, or mark it as working there.');
     await this.prisma.node.update({ where: { id }, data: { status: NodeStatus.STOCK, note: null } });
     await this.audit.record(null, user.id, 'board.restock', id, {}, orgId);
     this.realtime.inventoryChanged(orgId);
@@ -582,6 +602,7 @@ export class PlatformService {
     const orgId = this.org(user);
     const node = await this.nodeOf(orgId, id);
     if (node.status !== NodeStatus.FAULTY && node.status !== NodeStatus.STOCK) throw new BadRequestException('Only boards in stock or marked faulty can be returned.');
+    if (node.homeId) throw new BadRequestException('This board still holds devices in a home. Replace it first, so they move to the new board.');
     await this.nodes.release(id);
     await this.prisma.node.delete({ where: { id } });
     await this.audit.record(null, user.id, 'board.retire', id, { note: node.note }, orgId);
@@ -728,7 +749,9 @@ export class PlatformService {
       case 'board.assign': return `${target} → ${s('home')}${s('installer') ? ` · ${s('installer')}` : ''}`;
       case 'board.install': return `${target} · ${s('name')}`;
       case 'board.stock': return `${s('count')} board${Number(d.count) === 1 ? '' : 's'} · ${target}`;
-      case 'board.faulty': return `${target}${s('note') ? ` · ${s('note')}` : ''}`;
+      case 'board.faulty': return `${target}${s('note') ? ` · ${s('note')}` : ''}${d.kept ? ' · devices kept, waiting for a replacement' : ''}`;
+      case 'board.replace': return `${s('name') || target}: ${s('from')} → ${s('to')} · ${s('devices')} devices${d.oldTo === 'stock' ? ' · old board back in stock' : ''}`;
+      case 'board.restore': return `${target} · ${s('name')} works again`;
       case 'home.create': return `${s('name')}${s('owner') ? ` · owner ${s('owner')}` : ''}`;
       case 'user.invite': return `${target} as ${d.role ? ROLE_LABEL[d.role as Role] : ''}${s('name') ? ` · ${s('name')}` : ''}`;
       case 'staff.invite': return `${target} as ${d.staffRole ? STAFF_LABEL[d.staffRole as StaffRole] : ''}`;

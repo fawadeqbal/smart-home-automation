@@ -107,6 +107,8 @@ def _describe(d: dict) -> str:
 
 
 def _state_text(d: dict) -> str:
+    if d.get("waiting"):
+        return "waiting for a replacement board"   # its board was marked faulty; the installer swaps it
     if not d.get("online"):
         return "offline"
     state = d.get("state") or {}
@@ -445,7 +447,11 @@ class DiagnoseHomeTool(Tool):
 
     def run(self, args: dict) -> str:
         lines: List[str] = []
-        offline = [d for d in self._devices if not d.get("online")]
+        waiting = [d for d in self._devices if d.get("waiting")]
+        if waiting:
+            lines.append("Devices waiting for a replacement board (their board is broken; the installer replaces it, "
+                         "and their timers, scenes and rules work again then): " + ", ".join(_describe(d) for d in waiting) + ".")
+        offline = [d for d in self._devices if not d.get("online") and not d.get("waiting")]
         if offline:
             lines.append("Devices not responding (their board is offline): " + ", ".join(_describe(d) for d in offline) + ".")
         silent = [d for d in self._devices if d.get("online") and not d.get("controllable") and _state_text(d) == "no reading yet"]
@@ -459,9 +465,12 @@ class DiagnoseHomeTool(Tool):
             for b in boards:
                 name = b.get("name") or b.get("id")
                 problems = []
-                if b.get("status") != "ADOPTED":
+                if b.get("status") == "FAULTY":
+                    problems.append("marked faulty: its devices wait for a replacement board"
+                                    + (f" ({b['note']})" if b.get("note") else ""))
+                elif b.get("status") != "ADOPTED":
                     problems.append(f"not set up yet (status {str(b.get('status', '')).lower()})")
-                if not b.get("online"):
+                if not b.get("online") and b.get("status") != "FAULTY":
                     problems.append(f"offline, last seen {self._ago(b.get('lastSeenAt'))}")
                 rssi = (b.get("health") or {}).get("rssi", b.get("rssi"))
                 if b.get("online") and isinstance(rssi, (int, float)) and rssi < -80:

@@ -28,6 +28,8 @@ export const NOTICE_KINDS = {
   installation: { label: 'The installation was signed off', default: true, adminsOnly: true },
   ticketReply: { label: 'An answer to my help request', default: true, adminsOnly: false },
   supportRequest: { label: 'A home owner asked for help (staff)', default: true, adminsOnly: true },
+  security: { label: 'Someone keeps trying to sign in to my account', default: true, adminsOnly: false },
+  boardReplaced: { label: 'A board was replaced or is waiting for a replacement', default: true, adminsOnly: true },
 } as const;
 export type NoticeKind = keyof typeof NOTICE_KINDS;
 

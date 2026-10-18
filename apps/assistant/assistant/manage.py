@@ -110,7 +110,8 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
         lines.append(f"\nBoards ({len(nodes)}):")
         for n in nodes:
             count = sum(1 for d in devices if d.get("nodeId") == n.get("id"))
-            state = "online" if n.get("online") else f"OFFLINE, last heard from {_ago(n.get('lastSeenAt'))}"
+            state = ("FAULTY, its devices wait for a replacement board" if n.get("status") == "FAULTY"
+                     else "online" if n.get("online") else f"OFFLINE, last heard from {_ago(n.get('lastSeenAt'))}")
             lines.append(f"- {n.get('name') or n.get('id')}: {state}" + (f"; {count} devices" if count else ""))
 
     if isinstance(users, list):
