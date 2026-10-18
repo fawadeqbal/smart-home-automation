@@ -237,7 +237,6 @@ class ContactKind extends DeviceKind {
     'leak' => SbIcons.waves,
     'mains' => SbIcons.zap,
     'motion' => SbIcons.person,
-    'mains' => SbIcons.zap,
     _ => SbIcons.door,
   };
 
