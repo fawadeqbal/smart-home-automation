@@ -6,8 +6,10 @@ import { ZodPipe } from '../common/zod';
 import { AutomationService } from './automation.service';
 
 const action = z.object({ deviceId: z.string().min(1), on: z.boolean() });
+const ifMissed = z.enum(['auto', 'run', 'skip']);
 const schedule = z.object({
   name: z.string().trim().max(80).optional(),
+  ifMissed: ifMissed.optional(),
   kind: z.enum(['ONCE', 'DAILY', 'SUN']),
   sunEvent: z.enum(['SUNRISE', 'SUNSET']).optional(),
   offsetMin: z.number().int().min(-180).max(180).optional(),
@@ -37,8 +39,9 @@ export class AutomationController {
 
   @Patch('schedules/:id')
   @HttpCode(204)
-  toggle(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body(new ZodPipe(z.object({ enabled: z.boolean() }))) body: { enabled: boolean }) {
-    return this.automation.setEnabled(user, id, body.enabled);
+  toggle(@CurrentUser() user: AuthUser, @Param('id') id: string,
+         @Body(new ZodPipe(z.object({ enabled: z.boolean().optional(), ifMissed: ifMissed.optional() }))) body: { enabled?: boolean; ifMissed?: z.infer<typeof ifMissed> }) {
+    return this.automation.update(user, id, body);
   }
 
   @Delete('schedules/:id')

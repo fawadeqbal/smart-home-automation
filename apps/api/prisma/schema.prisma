@@ -28,7 +28,7 @@ enum NodeStatus {
   STOCK /// owned by an organization, not given to a home yet
   ASSIGNED /// given to a home and an installer; adopted when it is powered on site
   ADOPTED /// installed in a home and running its configuration
-  FAULTY /// taken out of service (note says why)
+  FAULTY /// taken out of service (note says why). Still in its home while it holds devices that wait for a replacement board
 }
 
 /// What platform staff of an organization may do across its homes.
@@ -189,6 +189,23 @@ model PasswordReset {
   @@index([userId])
 }
 
+/// A failed try at signing in (wrong password or two-step code), a "Forgot password?" request, or a link
+/// that doesn't exist. The sign-in limits count these per email and network, per network, and per account;
+/// rows older than a day are removed.
+model LoginAttempt {
+  id    BigInt   @id @default(autoincrement())
+  /// login | code | forgot | token
+  kind  String
+  /// the email typed (lowercase); null when there is none (a link)
+  email String?
+  ip    String
+  at    DateTime @default(now())
+
+  @@index([kind, email, at])
+  @@index([kind, ip, at])
+  @@index([at])
+}
+
 /// An invite link. Either into a home (homeId + role) or onto an organization's staff (orgId + staffRole).
 model Invite {
   id        String        @id @default(cuid())
@@ -324,6 +341,9 @@ model Node {
   localKeyHome  String?
   /// "<key id>:<epoch>" the board says it holds (from its telemetry)
   localReported String?
+  /// When it was swapped out of a home for another board (its devices moved there): which one, and when
+  replacedById  String?
+  replacedAt    DateTime?
   devices       Device[]
   inputs        Input[]
   connections   NodeConnection[]
@@ -500,9 +520,19 @@ model Schedule {
   nextRunAt   DateTime?
   lastRunAt   DateTime?
   lastResult  String?
+  /// how the last run went: ok | retrying | failed | skipped (null: never ran)
+  lastStatus  String?
+  /// when the server was down at its time and is back more than 15 minutes late: "auto" (a timer that
+  /// switches things off still runs, the rest is skipped), "run" (always run late) or "skip"
+  ifMissed    String       @default("auto")
+  /// a run that failed because a board was offline or didn't answer: when to try those devices again,
+  /// and what is left to do { actions, attempt, done, failed, skipped, lateFrom }
+  retryAt     DateTime?
+  retryState  Json?
   createdAt   DateTime     @default(now())
 
   @@index([enabled, nextRunAt])
+  @@index([retryAt])
   @@index([homeId])
 }
 
