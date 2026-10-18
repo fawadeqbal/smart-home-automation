@@ -27,6 +27,13 @@ void main() {
     expect(NoticeTarget.fromLink('/automations?home=h1').route, '/routines');
     expect(NoticeTarget.fromLink('/diagnostics?home=h1&board=esp-1').route, '/me/health');
     expect(NoticeTarget.fromLink('/support/7').route, '/home/notifications');
+    // bills, electricity, the installation report and the summary open their own pages now
+    expect(NoticeTarget.fromLink('/billing/inv1?home=h1').route, '/me/billing/inv1');
+    expect(NoticeTarget.fromLink('/billing?home=h1').route, '/me/billing');
+    expect(NoticeTarget.fromLink('/energy').route, '/home/energy');
+    expect(NoticeTarget.fromLink('/installation?home=h1').route, '/me/installation');
+    expect(NoticeTarget.fromLink('/summary?period=week').route, '/me/summary');
+    expect(NoticeTarget.fromLink('/account').route, '/me/account');
     expect(NoticeTarget.fromLink(null, homeId: 'h3').homeId, 'h3');
   });
 

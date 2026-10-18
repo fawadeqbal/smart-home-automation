@@ -21,6 +21,7 @@ import '../../features/routines/routines_screen.dart';
 import '../../features/shell/app_shell.dart';
 import '../../state/session.dart';
 import '../config/app_settings.dart';
+import 'home_mobile_routes.dart';
 import 'routes.dart';
 
 final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -36,6 +37,7 @@ List<RouteBase> _insideTab() => [
   GoRoute(path: Routes.family, builder: (_, _) => const FamilyScreen()),
   GoRoute(path: Routes.energy, builder: (_, _) => const EnergyScreen()),
   GoRoute(path: Routes.notifications, builder: (_, _) => const NotificationsScreen()),
+  ...homeMobileRoutes(),
 ];
 
 StatefulShellBranch _tab(String path, Widget screen) => StatefulShellBranch(
