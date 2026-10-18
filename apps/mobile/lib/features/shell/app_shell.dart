@@ -44,9 +44,12 @@ class AppShell extends ConsumerWidget {
     final listening = ref.watch(handsFreeProvider.select((h) => h.stage == HandsFreeStage.waiting));
     return Scaffold(
       body: Stack(
+        // every child is positioned, so the stack fills the screen: a non-positioned child would make
+        // the stack its size (an invisible 0×0 one squeezed every screen to nothing)
+        fit: StackFit.expand,
         children: [
           Positioned.fill(child: shell),
-          const PushAskOnce(),
+          const Positioned(left: 0, top: 0, child: PushAskOnce()),
           Positioned(
             left: 16,
             right: 16,
