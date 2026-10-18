@@ -235,6 +235,7 @@ class ContactKind extends DeviceKind {
   @override
   SbIconData icon(Device d) => switch (_kind(d)) {
     'leak' => SbIcons.waves,
+    'mains' => SbIcons.zap,
     'motion' => SbIcons.person,
     'mains' => SbIcons.zap,
     _ => SbIcons.door,
@@ -251,7 +252,8 @@ class ContactKind extends DeviceKind {
     final on = d.state['active'] == true;
     return switch (_kind(d)) {
       'leak' => on ? 'Water detected!' : 'Dry',
-      'mains' => on ? 'Grid power on' : 'On UPS / solar',
+      // a mains-sense sensor is active while the grid is on
+      'mains' => on ? 'Grid on' : 'On UPS',
       'motion' => on ? 'Movement' : 'Still',
       'window' => on ? 'Open' : 'Closed',
       'door' => on ? 'Open' : 'Closed',

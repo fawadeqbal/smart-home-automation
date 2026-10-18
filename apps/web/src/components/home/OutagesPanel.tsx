@@ -29,7 +29,7 @@ export function OutagesPanel() {
       <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
         <div className="grow stack-tight">
           <b style={{ fontSize: 16 }}>Power cuts and internet</b>
-          <span className="small muted">From what the boards report when they come back. A restart with “Power On” means the power was off.</span>
+          <span className="small muted">From the grid sensor if the home has one (to the minute), otherwise from what the boards report when they come back: a restart with “Power On” means the power was off.</span>
         </div>
         <Seg options={[{ id: '7', label: '7 days' }, { id: '30', label: '30 days' }, { id: '90', label: '90 days' }]} value={days} onChange={setDays} />
       </div>

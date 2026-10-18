@@ -84,7 +84,7 @@ void main() {
 
   test('a grid power sensor', () {
     final grid = dev('Grid', type: 'contact', settings: {'kind': 'mains'}, state: {'active': false});
-    expect(DeviceKinds.of(grid).status(grid), 'On UPS / solar');
+    expect(DeviceKinds.of(grid).status(grid), 'On UPS');
     expect(DeviceKinds.of(grid).icon(grid), SbIcons.zap);
   });
 }

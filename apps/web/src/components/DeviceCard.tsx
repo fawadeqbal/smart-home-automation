@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useState } from 'react';
-import { errorText, post } from '@/lib/api';
+import { ApiError, errorText, post } from '@/lib/api';
 import { timeAgo } from '@/lib/hooks';
 import { useSession } from '@/lib/session';
 import type { Device } from '@/lib/types';
@@ -31,7 +31,10 @@ export function DeviceCard({ device, onChange }: { device: Device; onChange: (d:
     try {
       onChange(await post<Device>(`/devices/${device.id}/commands`, command));
     } catch (err) {
-      setError(errorText(err));
+      // on UPS, a heavy load asks first: the owner may still switch it on
+      if (err instanceof ApiError && err.code === 'ups' && window.confirm(err.message)) {
+        try { onChange(await post<Device>(`/devices/${device.id}/commands?confirm=ups`, command)); } catch (again) { setError(errorText(again)); }
+      } else setError(errorText(err));
     } finally {
       setBusy(false);
     }

@@ -82,6 +82,18 @@ export function hoursByDay(intervals: Interval[], timeZone: string): Map<string,
 
 const round = (n: number, places = 2) => Math.round(n * 10 ** places) / 10 ** places;
 
+/** A switch's on-times (power cuts taken out) and its power, for estimates over any stretch of time. */
+export interface DeviceRun { id: string; name: string; watts: number; intervals: Interval[] }
+
+/** Estimated units of these switches between `from` and `to` (ms), in all and per device. */
+export function kwhBetween(runs: DeviceRun[], from: number, to: number) {
+  const devices = runs.map((r) => {
+    const hours = r.intervals.reduce((a, iv) => a + Math.max(0, Math.min(iv.end, to) - Math.max(iv.start, from)), 0) / 3_600_000;
+    return { id: r.id, name: r.name, kwh: (hours * r.watts) / 1000 };
+  }).sort((a, b) => b.kwh - a.kwh);
+  return { kwh: devices.reduce((a, d) => a + d.kwh, 0), devices };
+}
+
 /**
  * Electricity estimates: how long each switch was on (from its history, minus power cuts) times
  * the power it draws, and what that costs at the home's rate. Estimates, not a meter: they say so.
@@ -155,6 +167,32 @@ export class EnergyService {
       unknown: rows.filter((r) => r.wattsSource === 'unknown').length,
       powerCuts: cuts.length,
     };
+  }
+
+  /**
+   * Every switch of the home (whoever is asking), with when it was on between `from` and `to`, minus
+   * power cuts: what the bill falls back on for days without a meter reading.
+   */
+  async homeRuns(homeId: string, from: Date, to: Date): Promise<DeviceRun[]> {
+    const devices = await this.prisma.device.findMany({
+      where: { node: { homeId, status: 'ADOPTED' }, type: 'switch' }, select: { id: true, nodeId: true, name: true, aliases: true, watts: true },
+    });
+    const ids = devices.map((d) => d.id);
+    const [events, before, cuts] = await Promise.all([
+      this.prisma.stateEvent.findMany({ where: { deviceId: { in: ids }, at: { gte: from, lte: to } }, orderBy: { at: 'asc' }, select: { deviceId: true, at: true, state: true } }),
+      this.prisma.stateEvent.findMany({
+        where: { deviceId: { in: ids }, at: { lt: from } }, distinct: ['deviceId'], orderBy: [{ deviceId: 'asc' }, { at: 'desc' }], select: { deviceId: true, state: true },
+      }),
+      this.prisma.outage.findMany({ where: { homeId, kind: OutageKind.POWER, endedAt: { gte: from }, startedAt: { lte: to } }, select: { nodeId: true, source: true, startedAt: true, endedAt: true } }),
+    ]);
+    const isOn = (s: unknown) => (s as { on?: unknown } | null)?.on === true;
+    return devices.map((d) => {
+      const own = events.filter((e) => e.deviceId === d.id).map((e) => ({ at: e.at, on: isOn(e.state) }));
+      // a cut seen by the grid sensor stopped everything not on the UPS; a board's own cut, its switches
+      const myCuts = cuts.filter((c) => c.nodeId === d.nodeId || c.source === 'mains').map((c) => ({ start: c.startedAt.getTime(), end: c.endedAt.getTime() }));
+      const intervals = withoutCuts(onIntervals(own, isOn(before.find((b) => b.deviceId === d.id)?.state ?? null), from.getTime(), to.getTime()), myCuts);
+      return { id: d.id, name: d.name, watts: d.watts ?? guessWatts(d.name, d.aliases) ?? 0, intervals };
+    });
   }
 
   async setTariff(user: AuthUser, tariff: number | null) {

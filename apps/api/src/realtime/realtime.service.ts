@@ -88,6 +88,11 @@ export class RealtimeService {
     this.server?.to(`org:${orgId}`).emit('homes.changed', {});
   }
 
+  /** The grid went or came back, the load-shedding schedule or the bill changed: power cards reload. */
+  powerChanged(homeId: string) {
+    this.server?.to(`home:${homeId}`).emit('power.changed', {});
+  }
+
   /** Rights changed: drop the person's sockets so they reconnect with the new rooms. */
   accessChanged(userId: string) {
     this.server?.to(`user:${userId}`).emit('access.changed', {});

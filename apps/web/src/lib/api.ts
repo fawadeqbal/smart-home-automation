@@ -3,6 +3,8 @@
  * An expired 15-minute access cookie is renewed once with the refresh cookie, then the call is retried.
  */
 export class ApiError extends Error {
+  /** the server's own reason, when it gives one (e.g. "ups": the home is on UPS, ask before a heavy load) */
+  code?: string;
   constructor(public readonly status: number, message: string) {
     super(message);
   }
@@ -120,7 +122,9 @@ async function call<T>(method: string, path: string, body?: Body): Promise<T> {
   }
   if (!res.ok) {
     const message = Array.isArray(data?.message) ? data.message.join('; ') : data?.message;
-    throw new ApiError(res.status, message || `Request failed (${res.status})`);
+    const err = new ApiError(res.status, message || `Request failed (${res.status})`);
+    if (typeof data?.code === 'string') err.code = data.code;
+    throw err;
   }
   return data as T;
 }

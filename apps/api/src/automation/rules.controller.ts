@@ -11,7 +11,7 @@ import { RuleInput, RulesService } from './rules.service';
 
 const hhmm = z.string().regex(/^\d{1,2}:\d{2}$/);
 const trigger = z.object({
-  deviceId: z.string().min(1), event: z.enum(['on', 'off', 'opens', 'closes', 'above', 'below']),
+  deviceId: z.string().min(1), event: z.enum(['on', 'off', 'opens', 'closes', 'above', 'below', 'gridOff', 'gridOn']),
   value: z.number().optional(), field: z.enum(['temperature', 'humidity', 'level']).optional(),
 });
 const conditions = z.object({ from: hhmm.optional(), to: hhmm.optional(), days: z.array(z.number().int().min(0).max(6)).max(7).optional(), away: z.boolean().optional() });

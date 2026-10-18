@@ -204,6 +204,53 @@ export class OutagesService implements OnModuleInit, OnModuleDestroy {
     return this.mqtt.reconnects.some((r) => Math.abs(r - t) <= 2 * MIN);
   }
 
+  // ---------------------------------------------------------------- the grid sensor
+  /** The home's mains-sense sensor (a contact sensor of kind "mains"), if it has one. */
+  async mainsSensor(homeId: string) {
+    const rows = await this.prisma.device.findMany({
+      where: { type: 'contact', enabled: true, node: { homeId, status: NodeStatus.ADOPTED } }, select: { id: true, nodeId: true, name: true, settings: true },
+    });
+    return rows.find((d) => (d.settings as { kind?: string } | null)?.kind === 'mains') ?? null;
+  }
+
+  /**
+   * A power cut seen by the grid sensor: exact to the second, and the home's one record of it (boards
+   * that restarted in that time don't add their own). Told to the home by PowerService.
+   */
+  async recordMains(nodeId: string, startedAt: Date, endedAt: Date) {
+    const node = await this.prisma.node.findUnique({ where: { id: nodeId }, select: { homeId: true, publicPlace: true, publicIsp: true, name: true } });
+    if (!node?.homeId) return null;
+    const seconds = Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000));
+    // a board that already reported this cut (its report came first) gives way to the sensor
+    await this.prisma.outage.deleteMany({
+      where: { homeId: node.homeId, kind: OutageKind.POWER, source: null, startedAt: { lte: new Date(endedAt.getTime() + 2 * MIN) }, endedAt: { gte: new Date(startedAt.getTime() - 2 * MIN) } },
+    });
+    this.log.log(`${node.name}: grid off for ${duration(seconds)} (mains sensor)`);
+    return this.prisma.outage.create({
+      data: { nodeId, homeId: node.homeId, kind: OutageKind.POWER, startedAt, endedAt, seconds, place: node.publicPlace, isp: node.publicIsp, source: 'mains' },
+    });
+  }
+
+  /**
+   * A board that restarted with "Power On" in a home with a grid sensor on another board: the sensor
+   * already knows about grid cuts. If the grid was off then, it's the same cut (nothing to add);
+   * otherwise only this board lost power (its breaker, a loose wire): "board was offline".
+   */
+  private async powerFromBoard(homeId: string, nodeId: string, startedAt: Date, endedAt: Date): Promise<OutageKind | null> {
+    const sensor = await this.mainsSensor(homeId);
+    if (!sensor) return OutageKind.POWER;
+    // the sensor saw this cut (or is still in it: it records the cut when the grid is back)
+    const home = await this.prisma.home.findUnique({ where: { id: homeId }, select: { gridOffSince: true } });
+    if (home?.gridOffSince && home.gridOffSince.getTime() <= endedAt.getTime() + 2 * MIN) return null;
+    const seen = await this.prisma.outage.count({
+      where: { homeId, source: 'mains', startedAt: { lte: new Date(endedAt.getTime() + 2 * MIN) }, endedAt: { gte: new Date(startedAt.getTime() - 2 * MIN) } },
+    });
+    if (seen) return null;
+    // the sensor's own board lost power without it seeing the grid go (the board isn't on the UPS): a real cut;
+    // any other board: only that board lost power (its breaker, a loose wire, its own adapter)
+    return sensor.nodeId === nodeId ? OutageKind.POWER : OutageKind.UNKNOWN;
+  }
+
   // ---------------------------------------------------------------- recording and telling
   async record(nodeId: string, kind: OutageKind, startedAt: Date, endedAt: Date, reset?: string) {
     const seconds = Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000));
@@ -212,6 +259,11 @@ export class OutagesService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, name: true, homeId: true, status: true, publicPlace: true, publicIsp: true, home: { select: { name: true, timezone: true } } },
     });
     if (!node?.homeId || node.status !== NodeStatus.ADOPTED) return null;
+    if (kind === OutageKind.POWER) {
+      const decided = await this.powerFromBoard(node.homeId, nodeId, startedAt, endedAt);
+      if (!decided) return null;
+      kind = decided;
+    }
     const outage = await this.prisma.outage.create({
       data: { nodeId, homeId: node.homeId, kind, startedAt, endedAt, seconds, reset: reset ?? null, place: node.publicPlace, isp: node.publicIsp },
     });
@@ -330,10 +382,13 @@ export class OutagesService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-type Row = { id: string; kind: OutageKind; startedAt: Date; endedAt: Date; seconds: number; reset: string | null; place: string | null; node: { name: string } };
+type Row = { id: string; kind: OutageKind; startedAt: Date; endedAt: Date; seconds: number; reset: string | null; place: string | null; source?: string | null; node: { name: string } };
 
 function view(o: Row) {
-  return { id: o.id, kind: o.kind, label: KIND_TEXT[o.kind], board: o.node.name, startedAt: o.startedAt, endedAt: o.endedAt, seconds: o.seconds, reset: o.reset };
+  return {
+    id: o.id, kind: o.kind, label: o.source === 'mains' ? 'Power cut (grid sensor)' : KIND_TEXT[o.kind], board: o.node.name,
+    startedAt: o.startedAt, endedAt: o.endedAt, seconds: o.seconds, reset: o.reset, source: o.source ?? null,
+  };
 }
 
 /** One power cut seen by several boards of a home counts once (overlapping times). */

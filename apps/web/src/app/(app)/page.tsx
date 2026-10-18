@@ -9,6 +9,7 @@ import { AwayCard } from '@/components/home/AwayCard';
 import { EnergyCard } from '@/components/home/EnergyCard';
 import { InstallCard } from '@/components/home/InstallCard';
 import { PowerCard } from '@/components/home/OutagesPanel';
+import { PowerStatusCard } from '@/components/home/PowerPanels';
 import { Loader } from '@/components/Loader';
 import { useCrumbs } from '@/components/Shell';
 import { Empty, ErrorBox, Kpi, useAction } from '@/components/ui';
@@ -96,6 +97,7 @@ function HomeDashboard({ isAdmin, firstName, readOnly }: { isAdmin: boolean; fir
 
       {isAdmin && !readOnly && <InstallCard />}
       <AwayCard isAdmin={isAdmin} readOnly={readOnly} />
+      <PowerStatusCard />
       <PowerCard link={isAdmin} />
       <EnergyCard />
 

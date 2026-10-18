@@ -71,13 +71,13 @@ class DevicesController extends AsyncNotifier<List<Device>> {
   }
 
   /// Switches one device: shown at once, confirmed by the board, put back if it fails (then rethrows).
-  Future<void> setOn(String id, bool on) async {
+  Future<void> setOn(String id, bool on, {String? confirm}) async {
     final before = state.value?.where((d) => d.id == id).firstOrNull;
     if (before == null) return;
     ref.read(pendingDevicesProvider.notifier).add(id);
     _put(before.copyWith(state: {...before.state, 'on': on}));
     try {
-      final confirmed = await ref.read(devicesRepositoryProvider).setOn(id, on);
+      final confirmed = await ref.read(devicesRepositoryProvider).setOn(id, on, confirm: confirm);
       _put(confirmed);
     } catch (_) {
       _put(before);

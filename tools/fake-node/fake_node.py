@@ -216,6 +216,11 @@ class FakeNode:
     # ------------------------------------------------------------ config (same checks as the firmware)
     def apply_config(self, config: dict) -> None:
         rev = int(config.get("rev", 0))
+        # like the firmware: the same configuration again (the retained one after a reconnect) changes nothing
+        same = json.dumps(config, sort_keys=True)
+        if same == getattr(self, "current_config", None):
+            self.publish(self.t("config", "applied"), {"rev": rev, "ok": True})
+            return
         used: set[int] = set()
         devices, inputs = {}, {}
         try:
@@ -258,6 +263,7 @@ class FakeNode:
                 else:
                     d["state"] = {}
             self.devices, self.inputs, self.rev = devices, inputs, rev
+            self.current_config = same
             self.telemetry_sec = int(config.get("telemetrySec", 60))
         self.publish(self.t("config", "applied"), {"rev": rev, "ok": True})
         adopted = "adopted" if config.get("adopted") else "waiting to be adopted"

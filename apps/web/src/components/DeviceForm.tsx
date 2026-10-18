@@ -179,13 +179,16 @@ export function DeviceForm({ catalog, node, rooms, initial, submitLabel, onSubmi
               <option value="window">Window (open / closed)</option>
               <option value="motion">Motion (PIR)</option>
               <option value="leak">Water leak</option>
-              <option value="mains">Grid power (WAPDA) sense</option>
+              <option value="mains">Grid power (mains-sense module: UPS mode)</option>
               <option value="generic">Other on/off contact</option>
             </select>
           </label>
         )}
         {type === 'contact' && kind === 'mains' && (
-          <div className="notice span-2">An electrician wires a mains-sense module (an optocoupler module, or a small 5 V adapter through a divider) to a <b>grid-only</b> socket, not one on the UPS. Never connect mains to the board. &ldquo;Active&rdquo; = grid power is on.</div>
+          <div className="wiring-note" role="note">
+            <span aria-hidden>⚠</span>
+            <span>An electrician wires a mains-sense module to a circuit fed only by the grid (not the UPS); the module’s low-voltage output goes to this pin. <b>Never connect mains to the board.</b> It reads “active” while the grid is on.</span>
+          </div>
         )}
         {type === 'analog' && (
           <>

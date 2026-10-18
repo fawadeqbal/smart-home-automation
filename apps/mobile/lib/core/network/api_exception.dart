@@ -2,11 +2,14 @@ import 'package:dio/dio.dart';
 
 /// An API call that failed, with the server's own words when it gave any (NestJS `{ message }`).
 class ApiException implements Exception {
-  const ApiException(this.status, this.message);
+  const ApiException(this.status, this.message, {this.code});
 
   /// HTTP status; 0 when the server couldn't be reached at all.
   final int status;
   final String message;
+
+  /// The server's own reason, when it gives one (`ups`: the home is on UPS, ask before a heavy load).
+  final String? code;
 
   bool get isUnauthorized => status == 401;
   bool get isForbidden => status == 403;
@@ -33,9 +36,11 @@ class ApiException implements Exception {
       }
       final data = res.data;
       String? message;
+      String? code;
       if (data is Map) {
         final m = data['message'];
         message = m is List ? m.join('; ') : m?.toString();
+        if (data['code'] is String) code = data['code'] as String;
       } else if (data is String && data.isNotEmpty && data.length < 200 && !data.trimLeft().startsWith('<')) {
         message = data;
       }
@@ -43,6 +48,7 @@ class ApiException implements Exception {
       return ApiException(
         status,
         message ?? (status >= 500 ? 'Something went wrong on the server. Try again.' : 'Request failed ($status).'),
+        code: code,
       );
     }
     return ApiException(-1, error.toString());

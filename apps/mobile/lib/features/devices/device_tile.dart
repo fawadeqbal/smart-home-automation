@@ -76,9 +76,33 @@ Future<void> toggleDevice(
   try {
     await ref.read(devicesProvider.notifier).setOn(device.id, !device.isOn);
   } catch (e) {
-    toast.show(ApiException.from(e).message, error: true);
+    final err = ApiException.from(e);
+    // on UPS, a heavy load asks first: the owner may still switch it on
+    if (err.code == 'ups' && context.mounted && await _confirmOnUps(context, err.message)) {
+      try {
+        await ref.read(devicesProvider.notifier).setOn(device.id, !device.isOn, confirm: 'ups');
+      } catch (again) {
+        toast.show(ApiException.from(again).message, error: true);
+      }
+      return;
+    }
+    toast.show(err.message, error: true);
   }
 }
+
+Future<bool> _confirmOnUps(BuildContext context, String message) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('On UPS'),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Leave it off')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Switch it on')),
+        ],
+      ),
+    ) ??
+    false;
 
 /// The design's device tile. On: an amber wash grows out of the icon; fans spin.
 class DeviceTile extends StatelessWidget {

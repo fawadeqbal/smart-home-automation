@@ -4,7 +4,7 @@ const CONTACT_WORDS: Record<string, [string, string]> = {
   window: ['Open', 'Closed'],
   motion: ['Motion', 'No motion'],
   leak: ['Water detected!', 'Dry'],
-  mains: ['Grid power on', 'On UPS / solar'],
+  mains: ['Grid on', 'On UPS'],
   generic: ['Active', 'Inactive'],
 };
 const ANALOG_LABEL: Record<string, string> = {

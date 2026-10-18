@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/realtime/live_client.dart';
 import '../data/models/energy.dart';
 import '../data/models/outages.dart';
 import '../data/models/people.dart';
+import '../data/models/power.dart';
 import '../data/models/ticket.dart';
 import '../data/repositories/home_repository.dart';
 import '../data/repositories/people_repository.dart';
@@ -85,4 +87,34 @@ final homeWelcomeProvider = FutureProvider<HomeWelcome>((ref) async {
   } catch (_) {
     return const HomeWelcome();
   }
+});
+
+/// On UPS or not, and the next expected cut (not loaded when it can't be read). Reloads on `power.changed`.
+final powerStatusProvider = FutureProvider<PowerStatus>((ref) async {
+  if (ref.watch(currentHomeIdProvider) == null) return const PowerStatus();
+  final sub = ref.watch(liveClientProvider).on('power.changed').listen((_) => ref.invalidateSelf());
+  ref.onDispose(sub.cancel);
+  try {
+    return await ref.read(homeRepositoryProvider).power();
+  } catch (_) {
+    return const PowerStatus();
+  }
+});
+
+final sheddingProvider = FutureProvider<Shedding>((ref) async {
+  if (ref.watch(currentHomeIdProvider) == null) return const Shedding();
+  return ref.read(homeRepositoryProvider).shedding();
+});
+
+/// This billing month from the meter readings (owners and admins; not loaded for anyone else).
+final billProvider = FutureProvider<Bill>((ref) async {
+  final home = ref.watch(sessionProvider.select((s) => s.value?.home));
+  if (home == null || !home.role.manages) return const Bill();
+  return ref.read(homeRepositoryProvider).bill();
+});
+
+final readingsProvider = FutureProvider<List<MeterReading>>((ref) async {
+  final home = ref.watch(sessionProvider.select((s) => s.value?.home));
+  if (home == null || !home.role.manages) return const [];
+  return ref.read(homeRepositoryProvider).readings();
 });

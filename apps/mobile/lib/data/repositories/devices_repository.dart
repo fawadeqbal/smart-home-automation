@@ -16,12 +16,13 @@ class DevicesRepository {
   Future<List<Room>> rooms() async => asJsonList(await _api.get<Object?>('/rooms')).map(Room.fromJson).toList();
 
   /// Switches a device and waits for its board to confirm; returns the device as it is now.
-  /// Fails with the server's words when the board doesn't answer.
-  Future<Device> setOn(String id, bool on) async => command(id, {'on': on});
+  /// Fails with the server's words when the board doesn't answer. [confirm] `ups`: switch a heavy load
+  /// on even though the home is on UPS (the person said yes).
+  Future<Device> setOn(String id, bool on, {String? confirm}) async => command(id, {'on': on}, confirm: confirm);
 
   /// Any command the device takes: `{'on': true}`, a fan's `{'speed': 3}`.
-  Future<Device> command(String id, Map<String, Object> body) async =>
-      Device.fromJson(asJson(await _api.post<Object?>('/devices/$id/commands', body)));
+  Future<Device> command(String id, Map<String, Object> body, {String? confirm}) async => Device.fromJson(
+      asJson(await _api.post<Object?>('/devices/$id/commands${confirm != null ? '?confirm=$confirm' : ''}', body)));
 
   /// [device]'s recent changes, newest first. The history rows don't repeat which device they're
   /// about, so they're filled in from [device].

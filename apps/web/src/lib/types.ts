@@ -371,7 +371,7 @@ export interface StaffOutages {
 }
 
 // rules ("when this happens, do that"), away mode, where the home is
-export type RuleEvent = 'on' | 'off' | 'opens' | 'closes' | 'above' | 'below';
+export type RuleEvent = 'on' | 'off' | 'opens' | 'closes' | 'above' | 'below' | 'gridOff' | 'gridOn';
 export interface RuleTrigger { deviceId: string; deviceName: string; event: RuleEvent; value?: number; field?: 'temperature' | 'humidity' | 'level' }
 export interface RuleConditions { from?: string; to?: string; days?: number[]; away?: boolean }
 export type RuleAction =
@@ -575,4 +575,35 @@ export interface InstallerDay {
 export interface Ratings {
   company: { average: number | null; count: number };
   people: { id: string; name: string; staffRole: StaffRole | null; average: number | null; count: number }[];
+}
+
+// power at home: load-shedding, UPS mode (a grid sensor), the bill from meter readings
+export interface CutWindow { from: string; to: string; days?: number[]; seen?: number; of?: number }
+export interface NextCutInfo { at: string; until: string; now: boolean; text: string }
+export type SheddingSource = 'typed' | 'learned' | 'area' | 'none';
+export interface PowerStatus {
+  timezone: string;
+  grid: { sensor: boolean; off: boolean; since: string | null; sinceText: string | null; switchedOff: string[] };
+  next: NextCutInfo | null;
+  source: SheddingSource;
+}
+export interface Shedding {
+  timezone: string; source: SheddingSource; windows: CutWindow[]; typed: CutWindow[]; next: NextCutInfo | null; text: string | null;
+  learned: { source: SheddingSource; windows: CutWindow[]; observedDays: number; needed: number; cuts: number; place: string | null; slots: number[] };
+}
+export interface GridSettings {
+  sensor: { id: string; name: string } | null; off: boolean; since: string | null; loads: string[]; restore: boolean; switchedOff: string[];
+  switches: { id: string; name: string; room: string | null; heavy: boolean }[];
+}
+export interface Slab { upTo: number | null; rate: number }
+export interface MeterReading { id: string; kwh: number; readAt: string; newMeter: boolean; by: string | null }
+export interface Bill {
+  timezone: string; billingDay: number; billingDayText: string;
+  cycle: { start: string; end: string; daysIn: number; daysLeft: number };
+  units: number; asOf: string; source: 'readings' | 'readings+estimate' | 'estimate' | 'none'; estimated: number;
+  startReading: { kwh: number; at: string; exact: boolean } | null; latest: { kwh: number; readAt: string } | null;
+  projected: number | null; tariff: number; tariffSet: boolean; slabs: Slab[];
+  cost: { soFar: number; projected: number | null; lines: { units: number; rate: number; cost: number }[] };
+  protectedLimit: number | null; over: boolean; heading: boolean;
+  topDevices: { id: string; name: string; kwh: number }[]; lastMonth: number | null; message: string;
 }

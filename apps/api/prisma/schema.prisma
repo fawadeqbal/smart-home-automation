@@ -281,6 +281,45 @@ model Home {
   installation  InstallationReport?
   contracts     Contract[]
   invoices      Invoice[]
+  /// load-shedding: the area's schedule as the owner typed it (from the DISCO's SMS); it wins over the
+  /// pattern learned from power cuts. [{ "from": "14:00", "to": "15:00", "days": [] }] (0 = Sunday; empty = every day)
+  loadShedding  Json         @default("[]")
+  /// the expected cut the last "electricity may go" notice was about (so it goes out once)
+  cutNoticeAt   DateTime?
+  /// UPS mode, from a mains-sense sensor: since when the grid has been off (null: the grid is on)
+  gridOffSince  DateTime?
+  /// heavy loads switched off when the grid goes, and whether they go back on when it returns
+  gridLoads     String[]     @default([])
+  gridRestore   Boolean      @default(false)
+  /// the ones that were on and got switched off this time (only these go back on)
+  gridSwitchedOff String[]   @default([])
+  /// the electricity bill: the day of the month the meter reader comes (past the month's end: its last day)
+  billingDay    Int          @default(1)
+  /// a slab tariff, each unit at its own slab's rate: [{ "upTo": 100, "rate": 10.5 }, { "upTo": null, "rate": 30 }]
+  /// (empty: every unit at the flat `tariff`)
+  tariffSlabs   Json         @default("[]")
+  /// protected consumers pay less while they stay at or below this many units a month (null: not followed)
+  protectedLimit Int?        @default(200)
+  /// bill warnings sent this billing month: { "cycle": "<start>", "sent": ["near", "pace"] }
+  billWarned    Json         @default("{}")
+  /// when the billing-day reminder to type the meter reading last went out
+  readingReminderAt DateTime?
+  meterReadings MeterReading[]
+}
+
+/// The number on the home's electricity meter (kWh), typed by an owner or admin, and when it was read.
+model MeterReading {
+  id        String   @id @default(cuid())
+  homeId    String
+  home      Home     @relation(fields: [homeId], references: [id], onDelete: Cascade)
+  kwh       Float
+  readAt    DateTime
+  /// the meter was replaced: this reading starts again from the new meter's number
+  newMeter  Boolean  @default(false)
+  byId      String?
+  createdAt DateTime @default(now())
+
+  @@index([homeId, readAt])
 }
 
 model Room {
@@ -381,6 +420,8 @@ model Outage {
   /// where the board connects from (city, provider), to see cuts across an area
   place     String?
   isp       String?
+  /// "mains": from the home's grid sensor (exact); null: worked out from a board restart
+  source    String?
   createdAt DateTime   @default(now())
 
   @@index([homeId, startedAt])
