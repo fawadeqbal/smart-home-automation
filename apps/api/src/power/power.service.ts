@@ -185,6 +185,10 @@ export class PowerService implements OnModuleInit, OnModuleDestroy {
     if (user.channel === 'automation') {
       throw new ConflictException({ statusCode: 409, code: 'ups', message: `Not switched on: the home is on UPS since ${since}, and ${device.name} is one of the heavy loads kept off until the grid is back.` });
     }
+    if (user.channel === 'voice') {
+      // the assistant can't ask "are you sure?" on a button: say why, and where to do it anyway
+      throw new ConflictException({ statusCode: 409, code: 'ups', message: `The home is on UPS since ${since}, and ${device.name} draws a lot: it can empty the battery fast. If you need it anyway, switch it on in the app.` });
+    }
     throw new ConflictException({
       statusCode: 409, code: 'ups',
       message: `The home is on UPS since ${since}. ${device.name} draws a lot and can empty the battery fast. Switch it on anyway?`,
