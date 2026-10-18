@@ -74,7 +74,7 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
     """Rooms (with empty ones), boards, people and invites, timers: what the AI is told on top of the
     devices. Parts this person may not see (people and boards are for owners and admins) are left out
     and their role says why."""
-    names = ("rooms", "nodes", "users", "invites", "schedules", "outages", "rules", "away", "energy", "memories")
+    names = ("rooms", "nodes", "users", "invites", "schedules", "outages", "rules", "away", "energy", "memories", "power")
     calls = [getattr(api, n, None) for n in names]
     got = dict(zip(names, _POOL.map(lambda f: _safe(f) if callable(f) else None, calls)))
     lines: List[str] = []
@@ -133,6 +133,13 @@ def home_facts(api: HomeApi, devices: Sequence[dict], me: str = "", tz=None) -> 
         lines.append(f"\nPower this week: {s.get('powerCuts', 0)} power cuts, {_dur(s.get('powerSeconds', 0))} without power"
                      + (f"; the last one {_local(last['startedAt'], tz)} for {_dur(last['seconds'])}" if last else "")
                      + f". Internet or Wi-Fi down {s.get('networkOuts', 0)} times (power_history has the details).")
+    power = got["power"]
+    if isinstance(power, dict):
+        grid = power.get("grid") or {}
+        if grid.get("off"):
+            lines.append(f"ON UPS or solar now: the grid went at {grid.get('sinceText')}.")
+        if power.get("next"):
+            lines.append(f"Next expected load-shedding: {power['next']['text']} (power_outlook has the pattern).")
 
     schedules = got["schedules"]
     if isinstance(schedules, list):
@@ -726,10 +733,34 @@ def energy_text(e: Dict[str, Any], limit: int = 6) -> str:
     return head + " These are estimates from on-time, not a meter reading."
 
 
+def bill_text(b: Dict[str, Any]) -> str:
+    """This billing month from the meter readings, in words (what the app's Bill card says)."""
+    source = b.get("source")
+    if source == "none":
+        return "No meter readings yet this month: the owner or an admin can type the number on the meter on the Electricity page."
+    out = b.get("message") or ""
+    cost = b.get("cost") or {}
+    out += f" Bill so far about Rs {cost.get('soFar', 0):,}"
+    if cost.get("projected") is not None:
+        out += f", about Rs {cost['projected']:,} by the billing day at this pace"
+    out += "."
+    if source == "readings+estimate":
+        out += f" (About {b.get('estimated', 0):.0f} of those units are an estimate from the switches: there's no meter reading from the billing day.)"
+    elif source == "estimate":
+        out += " These are estimates from the switches, not the meter."
+    top = b.get("topDevices") or []
+    if top:
+        out += " Most used (estimates): " + ", ".join(f"{d['name']} about {d['kwh']:.0f} units" for d in top[:3]) + "."
+    if b.get("lastMonth") is not None:
+        out += f" Last month: {b['lastMonth']:.0f} units."
+    return out
+
+
 class EnergyUsageTool(Tool):
     name = "energy_usage"
-    description = ("Electricity used by the switches (estimate from how long each was on and how much power it draws), "
-                   "the cost at the home's price per unit, a month at this pace, and the biggest users.")
+    description = ("Electricity: the switches' estimate (how long each was on times its power, the cost at the home's price per "
+                   "unit, a month at this pace, the biggest users) and, for owners and admins, this billing month from the meter "
+                   "readings they typed (units since the billing day, where it's heading, the bill, the 200-unit protected limit).")
 
     def __init__(self, api: HomeApi) -> None:
         self._api = api
@@ -739,7 +770,66 @@ class EnergyUsageTool(Tool):
         return {"type": "object", "properties": {"days": {"type": "integer", "description": "1 = today, 7 = this week (default), 30 = this month"}}}
 
     def run(self, args: dict) -> str:
-        return energy_text(self._api.energy(int(args.get("days") or 7)))
+        out = energy_text(self._api.energy(int(args.get("days") or 7)))
+        bill = getattr(self._api, "bill", None)
+        if callable(bill):
+            try:
+                out += " Meter: " + bill_text(bill())
+            except HomeApiError:
+                pass  # members and guests don't see the bill; the estimate is all they get
+        return out
+
+
+# ------------------------------------------------------------------ load-shedding and UPS
+def power_text(p: Dict[str, Any], shed: Optional[Dict[str, Any]] = None, tz=None) -> str:
+    """When the electricity will go next, the pattern behind it, and whether the home is on UPS now."""
+    lines: List[str] = []
+    grid = p.get("grid") or {}
+    if grid.get("off"):
+        lines.append(f"The home is on UPS or solar now: the grid went at {grid.get('sinceText') or _local(grid['since'], tz)}."
+                     + (f" Switched off to save the battery: {', '.join(grid['switchedOff'])}." if grid.get("switchedOff") else ""))
+    elif grid.get("sensor"):
+        lines.append("The grid power is on now (the home has a grid sensor).")
+    nxt = p.get("next")
+    source = (shed or p).get("source")
+    if nxt:
+        lines.append(f"Next expected cut: {nxt['text']}.")
+    else:
+        lines.append("No regular load-shedding time is known for this home.")
+    if shed:
+        windows = shed.get("windows") or []
+        if source == "typed" and windows:
+            lines.append("From the schedule the owner typed in (the area's SMS): " + "; ".join(
+                f"{w['from']}–{w['to']}" + (f" on {', '.join(_DAY[d] for d in w['days'])}" if w.get("days") else " every day") for w in windows) + ".")
+        elif windows:
+            learned = shed.get("learned") or {}
+            where = f" in {learned['place']}" if source == "area" and learned.get("place") else ""
+            lines.append(f"Learned from the power cuts{' of other homes' + where if source == 'area' else ''} in the last {learned.get('observedDays', 14)} days: " + "; ".join(
+                f"about {w['from']}–{w['to']}, seen on {w.get('seen', '?')} of {w.get('of', 14)} days" for w in windows) + ". It's a pattern, not a promise.")
+        else:
+            lines.append("The power cuts so far don't come at a regular time. The owner can type the area's schedule on the Electricity page.")
+    return " ".join(lines)
+
+
+_DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+
+class PowerOutlookTool(Tool):
+    name = "power_outlook"
+    description = ("When the electricity (bijli, light) will go next: the home's load-shedding times (typed from the area's "
+                   "schedule, or learned from its power cuts over the last 14 days) and the next expected cut; and whether the "
+                   "home is on UPS or solar right now. 'When will the light go?', 'bijli kab jayegi', 'are we on UPS?'. Read only.")
+
+    def __init__(self, api: HomeApi, tz=None) -> None:
+        self._api, self._tz = api, tz
+
+    def run(self, args: dict) -> str:
+        p = self._api.power()
+        try:
+            shed = self._api.shedding()
+        except HomeApiError:
+            shed = None
+        return power_text(p, shed, self._tz)
 
 
 # ------------------------------------------------------------------ memory and summaries
@@ -894,6 +984,7 @@ def management_tools(api: HomeApi, devices: Sequence[dict], me: str = "", public
             UpdateDeviceTool(api, devices), ListPeopleTool(api), InvitePersonTool(api, public_url),
             UpdatePersonTool(api), RemovePersonTool(api), CreateSceneTool(api, devices), DeleteSceneTool(api),
             CreateRuleTool(api, devices), ListRulesTool(api, tz), ChangeRuleTool(api), AwayModeTool(api, devices, tz), DeviceSafetyTool(api, devices), EnergyUsageTool(api),
+            PowerOutlookTool(api, tz),
             RememberTool(api), ForgetTool(api), SummaryTool(api), OpenHelpRequestTool(api), HelpRequestsTool(api), BillsTool(api)]
 
 

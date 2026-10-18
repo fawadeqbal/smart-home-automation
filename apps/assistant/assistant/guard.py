@@ -52,6 +52,7 @@ security privacy private data
 rename renamed delete deleted remove removed create move moved people person user users role roles access
 permission permissions manage summary overview count rooms
 cut cuts outage outages blackout shedding wapda kesc lesco iesco pesco mepco gepco fesco hesco
+solar grid mains meter meters reading slab slabs protected tariff jayegi jaegi jaye aayegi aegi
 """.split())
 
 # money and promises: never answered without a published article that covers them

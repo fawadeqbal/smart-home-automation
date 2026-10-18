@@ -52,6 +52,8 @@ QUESTIONS = [  # (question, expected slug)
  ("can it change AC temperature", "faq/on-off-only"),
  ("pankha tez karo", "faq/on-off-only"),
  ("does it work without internet", "faq/internet-down"),
+ ("switch off the AC when we are on UPS", "usage/ups-mode-and-load-shedding"),
+ ("200 units protected slab meter reading", "usage/ups-mode-and-load-shedding"),
  ("internet band ho to kya hoga", "faq/internet-down"),
  ("is it safe, can hackers control my home", "faq/security"),
  ("how many devices on one board", "faq/devices-per-board"),

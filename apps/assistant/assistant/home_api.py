@@ -159,6 +159,18 @@ class HomeApi:
         """Electricity estimates for the switches this person can see."""
         return self._call("GET", f"/energy?days={days}")
 
+    def power(self) -> Dict[str, Any]:
+        """On UPS or not, and the next expected load-shedding cut (everyone in the home)."""
+        return self._call("GET", "/power")
+
+    def shedding(self) -> Dict[str, Any]:
+        """The load-shedding windows (typed by the owner, or learned from power cuts) and the next one."""
+        return self._call("GET", "/power/shedding")
+
+    def bill(self) -> Dict[str, Any]:
+        """This billing month from the meter readings: units, projection, cost, protected limit (owners, admins)."""
+        return self._call("GET", "/power/bill")
+
     def outages(self, days: int = 7) -> Dict[str, Any]:
         """Power cuts, Wi-Fi/internet outages and board restarts in this home (everyone in the home may see them)."""
         return self._call("GET", f"/outages?days={days}")
