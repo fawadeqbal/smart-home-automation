@@ -19,7 +19,9 @@ const { io } = require('socket.io-client');
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const NODE_ID = 'esp-e2e01';
-const LOCAL_PORT = 4588;   // the fake board answers the phone app here (a real board: port 80)
+// ports can be moved (E2E_API_PORT, E2E_LOCAL_PORT) to run two copies of the tests side by side
+const API_PORT = Number(process.env.E2E_API_PORT || 4555);
+const LOCAL_PORT = Number(process.env.E2E_LOCAL_PORT || 4588);   // the fake board answers the phone app here (a real board: port 80)
 const BROKER_LOG = path.join(os.tmpdir(), `home-e2e-broker-${process.pid}.log`);
 let app, base, fake, prisma;
 
@@ -62,7 +64,7 @@ before(async () => {
   process.env.RULES_TICK_MS = '1000'; // auto-off checks every second in tests
   process.env.ROLLOUT_TICK_MS = '700'; // staged firmware rollouts step quickly in tests
   process.env.ALLOW_SIGNUP = 'true'; // the SaaS test signs up a second organization
-  process.env.PUBLIC_API_URL = 'http://127.0.0.1:4555'; // where the fake board downloads firmware
+  process.env.PUBLIC_API_URL = `http://127.0.0.1:${API_PORT}`; // where the fake board downloads firmware
   process.env.HELP_DIR = path.join(__dirname, 'help-fixture'); // three small starter articles
   // the broker's connection log (on the server Mosquitto writes it); no IP-location downloads in tests
   process.env.BROKER_LOG = BROKER_LOG;
@@ -73,7 +75,7 @@ before(async () => {
   prisma = new PrismaClient();
   await prisma.$executeRawUnsafe('TRUNCATE "Organization", "Home", "User", "Node", "AuditLog", "FirmwareImage", "Invite" CASCADE');
   app = await createApp();
-  await app.listen(4555, '127.0.0.1');
+  await app.listen(API_PORT, '127.0.0.1');
   base = `${await app.getUrl()}/api`.replace('[::1]', '127.0.0.1');
 });
 
