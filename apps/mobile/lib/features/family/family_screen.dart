@@ -1,19 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
+import '../../core/network/api_exception.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
 import '../../data/models/device.dart';
 import '../../data/models/people.dart';
 import '../../data/models/session.dart';
+import '../../data/repositories/people_repository.dart';
 import '../../shared/widgets/common.dart';
+import '../../shared/widgets/pill.dart';
 import '../../shared/widgets/pressable.dart';
 import '../../state/devices.dart';
 import '../../state/people.dart';
 import '../../state/session.dart';
+import '../../state/toast.dart';
 import 'access_limits.dart';
 import 'invite_sheet.dart';
+import 'person_sheet.dart';
+
+/// Invites sent but not used yet, with Cancel.
+class _PendingInvites extends ConsumerWidget {
+  const _PendingInvites();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.sb;
+    final list = ref.watch(pendingInvitesProvider).value ?? const <PendingInvite>[];
+    if (list.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const GroupLabel('Invited, not joined yet'),
+          GroupCard(
+            children: [
+              for (final i in list)
+                InfoRow(
+                  icon: SbIcons.envelope,
+                  title: i.name ?? i.email,
+                  subtitle: [
+                    if (i.name != null) i.email,
+                    i.role.label,
+                    if (i.expiresAt != null) 'link works until ${DateFormat('d MMM').format(i.expiresAt!)}',
+                    ?i.access,
+                  ].join(' · '),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      try {
+                        await ref.read(peopleRepositoryProvider).cancelInvite(i.id);
+                        ref.invalidate(pendingInvitesProvider);
+                        ref.read(toastProvider.notifier).show('Invite cancelled');
+                      } catch (e) {
+                        ref.read(toastProvider.notifier).show(ApiException.from(e).message, error: true);
+                      }
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: c.badText,
+                      textStyle: const TextStyle(fontFamily: SbFonts.sans, fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// "Expired" (red), "Outside hours" (grey) or "Limited" (blue).
 class _AccessBadge extends StatelessWidget {
@@ -49,7 +108,10 @@ class FamilyScreen extends ConsumerWidget {
       for (final r in ref.watch(roomsProvider).value ?? const <Room>[]) r.id: r.name,
     };
     return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(membersProvider),
+      onRefresh: () async {
+        ref.invalidate(membersProvider);
+        ref.invalidate(pendingInvitesProvider);
+      },
       child: ListView(
         padding: EdgeInsets.fromLTRB(
           18,
@@ -73,20 +135,32 @@ class FamilyScreen extends ConsumerWidget {
             ),
             data: (list) => Column(
               children: [
-                for (final m in list.where((m) => !m.disabled))
+                for (final m in list)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: _MemberCard(
-                      member: m,
-                      isMe: m.id == me.id,
-                      roomNames: rooms,
+                    child: Pressable(
+                      scale: .98,
+                      semanticLabel: m.name,
+                      // everyone but me and the owner can be changed here
+                      onTap: m.id == me.id || m.role == HomeRole.owner ? null : () => showPersonSheet(context, m.id),
+                      child: Opacity(
+                        opacity: m.disabled ? .55 : 1,
+                        child: _MemberCard(
+                          member: m,
+                          isMe: m.id == me.id,
+                          roomNames: rooms,
+                        ),
+                      ),
                     ),
                   ),
               ],
             ),
           ),
           Pressable(
-            onTap: () => showInviteSheet(context),
+            onTap: () async {
+              await showInviteSheet(context);
+              ref.invalidate(pendingInvitesProvider);
+            },
             scale: .98,
             child: Container(
               height: 54,
@@ -111,6 +185,7 @@ class FamilyScreen extends ConsumerWidget {
               ),
             ),
           ),
+          const _PendingInvites(),
         ],
       ),
     );
@@ -163,9 +238,11 @@ class _MemberCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${member.role.label}${isMe ? ' · you' : ''}',
+                      '${member.role.label}${isMe ? ' · you' : ''}${member.disabled ? ' · disabled' : ''}',
                       style: TextStyle(fontSize: 13, color: c.mu),
                     ),
+                    if (!isMe && member.role != HomeRole.owner)
+                      Text('Tap to change rooms and role', style: TextStyle(fontSize: 12.5, color: c.acText)),
                   ],
                 ),
               ),

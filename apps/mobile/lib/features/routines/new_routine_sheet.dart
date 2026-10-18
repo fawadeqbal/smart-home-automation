@@ -23,7 +23,7 @@ Future<void> showNewRoutineSheet(BuildContext context, {String? deviceId}) => sh
   builder: (_) => NewRoutineSheet(deviceId: deviceId),
 );
 
-enum _When { inAWhile, todayAt, repeat }
+enum _When { inAWhile, todayAt, repeat, sun }
 
 /// "Turn on the geyser every day at 05:00": what, when, and a sentence that reads it back.
 class NewRoutineSheet extends ConsumerStatefulWidget {
@@ -45,7 +45,17 @@ class _NewRoutineSheetState extends ConsumerState<NewRoutineSheet> {
   int _mins = 30;
   String _time = '05:00';
   Set<int> _days = {0, 1, 2, 3, 4, 5, 6};
+  String _sunEvent = 'SUNSET';
+  int _offset = 0;
   bool _saving = false;
+
+  static const offsets = [-30, -15, 0, 15, 30];
+
+  /// "at sunset", "15 min before sunrise".
+  String get _sunText {
+    final ev = _sunEvent == 'SUNRISE' ? 'sunrise' : 'sunset';
+    return _offset == 0 ? 'at $ev' : '${_offset.abs()} min ${_offset < 0 ? 'before' : 'after'} $ev';
+  }
 
   List<RoomSummary> _rooms() =>
       ref.read(roomSummariesProvider).where((r) => r.switches.any((d) => d.canControl)).toList();
@@ -79,6 +89,8 @@ class _NewRoutineSheetState extends ConsumerState<NewRoutineSheet> {
       _When.todayAt => '$what ${_todayOrTomorrow()} at $_time.',
       _When.repeat =>
         _days.isEmpty ? '$what — pick at least one day.' : '$what ${Fmt.days(_days.toList()).toLowerCase()} at $_time.',
+      // it moves with the seasons: the home's sunset, from where the home is
+      _When.sun => _days.isEmpty ? '$what — pick at least one day.' : '$what ${Fmt.days(_days.toList()).toLowerCase()} $_sunText.',
     };
   }
 
@@ -122,7 +134,7 @@ class _NewRoutineSheetState extends ConsumerState<NewRoutineSheet> {
     final d = _picked;
     final toast = ref.read(toastProvider.notifier);
     if (d == null) return;
-    if (_when == _When.repeat && _days.isEmpty) {
+    if ((_when == _When.repeat || _when == _When.sun) && _days.isEmpty) {
       toast.show('Pick at least one day');
       return;
     }
@@ -135,6 +147,7 @@ class _NewRoutineSheetState extends ConsumerState<NewRoutineSheet> {
         (_days.toList()..sort()),
         actions,
       ),
+      _When.sun => NewSchedule.sun(_sunEvent, _offset, (_days.toList()..sort()), actions),
     };
     setState(() => _saving = true);
     try {
@@ -233,6 +246,7 @@ class _NewRoutineSheetState extends ConsumerState<NewRoutineSheet> {
             (_When.inAWhile, 'In a while'),
             (_When.todayAt, 'Once at'),
             (_When.repeat, 'Repeat'),
+            (_When.sun, 'Sun'),
           ],
           value: _when,
           onChanged: (v) => setState(() => _when = v),
@@ -242,7 +256,17 @@ class _NewRoutineSheetState extends ConsumerState<NewRoutineSheet> {
           spacing: 6,
           runSpacing: 6,
           children: [
-            if (_when == _When.inAWhile)
+            if (_when == _When.sun) ...[
+              for (final (v, l) in const [('SUNSET', 'Sunset'), ('SUNRISE', 'Sunrise')])
+                SbChip(label: l, height: 42, selected: _sunEvent == v, icon: v == 'SUNSET' ? SbIcons.moon : SbIcons.sun, onTap: () => setState(() => _sunEvent = v)),
+              for (final o in offsets)
+                SbChip(
+                  label: o == 0 ? 'Right at it' : '${o.abs()} min ${o < 0 ? 'before' : 'after'}',
+                  height: 42,
+                  selected: _offset == o,
+                  onTap: () => setState(() => _offset = o),
+                ),
+            ] else if (_when == _When.inAWhile)
               for (final m in minutes)
                 SbChip(
                   label: Fmt.minutes(m),
@@ -270,7 +294,7 @@ class _NewRoutineSheetState extends ConsumerState<NewRoutineSheet> {
             ],
           ],
         ),
-        if (_when == _When.repeat) ...[
+        if (_when == _When.repeat || _when == _When.sun) ...[
           const SizedBox(height: 8),
           Row(
             children: [

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_exception.dart';
+import '../../core/routing/routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/sb_colors.dart';
 import '../../core/theme/sb_icons.dart';
@@ -235,6 +237,22 @@ class DeviceSheet extends ConsumerWidget {
         Text('Lately', style: SbText.cardTitle.copyWith(color: c.tx)),
         const SizedBox(height: 4),
         _History(deviceId: deviceId),
+        const SizedBox(height: 14),
+        BigButton(
+          label: 'More: history, electricity, safety',
+          icon: SbIcons.arrowRight,
+          height: 48,
+          color: c.sf2,
+          foreground: c.tx,
+          onTap: () {
+            // the sheet sits on the root navigator: find the tab from the router, then open the page in it
+            final router = GoRouter.of(context);
+            final segments = router.routerDelegate.currentConfiguration.uri.pathSegments;
+            final tab = segments.isEmpty ? Routes.home : '/${segments.first}';
+            Navigator.of(context).pop();
+            router.go('${Routes.tabs.contains(tab) ? tab : Routes.home}/${Routes.deviceOf(deviceId)}');
+          },
+        ),
       ],
     );
   }

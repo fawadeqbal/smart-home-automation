@@ -257,7 +257,9 @@ class NewSchedule {
       inMinutes = minutes,
       runAt = null,
       time = null,
-      days = const [];
+      days = const [],
+      sunEvent = null,
+      offsetMin = 0;
 
   /// Once, at [at].
   const NewSchedule.at(DateTime at, this.actions, {this.name})
@@ -265,13 +267,27 @@ class NewSchedule {
       inMinutes = null,
       runAt = at,
       time = null,
-      days = const [];
+      days = const [],
+      sunEvent = null,
+      offsetMin = 0;
 
   /// At [time] ("05:00") on [days] (0 = Sunday; empty = every day).
   const NewSchedule.daily(String this.time, this.days, this.actions, {this.name})
     : kind = ScheduleKind.daily,
       inMinutes = null,
-      runAt = null;
+      runAt = null,
+      sunEvent = null,
+      offsetMin = 0;
+
+  /// At sunrise or sunset (`SUNRISE` / `SUNSET`), [offsetMin] minutes after it (negative: before), on [days].
+  const NewSchedule.sun(String this.sunEvent, this.offsetMin, this.days, this.actions, {this.name})
+    : kind = ScheduleKind.sun,
+      inMinutes = null,
+      runAt = null,
+      time = null;
+
+  final String? sunEvent;
+  final int offsetMin;
 
   final ScheduleKind kind;
   final String? name;
@@ -288,12 +304,151 @@ class NewSchedule {
     'inMinutes': ?inMinutes,
     if (runAt != null) 'runAt': runAt!.toUtc().toIso8601String(),
     if (kind == ScheduleKind.daily) ...{'time': time, 'days': days},
+    if (kind == ScheduleKind.sun) ...{'sunEvent': sunEvent, 'offsetMin': offsetMin, 'days': days},
     'actions': [for (final a in actions) a.toJson()],
   };
 }
 
-/// "When this happens, do that" (`/rules`). Made on the web or by asking the assistant; the phone
-/// lists them, pauses and deletes them.
+/// What starts a rule: a device doing something ("opens", "goes above" 32 °C…).
+@immutable
+class RuleTrigger {
+  const RuleTrigger({required this.deviceId, required this.event, this.value, this.field, this.deviceName = ''});
+
+  factory RuleTrigger.fromJson(Json j) => RuleTrigger(
+        deviceId: str(j['deviceId']),
+        event: str(j['event'], 'on'),
+        value: j['value'] is num ? (j['value'] as num).toDouble() : null,
+        field: strOrNull(j['field']),
+        deviceName: str(j['deviceName']),
+      );
+
+  final String deviceId;
+
+  /// on, off, opens, closes, above, below, gridOff, gridOn
+  final String event;
+  final double? value;
+
+  /// temperature, humidity or level (for above/below)
+  final String? field;
+  final String deviceName;
+
+  bool get reading => event == 'above' || event == 'below';
+
+  Json toJson() => {'deviceId': deviceId, 'event': event, if (reading) 'value': value ?? 0, if (reading && field != null) 'field': field};
+}
+
+/// Only then: between two times (overnight works), on some days, only in away mode.
+@immutable
+class RuleConditions {
+  const RuleConditions({this.from, this.to, this.days = const [], this.away = false});
+
+  factory RuleConditions.fromJson(Json j) =>
+      RuleConditions(from: strOrNull(j['from']), to: strOrNull(j['to']), days: intList(j['days']), away: boolean(j['away']));
+
+  final String? from, to;
+  final List<int> days;
+  final bool away;
+
+  Json toJson() => {
+        if (from != null && to != null) ...{'from': from, 'to': to},
+        if (days.isNotEmpty && days.length < 7) 'days': days,
+        if (away) 'away': true,
+      };
+}
+
+/// One thing a rule does: switch a device (maybe only for a while), run a scene, or tell people.
+@immutable
+class RuleAction {
+  const RuleAction.device(String this.deviceId, {required bool this.on, this.forMinutes, this.name = ''})
+      : type = 'device',
+        sceneId = null,
+        to = null,
+        message = null;
+  const RuleAction.scene(String this.sceneId, {this.name = ''})
+      : type = 'scene',
+        deviceId = null,
+        on = null,
+        forMinutes = null,
+        to = null,
+        message = null;
+  const RuleAction.notify(String this.to, {this.message})
+      : type = 'notify',
+        deviceId = null,
+        on = null,
+        forMinutes = null,
+        sceneId = null,
+        name = '';
+
+  factory RuleAction.fromJson(Json j) => switch (str(j['type'])) {
+        'scene' => RuleAction.scene(str(j['sceneId']), name: str(j['sceneName'])),
+        'notify' => RuleAction.notify(str(j['to'], 'me'), message: strOrNull(j['message'])),
+        _ => RuleAction.device(str(j['deviceId']), on: boolean(j['on']), forMinutes: j['forMinutes'] is num ? integer(j['forMinutes']) : null, name: str(j['deviceName'])),
+      };
+
+  final String type;
+  final String? deviceId;
+  final bool? on;
+  final int? forMinutes;
+  final String? sceneId;
+
+  /// me, admins or everyone
+  final String? to;
+  final String? message;
+
+  /// The device's or scene's name, as the server sent it.
+  final String name;
+
+  Json toJson() => switch (type) {
+        'scene' => {'type': 'scene', 'sceneId': sceneId},
+        'notify' => {'type': 'notify', 'to': to, if (message != null && message!.trim().isNotEmpty) 'message': message!.trim()},
+        _ => {'type': 'device', 'deviceId': deviceId, 'on': on, if (on == true && forMinutes != null && forMinutes! > 0) 'forMinutes': forMinutes},
+      };
+}
+
+/// What a device can start a rule with, in words that fit it (like the web's `eventsOf`).
+List<(String, String)> ruleEventsFor(String type, Map<String, dynamic> settings) {
+  final kind = settings['kind'];
+  return switch (type) {
+    'switch' => const [('on', 'Turns on'), ('off', 'Turns off')],
+    'contact' => switch (kind) {
+        'mains' => const [('gridOff', 'The grid goes (on UPS)'), ('gridOn', 'The grid comes back')],
+        'motion' => const [('opens', 'Sees movement'), ('closes', 'Movement stops')],
+        'leak' => const [('opens', 'Finds water'), ('closes', 'Is dry again')],
+        _ => const [('opens', 'Opens'), ('closes', 'Closes')],
+      },
+    'dht' || 'analog' => const [('above', 'Goes above'), ('below', 'Goes below')],
+    _ => const [],
+  };
+}
+
+/// A rule to save (`POST /rules`, or `PATCH /rules/:id` for an edit).
+@immutable
+class RuleInput {
+  const RuleInput({this.name, required this.trigger, this.conditions = const RuleConditions(), required this.actions});
+
+  final String? name;
+  final RuleTrigger trigger;
+  final RuleConditions conditions;
+  final List<RuleAction> actions;
+
+  /// What's missing before it can be saved (null: ready).
+  String? get problem => actions.isEmpty
+      ? 'Say what to do: switch something, run a scene or send a notice.'
+      : trigger.reading && trigger.value == null
+          ? 'Say the value, e.g. above 30.'
+          : (conditions.from == null) != (conditions.to == null)
+              ? 'A time window needs a start and an end.'
+              : null;
+
+  Json toJson() => {
+        if (name != null && name!.trim().isNotEmpty) 'name': name!.trim(),
+        'trigger': trigger.toJson(),
+        'conditions': conditions.toJson(),
+        'actions': [for (final a in actions) a.toJson()],
+      };
+}
+
+/// "When this happens, do that" (`/rules`): made here, on the web or by asking the assistant.
 @immutable
 class Rule {
   const Rule({
@@ -305,6 +460,10 @@ class Rule {
     this.lastResult,
     this.createdBy,
     this.createdById,
+    this.trigger,
+    this.conditions = const RuleConditions(),
+    this.actions = const [],
+    this.problems = const [],
   });
 
   factory Rule.fromJson(Json json) => Rule(
@@ -316,7 +475,19 @@ class Rule {
     lastResult: strOrNull(json['lastResult']),
     createdBy: strOrNull(json['createdBy']),
     createdById: strOrNull(json['createdById']),
+    trigger: json['trigger'] is Map ? RuleTrigger.fromJson(asJson(json['trigger'])) : null,
+    conditions: RuleConditions.fromJson(asJson(json['conditions'])),
+    actions: asJsonList(json['actions']).map(RuleAction.fromJson).toList(),
+    problems: strList(json['problems']),
   );
+
+  /// What starts it, what limits it and what it does (to edit it); null trigger from an older server.
+  final RuleTrigger? trigger;
+  final RuleConditions conditions;
+  final List<RuleAction> actions;
+
+  /// "Gate: waiting for a replacement board".
+  final List<String> problems;
 
   final String id;
   final String name;
@@ -338,6 +509,10 @@ class Rule {
     lastResult: lastResult,
     createdBy: createdBy,
     createdById: createdById,
+    trigger: trigger,
+    conditions: conditions,
+    actions: actions,
+    problems: problems,
   );
 }
 

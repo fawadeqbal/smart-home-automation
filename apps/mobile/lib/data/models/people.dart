@@ -122,6 +122,37 @@ class InviteLink {
   final bool existingAccount;
 }
 
+/// An invite not used yet (`/invites`).
+@immutable
+class PendingInvite {
+  const PendingInvite({required this.id, required this.email, this.name, this.role = HomeRole.member, this.expiresAt, this.access});
+
+  factory PendingInvite.fromJson(Json json) => PendingInvite(
+    id: str(json['id']),
+    email: str(json['email']),
+    name: strOrNull(json['name']),
+    role: HomeRole.fromJson(json['role']),
+    expiresAt: dateOrNull(json['expiresAt']),
+    access: strOrNull(json['access']),
+  );
+
+  final String id, email;
+  final String? name;
+  final HomeRole role;
+  final DateTime? expiresAt;
+
+  /// Their limits in words, when the invite has some.
+  final String? access;
+}
+
+/// The words for a room right, as the web says them.
+String accessLabel(Access? a) => switch (a) {
+  null => 'No access',
+  Access.view => 'Can see',
+  Access.control => 'Can switch',
+  Access.manage => 'Switch & rename',
+};
+
 /// One notification setting ("A board stops answering"), on or off (`/notifications/prefs`).
 @immutable
 class NotificationPref {

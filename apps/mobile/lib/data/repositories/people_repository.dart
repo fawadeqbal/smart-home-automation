@@ -47,6 +47,25 @@ class PeopleRepository {
   /// Takes someone out of the home.
   Future<void> remove(String userId) => _api.delete<Object?>('/users/$userId');
 
+  /// Member, guest or (owners only) admin.
+  Future<void> setRole(String userId, HomeRole role) => _api.patch<Object?>('/users/$userId', {'role': role.json});
+
+  /// Switches someone's account off (they can't sign in) or back on.
+  Future<void> setDisabled(String userId, bool disabled) => _api.patch<Object?>('/users/$userId', {'disabled': disabled});
+
+  /// Every room shared with them and how (rooms left out: no access).
+  Future<void> setRooms(String userId, Map<String, Access> rooms) => _api.put<Object?>('/users/$userId/rooms', {
+        'rooms': [for (final e in rooms.entries) {'roomId': e.key, 'access': e.value.json}],
+      });
+
+  /// A link to choose a new password, for someone who can't get the email: its path on the server.
+  Future<String> passwordLink(String userId) async => str(asJson(await _api.post<Object?>('/users/$userId/reset-link'))['path']);
+
+  /// Invites not used yet.
+  Future<List<PendingInvite>> invites() async => asJsonList(await _api.get<Object?>('/invites')).map(PendingInvite.fromJson).toList();
+
+  Future<void> cancelInvite(String id) => _api.delete<Object?>('/invites/$id');
+
   /// The notifications this person may get (board alerts only for owners and admins).
   Future<List<NotificationPref>> prefs() async =>
       asJsonList(await _api.get<Object?>('/notifications/prefs')).map(NotificationPref.fromJson).toList();
